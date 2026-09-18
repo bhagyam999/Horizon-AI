@@ -88,6 +88,10 @@ class Horizon(commands.Bot):
             await self.tree.sync()
             log.info("Global Horizon commands synced.")
 
+    async def on_guild_join(self, guild: discord.Guild):
+        await self.db.settings(guild.id)
+        log.info("Horizon joined guild %s (%s)", guild.name, guild.id)
+
     async def on_ready(self):
         log.info(
             "Horizon online as %s | guilds=%s | AI=%s",
@@ -860,6 +864,31 @@ async def on_message(message: discord.Message):
                     )
                 except discord.HTTPException:
                     log.exception("Could not timeout member.")
+
+        # Horizon can be summoned anywhere in the server by mentioning the bot.
+        # This keeps the AI useful across the whole community without making it
+        # reply to every ordinary message.
+        if self.user and self.user.mentioned_in(message):
+            prompt = message.content
+            prompt = prompt.replace(f"<@{self.user.id}>", "").replace(f"<@!{self.user.id}>", "").strip()
+            if prompt:
+                async with message.channel.typing():
+                    try:
+                        answer = await ai_reply(
+                            message.guild.id,
+                            message.author.id,
+                            message.author.display_name,
+                            prompt,
+                        )
+                        for chunk in split_text(answer):
+                            await message.reply(chunk, mention_author=False)
+                    except Exception:
+                        log.exception("Mention AI failed.")
+                        await message.reply(
+                            "I caught the signal, but my AI connection is temporarily unavailable.",
+                            mention_author=False,
+                        )
+                return
 
         if (
             settings["ai_channel_id"]
