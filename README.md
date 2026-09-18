@@ -48,3 +48,10 @@ API requests require:
 `X-Horizon-API-Key: <HORIZON_API_TOKEN>`
 
 The website stores that token only in a Netlify serverless function. The Discord bot token never reaches the browser.
+
+
+## Website AI bridge
+
+The Railway service also exposes an authenticated `POST /api/ai` endpoint for the Log Horizon website. It reuses the same `AIProvider` and server context as Horizon's Discord AI. Requests require `X-Horizon-API-Key` matching `HORIZON_API_TOKEN`.
+
+The website should use the Railway public service URL as `HORIZON_BOT_API_URL`; the Gemini key remains Railway-only.
