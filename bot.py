@@ -423,7 +423,7 @@ def hangman_text(session):
     guessed = session["guessed"]
     display = " ".join(ch if ch in guessed else "_" for ch in word)
     wrong = " ".join(sorted(session["wrong"])) or "—"
-    return f"**Hangman**\n`{display}`\n\nWrong: `{wrong}` ({len(session['wrong'])}/{session['max_wrong']})\n\nUse `/game_guess letter:<letter>` to guess. Use `/game_stop` to end the game."
+    return f"**Hangman**\n`{display}`\n\nWrong: `{wrong}` ({len(session['wrong'])}/{session['max_wrong']})\n\nUse `!guess <letter>` to guess. Use `!stop` to end the game."
 
 
 @bot.tree.command(name="game_start", description="Start a Horizon game in this channel.")
@@ -914,7 +914,7 @@ async def help_command(interaction: discord.Interaction):
     )
     embed.add_field(
         name="Games",
-        value="`/game` `/game_start` `/rps`",
+        value="Prefix mode: `!games` `!game <name>` `!guess <letter>` `!join` `!begin` `!vote @user` `!stop` `!ai <message>`\nSlash mode remains available too.",
         inline=False,
     )
     embed.add_field(
@@ -934,6 +934,378 @@ async def help_command(interaction: discord.Interaction):
     )
     await interaction.response.send_message(embed=embed)
 
+
+
+# -------------------- Prefix commands / compact game mode --------------------
+# Prefix mode is the compact, low-noise way to play Horizon games. Commands
+# are deleted when possible, and the bot edits one pinned-in-place game message
+# instead of creating a new message for every move.
+
+async def _quiet_delete(message: discord.Message):
+    try:
+        await message.delete()
+    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+        pass
+
+async def _edit_game_message(channel: discord.abc.Messageable, session, content=None, view=None):
+    message_id = session.get("message_id") if session else None
+    if not message_id:
+        return None
+    try:
+        message = await channel.fetch_message(message_id)
+        kwargs = {}
+        if content is not None:
+            kwargs["content"] = content
+        if view is not None:
+            kwargs["view"] = view
+        await message.edit(**kwargs)
+        return message
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return None
+
+async def _send_game_message(ctx, session, content, view=None):
+    message = await ctx.send(content, view=view)
+    session["message_id"] = message.id
+    return message
+
+async def _prefix_start_game(ctx, key):
+    key = key.lower().strip()
+    if key not in bot.games.games:
+        await ctx.send("Unknown game. Use `!games` to see the available games.", delete_after=6)
+        return
+    existing = bot.games.get(ctx.guild.id, ctx.channel.id)
+    if existing:
+        await ctx.send("A Horizon game is already active here. Use `!stop` first.", delete_after=6)
+        return
+
+    session = bot.games.start(ctx.guild.id, ctx.channel.id, key, ctx.author.id)
+    session["prefix_mode"] = True
+    await _quiet_delete(ctx.message)
+
+    if key == "hangman":
+        session.update(make_hangman())
+        await _send_game_message(ctx, session, "**Hangman started!**\nGuess letters with `!guess <letter>`.\n\n" + hangman_text(session))
+        return
+
+    if key == "trivia":
+        question, options, view = make_trivia(bot.games, ctx.guild.id, ctx.channel.id)
+        text = "**Horizon Trivia**\nChoose an answer below. The first correct answer wins the round.\n\n" + question + "\n" + "\n".join(f"`{i + 1}` {option}" for i, option in enumerate(options))
+        message = await _send_game_message(ctx, session, text, view=view)
+        view.message = message
+        return
+
+    if key == "wyr":
+        left, right = random.choice(WYR_ROUNDS)
+        view = WyrView(bot.games, ctx.guild.id, ctx.channel.id, left, right)
+        message = await _send_game_message(ctx, session, view.render(), view=view)
+        view.message = message
+        return
+
+    if key == "truth":
+        truth, dare = random.choice(TRUTHS), random.choice(DARES)
+        view = TruthDareView(bot.games, ctx.guild.id, ctx.channel.id, truth, dare)
+        await _send_game_message(ctx, session, "**Truth or Dare**\nChoose a button below.", view=view)
+        return
+
+    if key == "rps":
+        bot.games.stop(ctx.guild.id, ctx.channel.id)
+        await ctx.send("**Rock Paper Scissors**\nUse `!rps rock`, `!rps paper`, or `!rps scissors`.", delete_after=12)
+        return
+
+    if key == "rpg":
+        await _send_game_message(ctx, session, "**Horizon RPG**\nUse `!character`, `!rpgroll`, `!questlist`, and `!inventory` for the persistent RPG systems.")
+        return
+
+    session["players"] = {ctx.author.id}
+    await _send_game_message(
+        ctx,
+        session,
+        f"**{bot.games.games[key][0]} lobby opened!**\n{bot.games.games[key][1]}\n\n"
+        "Join with `!join`. The host uses `!begin` when everyone is ready.\n"
+        "Use `!stop` to cancel. Roles and private night actions are sent by DM."
+    )
+
+@bot.command(name="ai", aliases=["h", "horizon"])
+async def prefix_ai(ctx, *, prompt: str = ""):
+    await _quiet_delete(ctx.message)
+    if not prompt.strip():
+        await ctx.send("Use `!ai <message>` to talk to Horizon.", delete_after=6)
+        return
+    async with ctx.typing():
+        try:
+            answer = await ai_reply(ctx.guild.id, ctx.author.id, ctx.author.display_name, prompt.strip())
+            for chunk in split_text(answer):
+                await ctx.send(chunk)
+        except Exception:
+            log.exception("Prefix AI failed")
+            await ctx.send("My AI connection is temporarily unavailable.", delete_after=8)
+
+@bot.command(name="games")
+async def prefix_games(ctx):
+    await _quiet_delete(ctx.message)
+    lines = ["**🎮 Horizon Game Hub**", ""]
+    for key, (name, description) in bot.games.games.items():
+        lines.append(f"**{name}** — `{key}`\n{description}")
+    lines.append("\nStart any game with `!game <name>`. Example: `!game hangman`.")
+    await ctx.send("\n".join(lines))
+
+@bot.command(name="game")
+async def prefix_game(ctx, game_name: str = ""):
+    if not game_name:
+        await _quiet_delete(ctx.message)
+        key, name, description = bot.games.recommend()
+        await ctx.send(f"**🎮 {name}**\n{description}\n\nStart it with `!game {key}`.")
+        return
+    await _prefix_start_game(ctx, game_name)
+
+@bot.command(name="guess")
+async def prefix_guess(ctx, letter: str = ""):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("key") != "hangman":
+        await ctx.send("There is no active Hangman game here.", delete_after=6)
+        return
+    letter = letter.lower().strip()
+    if len(letter) != 1 or not letter.isalpha():
+        await ctx.send("Enter exactly one letter, e.g. `!guess a`.", delete_after=6)
+        return
+    if letter in session["guessed"] or letter in session["wrong"]:
+        await ctx.send("That letter was already guessed.", delete_after=5)
+        return
+    if letter in session["word"]:
+        session["guessed"].add(letter)
+        if all(ch in session["guessed"] for ch in session["word"]):
+            word = session["word"]
+            bot.games.stop(ctx.guild.id, ctx.channel.id)
+            session["message_id"] = session.get("message_id")
+            await _edit_game_message(ctx.channel, session, f"**Hangman — SOLVED**\n`{' '.join(word)}`\n\n**{ctx.author.display_name}** solved it!", view=None)
+            return
+    else:
+        session["wrong"].add(letter)
+        if len(session["wrong"]) >= session["max_wrong"]:
+            word = session["word"]
+            bot.games.stop(ctx.guild.id, ctx.channel.id)
+            await _edit_game_message(ctx.channel, session, f"**Hangman — GAME OVER**\nThe word was **{word}**.")
+            return
+    await _edit_game_message(ctx.channel, session, hangman_text(session))
+
+@bot.command(name="join")
+async def prefix_join(ctx):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("key") not in {"werewolf", "mafia"}:
+        await ctx.send("There is no Werewolf/Mafia lobby here.", delete_after=6)
+        return
+    players = session.setdefault("players", set())
+    players.add(ctx.author.id)
+    await _edit_game_message(ctx.channel, session, f"**{bot.games.games[session['key']][0]} lobby**\nPlayers: **{len(players)}**\n\nJoin with `!join`. Host: `!begin`. Minimum 4 players.")
+
+@bot.command(name="begin")
+async def prefix_begin(ctx):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("key") not in {"werewolf", "mafia"}:
+        await ctx.send("Use `!begin` only for a Werewolf or Mafia lobby.", delete_after=6)
+        return
+    if ctx.author.id != session["host_id"]:
+        await ctx.send("Only the game host can begin the lobby.", delete_after=6)
+        return
+    players = list(session.get("players", set()))
+    if len(players) < 4:
+        await ctx.send("You need at least 4 players.", delete_after=6)
+        return
+    await start_hidden_role_game(ctx.channel, session, players)
+
+@bot.command(name="vote")
+async def prefix_vote(ctx, member: discord.Member = None):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("phase") != "day":
+        return
+    if ctx.author.id not in session.get("alive", set()):
+        return
+    if member is None or member.id not in session.get("alive", set()):
+        return
+    session.setdefault("votes", {})[ctx.author.id] = member.id
+    await _edit_game_message(ctx.channel, session, day_status(session))
+    if len(session["votes"]) >= len(session["alive"]):
+        await resolve_day(ctx.channel, session)
+
+@bot.command(name="dayend")
+async def prefix_day_end(ctx):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("phase") != "day" or ctx.author.id != session.get("host_id"):
+        return
+    await resolve_day(ctx.channel, session)
+
+@bot.command(name="kill")
+async def prefix_kill(ctx, member: discord.User = None):
+    await _hidden_action(ctx, "kill", member)
+
+@bot.command(name="protect")
+async def prefix_protect(ctx, member: discord.User = None):
+    await _hidden_action(ctx, "protect", member)
+
+@bot.command(name="inspect")
+async def prefix_inspect(ctx, member: discord.User = None):
+    await _hidden_action(ctx, "inspect", member)
+
+@bot.command(name="nightend")
+async def prefix_night_end(ctx):
+    session = None
+    if ctx.guild:
+        session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("phase") != "night" or ctx.author.id != session.get("host_id"):
+        return
+    await resolve_night(ctx.channel, session)
+
+@bot.command(name="stop")
+async def prefix_stop(ctx):
+    session = bot.games.stop(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session:
+        await ctx.send("There is no active Horizon game here.", delete_after=5)
+        return
+    await ctx.send(f"**{bot.games.games[session['key']][0]} stopped.**", delete_after=7)
+
+@bot.command(name="rps")
+async def prefix_rps(ctx, choice: str = ""):
+    await _quiet_delete(ctx.message)
+    choice = choice.lower().strip()
+    if choice not in {"rock", "paper", "scissors"}:
+        await ctx.send("Use `!rps rock`, `!rps paper`, or `!rps scissors`.", delete_after=6)
+        return
+    computer = random.choice(["rock", "paper", "scissors"])
+    if computer == choice:
+        outcome = "DRAW"
+    elif (choice, computer) in {("rock", "scissors"), ("paper", "rock"), ("scissors", "paper")}:
+        outcome = "WIN"
+    else:
+        outcome = "LOSE"
+    await ctx.send(f"**Rock Paper Scissors**\nYou chose **{choice}**. Horizon chose **{computer}**.\n\n**{outcome}!**")
+
+async def start_hidden_role_game(channel, session, players):
+    key = session["key"]
+    random.shuffle(players)
+    n = len(players)
+    special_count = max(1, n // 4)
+    roles = {}
+    evil_role = "Werewolf" if key == "werewolf" else "Mafia"
+    for uid in players[:special_count]: roles[uid] = evil_role
+    remaining = players[special_count:]
+    if remaining: roles[remaining.pop(0)] = "Seer" if key == "werewolf" else "Detective"
+    if remaining: roles[remaining.pop(0)] = "Doctor"
+    for uid in remaining: roles[uid] = "Villager" if key == "werewolf" else "Town"
+    session.update({"started": True, "phase": "night", "round": 1, "roles": roles, "alive": set(players), "night_actions": {}, "votes": {}})
+    for uid, role in roles.items():
+        member = channel.guild.get_member(uid)
+        if not member: continue
+        instructions = f"You are **{role}** in {bot.games.games[key][0]}."
+        if role in {evil_role, "Doctor", "Seer", "Detective"}:
+            action = {evil_role:"`!kill @player`", "Doctor":"`!protect @player`", "Seer":"`!inspect @player`", "Detective":"`!inspect @player`"}[role]
+            instructions += f"\nNight action: {action} (send it in this DM)."
+        else:
+            instructions += "\nYou have no night action. Wait for the day phase."
+        instructions += "\nNever reveal your role publicly unless you choose to during the game."
+        try: await member.send(instructions)
+        except discord.HTTPException: pass
+    await _edit_game_message(channel, session, f"**{bot.games.games[key][0]} — Night 1**\nRoles have been sent privately by DM.\n\nLiving players: **{len(session['alive'])}**\nNight actions happen privately. The host may use `!nightend` when ready.")
+
+async def _hidden_action(ctx, action, member):
+    session = None
+    for (gid, cid), candidate in list(bot.games.active.items()):
+        if candidate.get("phase") == "night" and ctx.author.id in candidate.get("alive", set()):
+            # Night commands are intentionally private. Players act from their DMs.
+            if isinstance(ctx.channel, discord.DMChannel):
+                session = candidate
+                break
+    if not session:
+        await _quiet_delete(ctx.message); return
+    role = session["roles"].get(ctx.author.id)
+    allowed = {"kill": {"Mafia", "Werewolf"}, "protect": {"Doctor"}, "inspect": {"Seer", "Detective"}}
+    await _quiet_delete(ctx.message)
+    if role not in allowed[action] or member is None or member.id not in session["alive"] or member.id == ctx.author.id:
+        try: await ctx.send("That action is not available to you or that target is invalid.", delete_after=6)
+        except discord.HTTPException: pass
+        return
+    session["night_actions"][ctx.author.id] = (action, member.id)
+    try: await ctx.send(f"Your private action **{action}** on **{member.display_name}** is locked in.", delete_after=6)
+    except discord.HTTPException: pass
+    # Resolve automatically once every non-villager role that has an action has acted.
+    required = [uid for uid, r in session["roles"].items() if r in allowed[action] or r in {"Mafia", "Werewolf", "Doctor", "Seer", "Detective"}]
+    if all(uid in session["night_actions"] for uid in required):
+        # Resolve in the public channel.
+        for (gid, cid), candidate in bot.games.active.items():
+            if candidate is session:
+                guild = bot.get_guild(gid); channel = guild.get_channel(cid) if guild else None
+                if channel: await resolve_night(channel, session)
+                break
+
+def day_status(session):
+    alive_names = [f"<@{uid}>" for uid in session["alive"]]
+    voted = len(session.get("votes", {}))
+    return f"**{bot.games.games[session['key']][0]} — Day {session['round']}**\nDiscuss and vote privately with `!vote @player`.\nVotes received: **{voted}/{len(session['alive'])}**\n\nAlive: " + ", ".join(alive_names)
+
+async def resolve_night(channel, session):
+    actions = list(session.get("night_actions", {}).values())
+    kills = [target for action, target in actions if action == "kill"]
+    protects = {target for action, target in actions if action == "protect"}
+    inspected = [(actor, target) for actor, (action, target) in session.get("night_actions", {}).items() if action == "inspect"]
+    killed = None
+    if kills:
+        counts = {}
+        for target in kills: counts[target] = counts.get(target, 0) + 1
+        killed = max(counts, key=counts.get)
+        if killed in protects: killed = None
+    for actor, target in inspected:
+        role = session["roles"].get(target, "Unknown")
+        user = channel.guild.get_member(actor)
+        if user:
+            try: await user.send(f"Horizon's private report: **{channel.guild.get_member(target).display_name if channel.guild.get_member(target) else 'That player'}** is **{role}**.")
+            except discord.HTTPException: pass
+    if killed is not None and killed in session["alive"]:
+        session["alive"].remove(killed)
+    result = f"**{channel.guild.get_member(killed).display_name}** was eliminated during the night." if killed and channel.guild.get_member(killed) else "Nobody was eliminated during the night."
+    session["phase"] = "day"; session["votes"] = {}; session["night_actions"] = {}
+    winner = check_hidden_winner(session)
+    if winner:
+        await _edit_game_message(channel, session, f"**{bot.games.games[session['key']][0]} — {winner} wins!**\n\n{result}\nThe game is over.")
+        bot.games.stop(channel.guild.id, channel.id); return
+    await _edit_game_message(channel, session, f"**{bot.games.games[session['key']][0]} — Day {session['round']}**\n\n{result}\n\nDiscuss and vote using `!vote @player`. Votes are not displayed until the day resolves.\n\nAlive: " + ", ".join(f"<@{uid}>" for uid in session["alive"]))
+
+def check_hidden_winner(session):
+    alive_roles = [session["roles"][uid] for uid in session["alive"]]
+    evil = "Werewolf" if session["key"] == "werewolf" else "Mafia"
+    evil_count = alive_roles.count(evil)
+    good_count = len(alive_roles) - evil_count
+    if evil_count == 0: return "Town"
+    if evil_count >= good_count: return evil
+    return None
+
+async def resolve_day(channel, session):
+    votes = session.get("votes", {})
+    if not votes:
+        await _edit_game_message(channel, session, day_status(session)); return
+    counts = {}
+    for target in votes.values():
+        if target in session["alive"]: counts[target] = counts.get(target, 0) + 1
+    if not counts: return
+    top = max(counts.values()); leaders = [uid for uid, count in counts.items() if count == top]
+    if len(leaders) != 1:
+        session["round"] += 1; session["phase"] = "night"; session["votes"] = {}; session["night_actions"] = {}
+        await _edit_game_message(channel, session, f"**Day {session['round'] - 1} ended in a tie.**\nNo one was eliminated. Night {session['round']} begins; private roles will act.")
+        return
+    eliminated = leaders[0]
+    session["alive"].remove(eliminated)
+    member = channel.guild.get_member(eliminated)
+    winner = check_hidden_winner(session)
+    if winner:
+        await _edit_game_message(channel, session, f"**{bot.games.games[session['key']][0]} — {winner} wins!**\n\n{member.mention if member else 'A player'} was eliminated by the vote.\nThe game is over.")
+        bot.games.stop(channel.guild.id, channel.id); return
+    session["round"] += 1; session["phase"] = "night"; session["votes"] = {}; session["night_actions"] = {}
+    await _edit_game_message(channel, session, f"**{bot.games.games[session['key']][0]} — Night {session['round']}**\n\n{member.mention if member else 'A player'} was eliminated by the vote.\nRoles, check your DMs for your private night action.\nHost can use `!nightend` when ready.")
 
 # -------------------- Message handling --------------------
 
@@ -992,31 +1364,6 @@ async def on_message(message: discord.Message):
                     )
                 except discord.HTTPException:
                     log.exception("Could not timeout member.")
-
-        # Horizon can be summoned anywhere in the server by mentioning the bot.
-        # This keeps the AI useful across the whole community without making it
-        # reply to every ordinary message.
-        if bot.user and bot.user.mentioned_in(message):
-            prompt = message.content
-            prompt = prompt.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
-            if prompt:
-                async with message.channel.typing():
-                    try:
-                        answer = await ai_reply(
-                            message.guild.id,
-                            message.author.id,
-                            message.author.display_name,
-                            prompt,
-                        )
-                        for chunk in split_text(answer):
-                            await message.reply(chunk, mention_author=False)
-                    except Exception:
-                        log.exception("Mention AI failed.")
-                        await message.reply(
-                            "I caught the signal, but my AI connection is temporarily unavailable.",
-                            mention_author=False,
-                        )
-                return
 
         if (
             settings["ai_channel_id"]

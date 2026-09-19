@@ -4,29 +4,29 @@ Horizon is the Discord-side community core for **Log Horizon**.
 
 ## Current build
 
-This build keeps the existing AI, moderation, RPG, events, profiles, economy, dashboard bridge and server tools while expanding the Discord game layer and mention-based AI.
+This build keeps the existing AI, moderation, RPG, events, profiles, economy, dashboard bridge and server tools while expanding the Discord game layer and prefix-based AI.
 
 ### AI
 
 - `/ask` — ask Horizon directly
 - `/ai_status` — check Gemini connectivity
 - `/ai_models` — inspect models available to the configured Gemini key
-- `@Horizon <message>` — summon Horizon anywhere in the server
-- A bare `@Horizon` receives a short ready prompt instead of doing nothing
+- `!ai <message>` — talk to Horizon anywhere in the server
+- `!h <message>` and `!horizon <message>` are aliases
+- Prefix mode replaces mention-to-chat so normal mentions stay normal Discord mentions
 - `/set_ai_channel` and `/disable_ai_channel` remain available for dedicated AI chat
 
 ### Games
 
-- `/games` — full game hub with a description of every game
-- `/game` — random game recommendation
-- `/game_start game:<name>` — launch a game in the current channel
-- `/game_stop` — stop the current game
-- `/game_join` — join a Werewolf/Mafia lobby
-- `/game_begin` — host starts a Werewolf/Mafia lobby
-- `/game_guess letter:<letter>` — play Hangman
-- `/rps choice:<rock|paper|scissors>` — immediate RPS match
+- `!games` — compact game hub
+- `!game <name>` — launch a game with one reusable game message
+- `!stop` — stop the active game
+- `!join` / `!begin` — Werewolf/Mafia lobby flow
+- `!guess <letter>` — Hangman; Horizon edits the original game message instead of posting a new board every turn
+- `!rps <rock|paper|scissors>` — immediate RPS
+- `!vote @player`, `!dayend`, `!nightend` — hidden-role game controls
 
-Currently interactive game flows include Trivia, Hangman, Would You Rather, Truth or Dare and Rock Paper Scissors. Werewolf and Mafia now have real lobbies/player joining and are ready for their dedicated role/action engine expansion. RPG continues to use the existing persistent character/quest/inventory systems.
+Games are now designed around low channel noise: prefix commands can be deleted after processing, while the bot updates one game message in place. Button-based games such as Trivia, Would You Rather and Truth or Dare keep their interactive buttons. Werewolf and Mafia use private DMs for roles and night actions, so players do not publicly see another player's role/action.
 
 Every game launch explains what the game is and what to do next, so players do not get a dead “game started” message with no instructions.
 
@@ -58,7 +58,7 @@ Never commit `.env` or real secrets.
 
 If you choose to give Horizon the **Administrator** permission in the Discord server, `/horizon_permissions` will confirm that Discord is exposing Administrator to the bot. The bot does not attempt to grant itself permissions; permissions are controlled by the server owner/admin through Discord.
 
-For mention-based AI, Discord's **Message Content Intent** must remain enabled in the Developer Portal. Horizon already requests `message_content` and `members` intents in code.
+For prefix-based AI, Discord's **Message Content Intent** must remain enabled in the Developer Portal. Horizon already requests `message_content` and `members` intents in code.
 
 ## Website bridge
 
