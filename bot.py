@@ -87,35 +87,30 @@ class Horizon(commands.Bot):
             # take the Discord bot offline.
             log.exception("Dashboard failed to start; continuing without dashboard.")
 
-        # Slash-command synchronization is also non-fatal. Discord can rate-limit
-        # or temporarily reject a sync; prefix commands and the bot connection
-        # should still come online so the service can recover on the next restart.
-        try:
-            await self._sync_commands_safely()
-        except Exception:
-            log.exception("Slash-command synchronization failed; continuing startup.")
+        # IMPORTANT: do not sync application commands during startup. Discord can
+        # rate-limit command registration, and a startup sync should never be able
+        # to hold the entire bot before READY. Existing slash commands already
+        # registered in Discord continue to work. New/changed commands can be
+        # registered deliberately with the owner-only !sync command.
+        log.info("Startup slash-command sync skipped; bot will continue to READY.")
 
-    async def _sync_commands_safely(self):
-        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
-        if guild_id.isdigit():
-            guild = discord.Object(id=int(guild_id))
-            global_commands = list(self.tree.get_commands())
-
-            self.tree.clear_commands(guild=guild)
-            await self.tree.sync(guild=guild)
-
-            self.tree.clear_commands(guild=None)
-            await self.tree.sync()
-            for command in global_commands:
-                self.tree.add_command(command)
-
-            self.tree.clear_commands(guild=guild)
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-            log.info("Guild commands synced to %s; stale global/guild copies removed.", guild_id)
-        else:
+    async def _sync_commands_safely(self, *, global_sync: bool = False):
+        """Manually register slash commands with exactly one Discord sync request."""
+        if global_sync:
             await self.tree.sync()
             log.info("Global Horizon commands synced.")
+            return
+
+        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
+        if not guild_id.isdigit():
+            raise RuntimeError("DISCORD_GUILD_ID is missing or invalid; use !sync global instead.")
+
+        guild = discord.Object(id=int(guild_id))
+        # Copy the current global command definitions to the configured guild and
+        # perform one guild sync. Never clear commands or perform multiple syncs.
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+        log.info("Guild commands synced to %s.", guild_id)
 
     async def _database_backup_loop(self):
         while True:

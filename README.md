@@ -204,3 +204,14 @@ Existing slash commands remain available. When slash-command definitions actuall
 - `!sync global` — sync once globally (Discord propagation can take longer)
 
 The sync operation performs only one Discord command-registration request. A failed or rate-limited sync does not take the bot offline.
+
+
+## Railway startup safety
+
+Horizon intentionally does **not** synchronize Discord application/slash commands during startup. This prevents Discord command-registration rate limits from delaying or blocking the bot from reaching READY. Existing registered slash commands remain available.
+
+When slash commands need to be added or changed, the owner can deliberately run:
+- `!sync guild` — one guild sync request to the configured `DISCORD_GUILD_ID`.
+- `!sync global` — one global sync request.
+
+The bot never clears commands or performs multiple startup sync requests.
