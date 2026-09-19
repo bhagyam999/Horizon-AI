@@ -15,7 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 from ai_provider import AIProvider
 from database import Database
 from moderation import ModerationEngine
-from games import GameManager
+from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -400,55 +400,167 @@ async def daily(interaction: discord.Interaction):
 
 # -------------------- Games / RPG --------------------
 
-@bot.tree.command(name="game", description="Recommend a game and explain how to play it.")
+@bot.tree.command(name="game", description="Show a random Horizon game and how to play it.")
 async def game(interaction: discord.Interaction):
     key, name, description = bot.games.recommend()
     await interaction.response.send_message(
-        f"**{name}**\n{description}\n\n"
-        f"Start it with `/game_start {key}`."
+        f"🎮 **{name}**\n{description}\n\n"
+        f"Start it with `/game_start game:{key}`."
     )
 
 
-@bot.tree.command(name="game_start", description="Start a Discord-native game.")
-@app_commands.describe(
-    game="werewolf, mafia, trivia, hangman, wyr, truth, rpg or rps"
-)
+@bot.tree.command(name="games", description="Show every Horizon game and what each one does.")
+async def games(interaction: discord.Interaction):
+    embed = discord.Embed(title="🎮 Horizon Game Hub", description="Pick a game, start it, and Horizon will tell you exactly what to do.")
+    for key, (name, description) in bot.games.games.items():
+        embed.add_field(name=f"{name} • `{key}`", value=description, inline=False)
+    embed.set_footer(text="Use /game_start game:<name> to launch a game.")
+    await interaction.response.send_message(embed=embed)
+
+
+def hangman_text(session):
+    word = session["word"]
+    guessed = session["guessed"]
+    display = " ".join(ch if ch in guessed else "_" for ch in word)
+    wrong = " ".join(sorted(session["wrong"])) or "—"
+    return f"**Hangman**\n`{display}`\n\nWrong: `{wrong}` ({len(session['wrong'])}/{session['max_wrong']})\n\nUse `/game_guess letter:<letter>` to guess. Use `/game_stop` to end the game."
+
+
+@bot.tree.command(name="game_start", description="Start a Horizon game in this channel.")
+@app_commands.describe(game="werewolf, mafia, trivia, hangman, wyr, truth, rpg or rps")
 async def game_start(interaction: discord.Interaction, game: str):
     key = game.lower().strip()
     if key not in bot.games.games:
-        await interaction.response.send_message(
-            "Unknown game. Use `/game` for a recommendation."
-        )
+        await interaction.response.send_message("Unknown game. Use `/games` to see the available games.")
         return
 
+    existing = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if existing:
+        await interaction.response.send_message("A Horizon game is already active in this channel. Use `/game_stop` first.", ephemeral=True)
+        return
+
+    bot.games.start(interaction.guild_id, interaction.channel_id, key, interaction.user.id)
+
     if key == "rps":
-        await interaction.response.send_message(
-            "Use `/rps choice:rock`, `/rps choice:paper`, or `/rps choice:scissors`."
-        )
+        bot.games.stop(interaction.guild_id, interaction.channel_id)
+        await interaction.response.send_message("**Rock Paper Scissors started!**\nChoose with `/rps choice:<rock|paper|scissors>`. Your match is immediate.")
         return
 
     if key == "trivia":
-        question, options, _ = bot.games.question()
+        question, options, view = make_trivia(bot.games, interaction.guild_id, interaction.channel_id)
         await interaction.response.send_message(
-            "**Trivia!**\n"
-            f"{question}\n"
-            + "\n".join(f"`{i + 1}` {option}" for i, option in enumerate(options))
-            + "\n\nReply with the number of your answer."
+            "**Horizon Trivia started!**\n"
+            "Choose the correct answer with the buttons below. The first correct answer ends the round.\n\n"
+            f"{question}\n" + "\n".join(f"`{i + 1}` {option}" for i, option in enumerate(options)),
+            view=view,
         )
+        return
+
+    if key == "hangman":
+        session = bot.games.get(interaction.guild_id, interaction.channel_id)
+        session.update(make_hangman())
+        await interaction.response.send_message("**Hangman started!**\nGuess letters with `/game_guess letter:<letter>`. Solve the word before 6 wrong guesses.\n\n" + hangman_text(session))
+        return
+
+    if key == "wyr":
+        left, right = random.choice(WYR_ROUNDS)
+        view = WyrView(bot.games, interaction.guild_id, interaction.channel_id, left, right)
+        await interaction.response.send_message(view.render(), view=view)
+        return
+
+    if key == "truth":
+        truth = random.choice(TRUTHS)
+        dare = random.choice(DARES)
+        await interaction.response.send_message("**Truth or Dare started!**\nChoose a button below. Horizon uses server-safe prompts.", view=TruthDareView(bot.games, interaction.guild_id, interaction.channel_id, truth, dare))
         return
 
     if key == "rpg":
         await interaction.response.send_message(
             "**Horizon RPG started!**\n"
-            "Use `/character`, `/rpg_roll`, `/quest_list` and `/inventory`."
+            "Your RPG systems are persistent. Use `/character`, `/rpg_roll`, `/quest_list` and `/inventory`.\n"
+            "Create your character first, then use quests and rolls as the adventure engine."
         )
         return
 
+    # Werewolf and Mafia get a real lobby immediately; their role/action engine is the next game-module expansion.
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    session["players"] = {interaction.user.id}
     await interaction.response.send_message(
-        f"**{bot.games.games[key][0]} started!**\n"
+        f"**{bot.games.games[key][0]} lobby opened!**\n"
         f"{bot.games.games[key][1]}\n\n"
-        "Horizon will keep the game mobile- and PC-friendly."
+        "Use `/game_join` to join. The host can use `/game_begin` once enough players have joined.\n"
+        "Use `/game_stop` to cancel the lobby."
     )
+
+
+@bot.tree.command(name="game_join", description="Join the active Horizon game in this channel.")
+async def game_join(interaction: discord.Interaction):
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("There is no active game in this channel.", ephemeral=True)
+        return
+    players = session.setdefault("players", set())
+    players.add(interaction.user.id)
+    await interaction.response.send_message(f"{interaction.user.mention} joined **{bot.games.games[session['key']][0]}**. Players: **{len(players)}**")
+
+
+@bot.tree.command(name="game_begin", description="Begin a Werewolf or Mafia lobby after players join.")
+async def game_begin(interaction: discord.Interaction):
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if not session or session["key"] not in {"werewolf", "mafia"}:
+        await interaction.response.send_message("Use this only for an active Werewolf or Mafia lobby.", ephemeral=True)
+        return
+    if interaction.user.id != session["host_id"]:
+        await interaction.response.send_message("Only the game host can begin this lobby.", ephemeral=True)
+        return
+    players = session.get("players", set())
+    if len(players) < 4:
+        await interaction.response.send_message("You need at least **4 players** before starting the hidden-role game.", ephemeral=True)
+        return
+    session["started"] = True
+    await interaction.response.send_message(
+        f"**{bot.games.games[session['key']][0]} has begun!**\n\n"
+        f"Players: **{len(players)}**\n"
+        "This first playable lobby release establishes the player pool and host flow. Role assignment, night actions and voting will be expanded in the next game-engine pass."
+    )
+
+
+@bot.tree.command(name="game_guess", description="Guess a letter in the active Hangman game.")
+@app_commands.describe(letter="One letter")
+async def game_guess(interaction: discord.Interaction, letter: str):
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if not session or session.get("key") != "hangman":
+        await interaction.response.send_message("There is no active Hangman game in this channel.", ephemeral=True)
+        return
+    letter = letter.lower().strip()
+    if len(letter) != 1 or not letter.isalpha():
+        await interaction.response.send_message("Enter exactly one letter.", ephemeral=True)
+        return
+    if letter in session["guessed"] or letter in session["wrong"]:
+        await interaction.response.send_message("That letter was already guessed.", ephemeral=True)
+        return
+    if letter in session["word"]:
+        session["guessed"].add(letter)
+        if all(ch in session["guessed"] for ch in session["word"]):
+            bot.games.stop(interaction.guild_id, interaction.channel_id)
+            await interaction.response.send_message(f"**Hangman solved!** {interaction.user.mention} found **{session['word']}**.\n\nRound complete.")
+            return
+    else:
+        session["wrong"].add(letter)
+        if len(session["wrong"]) >= session["max_wrong"]:
+            bot.games.stop(interaction.guild_id, interaction.channel_id)
+            await interaction.response.send_message(f"**Hangman over!** The word was **{session['word']}**.")
+            return
+    await interaction.response.send_message(hangman_text(session))
+
+
+@bot.tree.command(name="game_stop", description="Stop the active Horizon game in this channel.")
+async def game_stop(interaction: discord.Interaction):
+    session = bot.games.stop(interaction.guild_id, interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("There is no active Horizon game in this channel.", ephemeral=True)
+        return
+    await interaction.response.send_message(f"**{bot.games.games[session['key']][0]} stopped.** The channel is ready for another game.")
 
 
 @bot.tree.command(name="rps", description="Play Rock Paper Scissors against Horizon.")
@@ -456,26 +568,16 @@ async def game_start(interaction: discord.Interaction, game: str):
 async def rps(interaction: discord.Interaction, choice: str):
     choice = choice.lower().strip()
     if choice not in {"rock", "paper", "scissors"}:
-        await interaction.response.send_message(
-            "Choose `rock`, `paper`, or `scissors`."
-        )
+        await interaction.response.send_message("Choose `rock`, `paper`, or `scissors`.")
         return
-
     computer = random.choice(["rock", "paper", "scissors"])
     if computer == choice:
         outcome = "DRAW"
-    elif (choice, computer) in {
-        ("rock", "scissors"),
-        ("paper", "rock"),
-        ("scissors", "paper"),
-    }:
+    elif (choice, computer) in {("rock", "scissors"), ("paper", "rock"), ("scissors", "paper")}:
         outcome = "WIN"
     else:
         outcome = "LOSE"
-
-    await interaction.response.send_message(
-        f"You chose **{choice}**. I chose **{computer}**. **{outcome}**!"
-    )
+    await interaction.response.send_message(f"**Rock Paper Scissors**\nYou chose **{choice}**. Horizon chose **{computer}**.\n\n**{outcome}!**")
 
 
 @bot.tree.command(name="rpg_roll", description="Roll a D20.")
@@ -773,6 +875,32 @@ async def server_stats(interaction: discord.Interaction):
     )
 
 
+@bot.tree.command(name="horizon_permissions", description="Check Horizon's Discord permissions in this server.")
+async def horizon_permissions(interaction: discord.Interaction):
+    if not interaction.guild or not isinstance(interaction.guild.me, discord.Member):
+        await interaction.response.send_message("I couldn't inspect my server permissions here.", ephemeral=True)
+        return
+    me = interaction.guild.me
+    perms = me.guild_permissions
+    important = {
+        "Administrator": perms.administrator,
+        "Manage Server": perms.manage_guild,
+        "Manage Messages": perms.manage_messages,
+        "Moderate Members": perms.moderate_members,
+        "Manage Roles": perms.manage_roles,
+        "Send Messages": perms.send_messages,
+        "Embed Links": perms.embed_links,
+        "Read Message History": perms.read_message_history,
+        "Use Application Commands": perms.use_application_commands,
+    }
+    lines = [f"{'✅' if value else '❌'} **{name}**" for name, value in important.items()]
+    if perms.administrator:
+        note = "\n\nHorizon currently has **Administrator** permission, so Discord grants it the full server permission set."
+    else:
+        note = "\n\nHorizon does not have Administrator. Some moderation/server-management features may require individual permissions."
+    await interaction.response.send_message("**Horizon Permission Check**\n\n" + "\n".join(lines) + note, ephemeral=True)
+
+
 @bot.tree.command(name="help", description="Show Horizon's command guide.")
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(
@@ -868,9 +996,9 @@ async def on_message(message: discord.Message):
         # Horizon can be summoned anywhere in the server by mentioning the bot.
         # This keeps the AI useful across the whole community without making it
         # reply to every ordinary message.
-        if self.user and self.user.mentioned_in(message):
+        if bot.user and bot.user.mentioned_in(message):
             prompt = message.content
-            prompt = prompt.replace(f"<@{self.user.id}>", "").replace(f"<@!{self.user.id}>", "").strip()
+            prompt = prompt.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
             if prompt:
                 async with message.channel.typing():
                     try:
