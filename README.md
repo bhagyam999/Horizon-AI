@@ -181,3 +181,15 @@ Use:
 4. Run `python bot.py` (or use `start.bat` on Windows).
 
 The RPG uses the same `horizon.db` database file and automatically creates/migrates its RPG tables on startup. Existing RPG data is retained when the new columns/tables are added.
+
+## RPG Discord UI
+
+RPG list/codex/collection commands use a persistent Discord embed panel rather than plain text. Panels support:
+- First / previous / next / last page navigation
+- A red 🗑️ delete button that removes the bot panel
+- Owner-only interaction protection
+- Automatic timeout of navigation controls while leaving the delete control usable
+- `Info...` dropdowns on inventory, item codex and pet egg codex pages
+- Command messages are removed after execution where Discord permissions allow it, keeping RPG channels clean
+
+The interactive adventure/dungeon combat panel remains a single edited message and uses buttons for Attack, Skill, Potion/Food, Defend and Flee.

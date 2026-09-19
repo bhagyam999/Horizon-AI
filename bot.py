@@ -1320,8 +1320,142 @@ async def _rpg_require(ctx):
 
 
 def _rpg_embed(title, description=""):
-    return discord.Embed(title=title, description=description, colour=discord.Colour.blurple())
+    return discord.Embed(title=title, description=description, colour=discord.Colour.teal())
 
+
+
+class RPGPaginationView(discord.ui.View):
+    """Compact RPG panel controls inspired by polished Discord game bots.
+
+    The original command message is removed; this panel owns its state and edits
+    one message in place. Only the command author can navigate it, and the
+    trash button removes the panel when they are finished.
+    """
+    def __init__(self, ctx, pages, *, select_options=None, select_callback=None, select_options_by_page=None):
+        super().__init__(timeout=300)
+        self.ctx = ctx
+        self.pages = pages or [discord.Embed(title="Horizon RPG", description="Nothing to display.", colour=discord.Colour.blurple())]
+        self.index = 0
+        self.message = None
+        self.select_callback = select_callback
+        self.select_options_by_page = select_options_by_page
+        self._select = None
+        if select_options:
+            options = []
+            for value, label, description in select_options[:25]:
+                options.append(discord.SelectOption(label=label[:100], value=value[:100], description=(description or '')[:100]))
+            if options:
+                self._select = discord.ui.Select(placeholder="Info...", min_values=1, max_values=1, options=options)
+                self._select.callback = self._select_changed
+                self.add_item(self._select)
+        self._sync()
+
+    def _sync(self):
+        # Five-button layout like the reference UI: first, previous, next, last, delete.
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                if child.custom_id in {"rpg:first", "rpg:prev"}:
+                    child.disabled = self.index <= 0
+                elif child.custom_id in {"rpg:next", "rpg:last"}:
+                    child.disabled = self.index >= len(self.pages) - 1
+        if self._select:
+            self._select.disabled = False
+            if self.select_options_by_page is not None:
+                opts = []
+                for value, label, description in self.select_options_by_page[min(self.index, len(self.select_options_by_page)-1)][:25]:
+                    opts.append(discord.SelectOption(label=label[:100], value=value[:100], description=(description or '')[:100]))
+                self._select.options = opts
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This panel belongs to another hero.", ephemeral=True)
+            return False
+        return True
+
+    async def _edit(self, interaction):
+        self._sync()
+        await interaction.response.edit_message(embed=self.pages[self.index], view=self)
+
+    @discord.ui.button(label="", emoji="⏮️", style=discord.ButtonStyle.primary, custom_id="rpg:first")
+    async def first(self, interaction, button):
+        self.index = 0
+        await self._edit(interaction)
+
+    @discord.ui.button(label="", emoji="◀️", style=discord.ButtonStyle.primary, custom_id="rpg:prev")
+    async def previous(self, interaction, button):
+        self.index = max(0, self.index - 1)
+        await self._edit(interaction)
+
+    @discord.ui.button(label="", emoji="▶️", style=discord.ButtonStyle.primary, custom_id="rpg:next")
+    async def next_page(self, interaction, button):
+        self.index = min(len(self.pages) - 1, self.index + 1)
+        await self._edit(interaction)
+
+    @discord.ui.button(label="", emoji="⏭️", style=discord.ButtonStyle.primary, custom_id="rpg:last")
+    async def last(self, interaction, button):
+        self.index = len(self.pages) - 1
+        await self._edit(interaction)
+
+    @discord.ui.button(label="", emoji="🗑️", style=discord.ButtonStyle.danger, custom_id="rpg:delete")
+    async def delete(self, interaction, button):
+        await interaction.response.defer()
+        try:
+            await interaction.message.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+        self.stop()
+
+    async def _select_changed(self, interaction):
+        if not self.select_callback:
+            await interaction.response.defer()
+            return
+        value = self._select.values[0]
+        await self.select_callback(interaction, value)
+
+    async def on_timeout(self):
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.custom_id == "rpg:delete":
+                child.disabled = False
+            else:
+                child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
+async def _rpg_panel(ctx, pages, *, select_options=None, select_callback=None, select_options_by_page=None):
+    view = RPGPaginationView(ctx, pages, select_options=select_options, select_callback=select_callback, select_options_by_page=select_options_by_page)
+    view.message = await ctx.send(embed=pages[0], view=view)
+    return view
+
+
+def _rpg_pages(title, entries, *, page_size=8, icon="📜", colour=None, formatter=None):
+    entries = list(entries)
+    if not entries:
+        return [discord.Embed(title=f"{icon} {title}", description="Nothing to display yet.", colour=colour or discord.Colour.blurple())]
+    pages = []
+    total = max(1, (len(entries) + page_size - 1) // page_size)
+    for n in range(total):
+        chunk = entries[n * page_size:(n + 1) * page_size]
+        body = "\n\n".join(formatter(x) if formatter else str(x) for x in chunk)
+        e = discord.Embed(title=f"{icon} {title}", description=body, colour=colour or discord.Colour.blurple())
+        e.set_footer(text=f"Page {n + 1} / {total} • {len(entries)} entries")
+        pages.append(e)
+    return pages
+
+
+def _rpg_action_embed(title, message, ok=True):
+    return discord.Embed(
+        title=("✅ " if ok else "❌ ") + title,
+        description=message,
+        colour=discord.Colour.green() if ok else discord.Colour.red(),
+    )
+
+
+async def _rpg_action_panel(ctx, title, message, ok=True):
+    return await _rpg_panel(ctx, [_rpg_action_embed(title, message, ok)])
 
 def _combat_embed(state, result=None):
     enemy=state["enemy"]
@@ -1397,102 +1531,79 @@ async def rpg_root(ctx):
     await _rpg_delete(ctx)
     if ctx.invoked_subcommand is not None:
         return
-    await ctx.send(
-        "**🌌 HORIZON RPG**\n\n"
-        "A persistent multiplayer RPG for Log Horizon.\n"
-        "`!rpg start <name> <race> <class>` — create your hero\n"
-        "`!rpg profile` — full character sheet\n"
-        "`!rpg adventure` — **interactive battle**\n"
-        "`!rpg dungeon` — **floor-by-floor interactive dungeon**\n"
-        "`!rpg change` / `!rpg evolve` — reshape your build\n"
-        "`!rpg quests` / `!rpg party` / `!rpg guild` — build your life with others\n"
-        "`!rpg kingdom` — become a **King, Duke, Knight, Citizen or Outlaw**\n"
-        "`!rpg items` / `!rpg eggs` / `!rpg pet` — collect hundreds of items and companions\n\n"
-        "Use `!rpg help` for the full command map."
-    )
-
+    e=_rpg_embed("🌌 HORIZON RPG", "A persistent multiplayer RPG inside Log Horizon.")
+    e.add_field(name="⚔️ Adventure", value="`!rpg adventure` — live battle\n`!rpg dungeon` — floor-by-floor dungeon", inline=False)
+    e.add_field(name="🧬 Hero", value="`!rpg profile` • `!rpg change` • `!rpg evolve`", inline=True)
+    e.add_field(name="🏰 Society", value="`!rpg party` • `!rpg guild` • `!rpg kingdom`", inline=True)
+    e.add_field(name="🎒 Collection", value="`!rpg inventory` • `!rpg items` • `!rpg eggs` • `!rpg pet`", inline=False)
+    e.set_footer(text="Every RPG panel can be paged • use 🗑️ to remove it")
+    await _rpg_panel(ctx,[e])
 
 @rpg_root.command(name="help")
 async def rpg_help(ctx):
     await _rpg_delete(ctx)
-    await ctx.send(
-        "**🌌 Horizon RPG Command Map**\n\n"
-        "**Hero & Progression**\n"
-        "`!rpg start <name> <race> <class>` `!rpg profile` `!rpg stats` `!rpg races` `!rpg subraces` `!rpg classes` `!rpg subclasses`\n"
-        "`!rpg change race|subrace|class|subclass|path|evolution <name>` `!rpg paths` `!rpg evolve` `!rpg spend <stat> [points]`\n\n"
-        "**World & Combat**\n"
-        "`!rpg adventure` — interactive combat `!rpg areas` `!rpg travel <area>` `!rpg dungeons` `!rpg dungeon [name]`\n"
-        "Battles use buttons: **Attack / Skill / Potion / Defend / Flee** and update one message.\n\n"
-        "**Quests & Teams**\n"
-        "`!rpg quests` `!rpg quest <id>` `!rpg claim <id>` `!rpg party create <name>` `!rpg party join <id>` `!rpg party dungeon`\n\n"
-        "**Guilds & Kingdoms**\n"
-        "`!rpg guild ...` `!rpg kingdom list` `!rpg kingdom create <name>` `!rpg kingdom join <name>` `!rpg kingdom info`\n"
-        "`!rpg kingdom appoint @user <duke|count|knight|citizen|outlaw>` — build your court.\n\n"
-        "**Life & Economy**\n"
-        "`!rpg inventory` `!rpg shop` `!rpg craft` `!rpg market` `!rpg gather` `!rpg fish` `!rpg mine` `!rpg daily` `!rpg rest`\n"
-        "`!rpg pet adopt` `!rpg pet hatch <egg>` `!rpg achievements` `!rpg leaderboard` `!rpg bounty post <target> <gold>`"
-    )
-
+    pages=[
+        _rpg_embed("🌌 Horizon RPG — Command Guide", "**Hero & Progression**\n`!rpg start <name> <race> <class>`\n`!rpg profile` • `!rpg stats`\n`!rpg races` • `!rpg subraces` • `!rpg classes` • `!rpg subclasses`\n`!rpg change <type> <name>` • `!rpg evolve` • `!rpg spend <stat> [points]`\n`!rpg paths` • `!rpg areas` • `!rpg travel <area>`"),
+        _rpg_embed("⚔️ Horizon RPG — Gameplay", "**Combat**\n`!rpg adventure` — interactive battle\n`!rpg dungeon [name]` — multi-floor interactive dungeon\nButtons: **Attack / Skill / Potion / Defend / Flee**\n\n**Collection & Economy**\n`!rpg inventory` • `!rpg items` • `!rpg eggs` • `!rpg pet`\n`!rpg shop` • `!rpg buy` • `!rpg sell` • `!rpg craft` • `!rpg market`"),
+        _rpg_embed("🏰 Horizon RPG — Society", "**Teams**\n`!rpg party create/join/dungeon/info/leave`\n`!rpg guild list/create/join/info/members/deposit/upgrade/leave`\n\n**Kingdoms**\n`!rpg kingdom list/create/join/info/appoint/leave`\nBuild your court as King, Duke, Count, Knight or Citizen.\n\n**Other**\n`!rpg quests` • `!rpg achievements` • `!rpg leaderboard` • `!rpg bounty`"),
+    ]
+    await _rpg_panel(ctx,pages)
 
 @rpg_root.command(name="start")
 async def rpg_start(ctx, name: str = "", race: str = "human", class_name: str = "warrior"):
     await _rpg_delete(ctx)
     if not name:
-        await ctx.send("Use `!rpg start <name> <race> <class>`.\nSee `!rpg races` and `!rpg classes` for the expanded choices.", delete_after=10); return
+        await _rpg_action_panel(ctx,"Hero Creation","Use `!rpg start <name> <race> <class>`.\nSee `!rpg races` and `!rpg classes` for the expanded choices.",False); return
     try:
         ok, text = await bot.rpg.create_player(ctx.guild.id, ctx.author.id, name, race, class_name)
     except ValueError:
         ok, text = False, "Invalid race or class. Use `!rpg races` and `!rpg classes`."
-    await ctx.send(("✅ " if ok else "❌ ") + text)
+    await _rpg_action_panel(ctx, "Hero Creation", text, ok)
 
 
 @rpg_root.command(name="classes")
 async def rpg_classes(ctx):
     await _rpg_delete(ctx)
-    lines=[f"**{k.title()}** — {v['desc']} • +{v['atk']} ATK / +{v['def']} DEF / +{v['hp']} HP / +{v['speed'] if 'speed' in v else v['spd']} SPD" for k,v in CLASSES.items()]
-    await ctx.send("**⚔️ Classes**\n\n"+"\n".join(lines))
-
-
+    rows=list(CLASSES.items())
+    pages=_rpg_pages("Classes",rows,page_size=6,icon="⚔️",formatter=lambda x:f"**{x[1]['name'] if 'name' in x[1] else x[0].replace('_',' ').title()}**\n{x[1]['desc']}\n❤️ HP +{x[1]['hp']} • 💧 MP +{x[1]['mp']} • ⚔️ ATK +{x[1]['atk']} • 🛡️ DEF +{x[1]['def']} • 💨 SPD +{x[1]['spd']} • 🎯 Crit +{x[1]['crit']}%")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="races")
 async def rpg_races(ctx):
     await _rpg_delete(ctx)
-    lines=[f"**{k.title()}** — {v['desc']} • HP {v['hp']:+} / ATK {v['atk']:+} / DEF {v['def']:+} / SPD {v['spd']:+} / Crit {v['crit']:+}%" for k,v in RACES.items()]
-    await ctx.send("**🧬 Races**\n\n"+"\n".join(lines))
-
-
+    rows=list(RACES.items())
+    pages=_rpg_pages("Races",rows,page_size=6,icon="🧬",formatter=lambda x:f"**{x[0].replace('_',' ').title()}**\n{x[1]['desc']}\n❤️ HP {x[1]['hp']:+} • ⚔️ ATK {x[1]['atk']:+} • 🛡️ DEF {x[1]['def']:+} • 💨 SPD {x[1]['spd']:+} • 🎯 Crit {x[1]['crit']:+}%")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="subraces")
 async def rpg_subraces(ctx, *, race: str = ""):
     await _rpg_delete(ctx)
     race=race.lower().strip()
     rows=[(k,v) for k,v in SUBRACES.items() if not race or v[0]==race]
     if not rows:
-        await ctx.send("No matching subraces. Use `!rpg subraces <race>` or check `!rpg races`.",delete_after=7); return
-    await ctx.send("**🧬 Subraces**\n\n"+"\n".join(f"**{k.replace('_',' ').title()}** → {parent.title()} • HP {v['hp']:+} ATK {v['atk']:+} DEF {v['def']:+} SPD {v['spd']:+} Crit {v['crit']:+}%" for k,(parent,v) in rows))
-
-
+        await _rpg_action_panel(ctx,"Subraces","No matching subraces. Use `!rpg subraces <race>`.",False); return
+    pages=_rpg_pages("Subraces",rows,page_size=6,icon="🧬",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n❤️ HP {x[1][1]['hp']:+} • ⚔️ ATK {x[1][1]['atk']:+} • 🛡️ DEF {x[1][1]['def']:+} • 💨 SPD {x[1][1]['spd']:+} • 🎯 Crit {x[1][1]['crit']:+}%")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="subclasses")
 async def rpg_subclasses(ctx, *, class_name: str = ""):
     await _rpg_delete(ctx)
     class_name=class_name.lower().strip()
     rows=[(k,v) for k,v in SUBCLASSES.items() if not class_name or v[0]==class_name]
     if not rows:
-        await ctx.send("No matching subclasses. Use `!rpg subclasses <class>` or `!rpg classes`.",delete_after=7); return
-    await ctx.send("**⚔️ Subclasses (Level 10+)**\n\n"+"\n".join(f"**{k.replace('_',' ').title()}** → {parent.title()} — {desc}" for k,(parent,desc,_) in rows))
-
-
+        await _rpg_action_panel(ctx,"Subclasses","No matching subclasses. Use `!rpg subclasses <class>`.",False); return
+    pages=_rpg_pages("Subclasses • Level 10+",rows,page_size=6,icon="⚔️",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n{x[1][1]}")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="paths")
 async def rpg_paths(ctx):
     await _rpg_delete(ctx)
-    await ctx.send("**🧭 Life Paths**\n\n"+"\n".join(f"**{k.title()}** — {v}" for k,v in LIFE_PATHS.items()))
-
-
+    rows=list(LIFE_PATHS.items())
+    pages=_rpg_pages("Life Paths",rows,page_size=6,icon="🧭",formatter=lambda x:f"**{x[0].title()}**\n{x[1]}")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="change")
 async def rpg_change(ctx, kind: str = "", *, value: str = ""):
     await _rpg_delete(ctx)
     if not kind or not value:
-        await ctx.send("Use `!rpg change <race|subrace|class|subclass|path|evolution> <name>`.",delete_after=8); return
+        await _rpg_action_panel(ctx,"Build Change","Use `!rpg change <race|subrace|class|subclass|path|evolution> <name>`.",False); return
     ok,msg=await bot.rpg.change_identity(ctx.guild.id,ctx.author.id,kind,value)
-    await ctx.send(("🔄 " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx, "Build Change", msg, ok)
 
 
 @rpg_root.command(name="evolve")
@@ -1500,37 +1611,38 @@ async def rpg_evolve(ctx, *, evolution: str = ""):
     await _rpg_delete(ctx)
     p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
     if not p:
-        await ctx.send("Create a hero first.",delete_after=7); return
+        await _rpg_action_panel(ctx,"Evolution","Create a hero first.",False); return
     available=[(lvl,name) for lvl,name in CLASS_EVOLUTIONS.get(p["class_name"],[]) if p["level"]>=lvl]
     if not evolution:
         if not available:
             next_req=CLASS_EVOLUTIONS.get(p["class_name"],[(20,"evolution")])[0][0]
-            await ctx.send(f"Your next evolution unlocks at level **{next_req}**.",delete_after=8); return
-        await ctx.send("**✨ Available Evolutions**\n"+"\n".join(f"• `{name}` — unlocked at level {lvl}" for lvl,name in available)); return
+            await _rpg_action_panel(ctx,"Evolution",f"Your next evolution unlocks at level **{next_req}**.",False); return
+        pages=_rpg_pages("Available Evolutions",available,page_size=6,icon="✨",formatter=lambda x:f"**{x[1]}**\nUnlocked at level **{x[0]}**")
+        await _rpg_panel(ctx,pages); return
     ok,msg=await bot.rpg.change_identity(ctx.guild.id,ctx.author.id,"evolution",evolution)
-    await ctx.send(("✨ " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx,"Evolution",msg,ok)
 
 
 @rpg_root.command(name="spend")
 async def rpg_spend(ctx, stat: str = "", points: int = 1):
     await _rpg_delete(ctx)
     ok,msg=await bot.rpg.spend_stat(ctx.guild.id,ctx.author.id,stat,points)
-    await ctx.send(("📈 " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx, "Stat Upgrade", msg, ok)
 
 
 @rpg_root.command(name="areas")
 async def rpg_areas(ctx):
     await _rpg_delete(ctx)
-    await ctx.send("**🗺️ World Atlas**\n\n"+"\n".join(f"`{k}` — **{v['name']}** • Lv {v['level']}+ • {v['type'].title()}\n{v['desc']}" for k,v in AREAS.items()))
-
-
+    rows=list(AREAS.items())
+    pages=_rpg_pages("World Atlas",rows,page_size=5,icon="🗺️",formatter=lambda x:f"**{x[1]['name']}** — `{x[0]}`\nLv **{x[1]['level']}+** • {x[1]['type'].title()}\n{x[1]['desc']}")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="travel")
 async def rpg_travel(ctx, *, area: str = ""):
     await _rpg_delete(ctx)
     if not area:
-        await ctx.send("Use `!rpg travel <area_key>`. See `!rpg areas`.",delete_after=7); return
+        await _rpg_action_panel(ctx,"Travel","Use `!rpg travel <area_key>`. See `!rpg areas`.",False); return
     ok,msg=await bot.rpg.travel(ctx.guild.id,ctx.author.id,area)
-    await ctx.send(("🧭 " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx, "Travel", msg, ok)
 
 
 @rpg_root.command(name="profile", aliases=["character", "sheet"])
@@ -1538,20 +1650,20 @@ async def rpg_profile(ctx):
     await _rpg_delete(ctx)
     data=await bot.rpg.stats(ctx.guild.id,ctx.author.id)
     if not data:
-        await ctx.send("Start your hero with `!rpg start <name> <race> <class>`.", delete_after=8); return
+        await _rpg_action_panel(ctx, "Hero Required", "Start your hero with `!rpg start <name> <race> <class>`.", False); return
     p,gear,b=data
     xp_next=100*p['level']*p['level']
-    await ctx.send(embed=_rpg_embed(f"⚔️ {p['name']}",
+    equipment="\n".join(f"**{slot.title()}** — {ITEMS.get(item, {'name':item})['name']}" for slot,item in gear.items()) or "No equipment"
+    e=_rpg_embed(f"⚔️ {p['name']}",
         f"**Level {p['level']} {p['race'].title()} {p['class_name'].title()}** • {p['title']}\n"
         f"Subrace: **{p.get('subrace') or 'None'}** • Subclass: **{p.get('subclass') or 'None'}** • Evolution: **{p.get('evolution') or 'None'}**\n"
         f"Path: **{p.get('life_path','adventurer').title()}** • Kingdom: **{p.get('kingdom_name') or 'None'}** ({p.get('kingdom_role') or 'wanderer'})\n"
         f"XP **{p['xp']}/{xp_next}** • Gold **{p['gold']}** • Prestige **{p['prestige']}** • Renown **{p.get('renown',0)}**\n"
-        f"HP **{p['hp']+b['hp']}/{p['max_hp']+b['hp']}** • MP **{p['mp']+b['mp']}/{p['max_mp']+b['mp']}** • Stamina **{p['stamina']}/100**\n"
-        f"ATK **{p['atk']+b['atk']}** • DEF **{p['defense']+b['defense']}** • SPD **{p['speed']+b['speed']}** • Crit **{p['crit']+b['crit']}%**\n"
+        f"❤️ HP **{p['hp']+b['hp']}/{p['max_hp']+b['hp']}** • 💧 MP **{p['mp']+b['mp']}/{p['max_mp']+b['mp']}** • ⚡ Stamina **{p['stamina']}/100**\n"
+        f"⚔️ ATK **{p['atk']+b['atk']}** • 🛡️ DEF **{p['defense']+b['defense']}** • 💨 SPD **{p['speed']+b['speed']}** • 🎯 Crit **{p['crit']+b['crit']}%**\n"
         f"Unspent: **{p.get('stat_points',0)} stat** / **{p.get('skill_points',0)} skill** / **{p.get('talent_points',0)} talent** points\n"
-        f"Location: **{p['location']}**\n\n**Equipment**\n" + ("\n".join(f"{slot.title()}: {ITEMS.get(item, {'name':item})['name']}" for slot,item in gear.items()) or "No equipment")))
-
-
+        f"📍 Location: **{p['location']}**\n\n**Equipment**\n{equipment}")
+    await _rpg_panel(ctx,[e])
 @rpg_root.command(name="stats")
 async def rpg_stats(ctx):
     await rpg_profile.callback(ctx)
@@ -1562,21 +1674,21 @@ async def rpg_adventure(ctx):
     await _rpg_delete(ctx)
     result=await bot.rpg.start_combat(ctx.guild.id,ctx.author.id,"adventure")
     if "error" in result:
-        await ctx.send(result["error"], delete_after=8); return
+        await _rpg_action_panel(ctx,"Adventure",result["error"],False); return
     view=RPGCombatView(ctx,result["state"])
     view.message=await ctx.send(embed=_combat_embed(result["state"]),view=view)
 
 
 @rpg_root.command(name="rest")
 async def rpg_rest(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.rest(ctx.guild.id,ctx.author.id); await ctx.send(("⛺ " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.rest(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx, "Rest", msg, ok)
 
 
 @rpg_root.command(name="daily")
 async def rpg_daily(ctx):
     await _rpg_delete(ctx); result,msg=await bot.rpg.daily(ctx.guild.id,ctx.author.id)
-    if msg: await ctx.send(msg,delete_after=8); return
-    xp,gold,level=result; await ctx.send(f"🎁 **Daily chest opened!** +**{gold} gold** +**{xp} XP** • Level **{level}**")
+    if msg: await _rpg_action_panel(ctx,"Daily Chest",msg,False); return
+    xp,gold,level=result; await _rpg_action_panel(ctx, "Daily Chest", f"🎁 **Daily chest opened!**\n\n+**{gold} gold**\n+**{xp} XP**\nCurrent level: **{level}**", True)
 
 
 @rpg_root.command(name="inventory", aliases=["inv"])
@@ -1584,111 +1696,157 @@ async def rpg_inventory(ctx):
     await _rpg_delete(ctx); ok=await _rpg_require(ctx)
     if not ok:return
     rows=await bot.rpg.inventory(ctx.guild.id,ctx.author.id)
-    lines=[f"• `{key}` — **{ITEMS.get(key,{'name':key})['name']} ×{qty}**" for key,qty in rows]
-    await ctx.send("**🎒 Inventory**\n"+"\n".join(lines) if lines else "**🎒 Inventory**\nEmpty.")
-
-
+    per_page=8
+    pages=[]
+    for n in range(max(1,(len(rows)+per_page-1)//per_page)):
+        chunk=rows[n*per_page:(n+1)*per_page]
+        lines=[]
+        for key,qty in chunk:
+            d=ITEMS.get(key,{})
+            lines.append(f"**{d.get('name',key)}** × **{qty}**\n`{key}` • {d.get('rarity','common').title()} • {d.get('slot','item').title()}")
+        e=_rpg_embed(f"🎒 {ctx.author.display_name}'s Inventory", "\n\n".join(lines) if lines else "Your inventory is empty.")
+        e.set_footer(text=f"Page {n+1} / {max(1,(len(rows)+per_page-1)//per_page)} • {len(rows)} item stacks")
+        pages.append(e)
+    options_by_page=[]
+    for start in range(0,len(rows),per_page):
+        page_opts=[]
+        for key,qty in rows[start:start+per_page]:
+            d=ITEMS.get(key,{})
+            page_opts.append((key,d.get('name',key),f"{d.get('rarity','common').title()} • {qty} owned"))
+        options_by_page.append(page_opts)
+    if not options_by_page: options_by_page=[[]]
+    async def item_info(interaction,value):
+        d=ITEMS.get(value,{})
+        stats=[]
+        for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit"),("heal","Heal"),("mana","Mana"),("price","Value")):
+            if k in d: stats.append(f"**{label}:** {d[k]}" + ("%" if k=="crit" else ""))
+        owned=dict(rows).get(value,0)
+        e=_rpg_embed(f"📦 {d.get('name',value)}", f"**Rarity:** {d.get('rarity','common').title()}\n**Type:** {d.get('slot','item').title()}\n**Owned:** {owned}\n\n"+" • ".join(stats) if stats else f"**Owned:** {owned}")
+        await interaction.response.send_message(embed=e,ephemeral=True)
+    await _rpg_panel(ctx,pages,select_options=options_by_page[0],select_callback=item_info,select_options_by_page=options_by_page)
 @rpg_root.command(name="items")
 async def rpg_items(ctx, category: str = "all", page: int = 1):
     await _rpg_delete(ctx)
     category=category.lower(); page=max(1,page)
     allowed={"all","weapon","armor","offhand","consumable","food","material","egg","relic"}
     if category not in allowed:
-        await ctx.send("Categories: `weapon`, `armor`, `offhand`, `consumable`, `food`, `material`, `egg`, `relic`.",delete_after=8); return
+        await _rpg_action_panel(ctx,"Item Codex","Categories: `weapon`, `armor`, `offhand`, `consumable`, `food`, `material`, `egg`, `relic`.",False); return
     rows=[(k,v) for k,v in ITEMS.items() if category=="all" or v.get("slot")==category]
-    rows.sort(key=lambda x:(x[1].get("rarity","common"),x[1]["name"]))
-    per_page=25; total=max(1,(len(rows)+per_page-1)//per_page); page=min(page,total)
-    chunk=rows[(page-1)*per_page:page*per_page]
-    text="\n".join(f"`{k}` — **{v['name']}** • {v.get('rarity','common').title()} • {v.get('slot','item')} • {v.get('price',0)}g" for k,v in chunk)
-    await ctx.send(f"**🎒 Item Codex — {category.title()}** • Page **{page}/{total}** • {len(rows)} items\n\n{text}")
-
-
+    rarity_order={r:i for i,r in enumerate(RARITIES)}
+    rows.sort(key=lambda x:(rarity_order.get(x[1].get('rarity','common'),0),x[1]['name']))
+    per_page=8; total=max(1,(len(rows)+per_page-1)//per_page); page=min(page,total)
+    pages=[]
+    for n in range(total):
+        chunk=rows[n*per_page:(n+1)*per_page]
+        text="\n\n".join(f"**{v['name']}**\n`{k}` • {v.get('rarity','common').title()} • {v.get('slot','item').title()} • **{v.get('price',0)}g**" for k,v in chunk)
+        e=_rpg_embed(f"📚 Item Codex — {category.title()}",text)
+        e.set_footer(text=f"Page {n+1} / {total} • {len(rows)} items")
+        pages.append(e)
+    options_by_page=[[(k,v['name'],f"{v.get('rarity','common').title()} • {v.get('slot','item').title()}") for k,v in rows[start:start+per_page]] for start in range(0,len(rows),per_page)] or [[]]
+    async def info(interaction,value):
+        d=ITEMS.get(value,{})
+        stats=[f"**{label}:** {d[k]}" + ("%" if k=="crit" else "") for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit"),("heal","Heal"),("mana","Mana"),("price","Value")) if k in d]
+        await interaction.response.send_message(embed=_rpg_embed(f"📦 {d.get('name',value)}",f"**Rarity:** {d.get('rarity','common').title()}\n**Type:** {d.get('slot','item').title()}\n\n"+" • ".join(stats) if stats else "No extra stats."),ephemeral=True)
+    view=await _rpg_panel(ctx,pages,select_options=options_by_page[0],select_callback=info,select_options_by_page=options_by_page)
+    view.index=page-1; view._sync()
+    if view.message:
+        await view.message.edit(embed=view.pages[view.index],view=view)
 @rpg_root.command(name="eggs")
 async def rpg_eggs(ctx):
     await _rpg_delete(ctx)
     rows=[(k,v) for k,v in ITEMS.items() if v.get("slot")=="egg"]
-    await ctx.send("**🥚 Pet Egg Codex**\n\n"+"\n".join(f"`{k}` — **{v['name']}** • {v['rarity'].title()} • found while adventuring • hatch with `!rpg pet hatch {k} <name>`" for k,v in rows))
-
-
+    pages=_rpg_pages("Pet Egg Codex",rows,page_size=8,icon="🥚",formatter=lambda x:f"**{x[1]['name']}**\n`{x[0]}` • {x[1].get('rarity','common').title()} • Found while adventuring\nHatch: `!rpg pet hatch {x[0]} <name>`")
+    options_by_page=[[(k,v['name'],f"{v.get('rarity','common').title()} • Adventure egg") for k,v in rows[start:start+8]] for start in range(0,len(rows),8)] or [[]]
+    async def info(interaction,value):
+        d=ITEMS.get(value,{})
+        await interaction.response.send_message(embed=_rpg_embed(f"🥚 {d.get('name',value)}",f"**Rarity:** {d.get('rarity','common').title()}\nFound from adventure and dungeon loot.\n\nUse `!rpg pet hatch {value} <name>` to hatch it."),ephemeral=True)
+    await _rpg_panel(ctx,pages,select_options=options_by_page[0],select_callback=info,select_options_by_page=options_by_page)
 @rpg_root.command(name="use")
 async def rpg_use(ctx, item_key: str = "", quantity: int = 1):
     await _rpg_delete(ctx)
     if not item_key:
-        await ctx.send("Use `!rpg use <item_key> [qty]`.",delete_after=7); return
+        await _rpg_action_panel(ctx,"Use Item","Use `!rpg use <item_key> [qty]`.",False); return
     ok,msg=await bot.rpg.use_item(ctx.guild.id,ctx.author.id,item_key,quantity)
-    await ctx.send(("🍖 " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx, "Use Item", msg, ok)
 
 
 @rpg_root.command(name="equip")
 async def rpg_equip(ctx,item_key: str=""):
     await _rpg_delete(ctx)
-    if not item_key: await ctx.send("Use `!rpg equip <item_key>`.",delete_after=6); return
-    ok,msg=await bot.rpg.equip(ctx.guild.id,ctx.author.id,item_key); await ctx.send(("⚔️ " if ok else "❌ ")+msg)
+    if not item_key: await _rpg_action_panel(ctx,"Equipment","Use `!rpg equip <item_key>`.",False); return
+    ok,msg=await bot.rpg.equip(ctx.guild.id,ctx.author.id,item_key); await _rpg_action_panel(ctx, "Equipment", msg, ok)
 
 
 @rpg_root.command(name="shop")
 async def rpg_shop(ctx):
-    await _rpg_delete(ctx); items=await bot.rpg.shop(); await ctx.send("**🛒 Horizon Shop**\n\n"+"\n".join(f"`{k}` — {v['name']} • **{v['price']} gold**" for k,v in items))
-
-
+    await _rpg_delete(ctx)
+    items=await bot.rpg.shop()
+    pages=_rpg_pages("Horizon Shop",items,page_size=8,icon="🛒",formatter=lambda x:f"**{x[1]['name']}**\n`{x[0]}` • {x[1].get('rarity','common').title()} • **{x[1]['price']} gold**\nBuy: `!rpg buy {x[0]} [qty]`")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="buy")
 async def rpg_buy(ctx,item_key: str="",quantity: int=1):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.buy(ctx.guild.id,ctx.author.id,item_key,quantity); await ctx.send(("🛒 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.buy(ctx.guild.id,ctx.author.id,item_key,quantity); await _rpg_action_panel(ctx, "Purchase", msg, ok)
 
 
 @rpg_root.command(name="sell")
 async def rpg_sell(ctx,item_key: str="",quantity: int=1):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.sell(ctx.guild.id,ctx.author.id,item_key,quantity); await ctx.send(("💰 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.sell(ctx.guild.id,ctx.author.id,item_key,quantity); await _rpg_action_panel(ctx, "Sale", msg, ok)
 
 
 @rpg_root.command(name="recipes")
 async def rpg_recipes(ctx):
-    await _rpg_delete(ctx); lines=[]
-    for out,mats in RECIPES.items():
-        lines.append(f"`{out}` → "+", ".join(f"{ITEMS[m]['name']} ×{n}" for m,n in mats.items()))
-    await ctx.send("**🔨 Crafting Recipes**\n\n"+"\n".join(lines))
-
-
+    await _rpg_delete(ctx)
+    rows=list(RECIPES.items())
+    pages=_rpg_pages("Crafting Recipes",rows,page_size=6,icon="🔨",formatter=lambda x:f"**{ITEMS.get(x[0],{'name':x[0]})['name']}**\nCraft key: `{x[0]}`\nMaterials: "+", ".join(f"{ITEMS[m]['name']} ×{n}" for m,n in x[1].items()))
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="craft")
 async def rpg_craft(ctx,item_key: str="",quantity: int=1):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.craft(ctx.guild.id,ctx.author.id,item_key,quantity); await ctx.send(("🔨 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.craft(ctx.guild.id,ctx.author.id,item_key,quantity); await _rpg_action_panel(ctx, "Crafting", msg, ok)
 
 
 @rpg_root.command(name="gather")
 async def rpg_gather(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"gather"); await ctx.send(("🌿 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"gather"); await _rpg_action_panel(ctx, "Gathering", msg, ok)
 
 
 @rpg_root.command(name="fish")
 async def rpg_fish(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"fish"); await ctx.send(("🎣 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"fish"); await _rpg_action_panel(ctx, "Fishing", msg, ok)
 
 
 @rpg_root.command(name="mine")
 async def rpg_mine(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"mine"); await ctx.send(("⛏️ " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"mine"); await _rpg_action_panel(ctx, "Mining", msg, ok)
 
 
 @rpg_root.group(name="quests", invoke_without_command=True)
 async def rpg_quests(ctx):
     await _rpg_delete(ctx)
     rows=await bot.rpg.quests(ctx.guild.id,ctx.author.id)
-    if not rows: await ctx.send("No quests available."); return
-    lines=[]
-    for qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status in rows:
+    def fmt(x):
+        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status=x
         mark="🟢" if status=="active" else "⚪" if status=="available" else "✅"
-        lines.append(f"{mark} `#{qid}` **{title}** — {progress}/{target} • Lv {lvl} • +{xp} XP / +{gold}g\n{desc}")
-    await ctx.send("**📜 Quest Board**\n\n"+"\n".join(lines))
-
-
+        reward=f"+{xp} XP • +{gold}g" + (f" • {ITEMS.get(item,{'name':item})['name']} ×{qty}" if item else "")
+        return f"{mark} **#{qid} {title}**\n{desc}\nLv {lvl}+ • Progress **{progress}/{target}** • {reward}"
+    pages=_rpg_pages("Quest Board",rows,page_size=4,icon="📜",formatter=fmt)
+    options=[(str(q[0]),q[1],f"{q[11].title()} • {q[10]}/{q[4]}") for q in rows[:25]]
+    async def info(interaction,value):
+        q=next((x for x in rows if str(x[0])==value),None)
+        if not q:
+            await interaction.response.send_message("Quest not found.",ephemeral=True); return
+        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status=q
+        reward=f"+{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{'name':item})['name']} ×{qty}" if item else "")
+        e=_rpg_embed(f"📜 Quest #{qid} — {title}",f"{desc}\n\n**Required:** Level {lvl}+\n**Progress:** {progress}/{target}\n**Status:** {status.title()}\n**Reward:** {reward}\n\nAccept: `!rpg quest accept {qid}`\nClaim: `!rpg quest claim {qid}`")
+        await interaction.response.send_message(embed=e,ephemeral=True)
+    await _rpg_panel(ctx,pages,select_options=options,select_callback=info)
 @rpg_quests.command(name="accept")
 async def rpg_quest_accept(ctx,quest_id:int=0):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.accept_quest(ctx.guild.id,ctx.author.id,quest_id); await ctx.send(("📜 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.accept_quest(ctx.guild.id,ctx.author.id,quest_id); await _rpg_action_panel(ctx, "Quest Accepted", msg, ok)
 
 
 @rpg_quests.command(name="claim")
 async def rpg_quest_claim(ctx,quest_id:int=0):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.claim_quest(ctx.guild.id,ctx.author.id,quest_id); await ctx.send(("🎁 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.claim_quest(ctx.guild.id,ctx.author.id,quest_id); await _rpg_action_panel(ctx, "Quest Reward", msg, ok)
 
 
 @rpg_root.command(name="quest")
@@ -1704,94 +1862,103 @@ async def rpg_claim(ctx,quest_id:int=0):
 @rpg_root.group(name="party", invoke_without_command=True)
 async def rpg_party(ctx):
     await _rpg_delete(ctx); info=await bot.rpg.party_info(ctx.guild.id,user_id=ctx.author.id)
-    if not info: await ctx.send("No open party. `!rpg party create <name>` to start one."); return
-    party,members=info; await ctx.send(f"**🛡️ Party {party[1]}** (`{party[0]}`)\n"+"\n".join(f"• <@{uid}> — {role}" for uid,role in members))
-
-
+    if not info:
+        await _rpg_action_panel(ctx,"Party Finder","No open party. Use `!rpg party create <name>` to start one.",False); return
+    party,members=info
+    e=_rpg_embed(f"🛡️ Party — {party[1]}",f"Party ID: **{party[0]}**\nLeader: <@{party[3]}>\nStatus: **{party[4].title()}**\nMembers: **{len(members)}/4**\n\n"+"\n".join(f"• <@{uid}> — **{role.title()}**" for uid,role in members))
+    await _rpg_panel(ctx,[e])
 @rpg_party.command(name="create")
 async def rpg_party_create(ctx,*,name:str="Adventure Party"):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.create_party(ctx.guild.id,ctx.author.id,name); await ctx.send(("🛡️ " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.create_party(ctx.guild.id,ctx.author.id,name); await _rpg_action_panel(ctx, "Party", msg, ok)
 
 
 @rpg_party.command(name="join")
 async def rpg_party_join(ctx,party_id:int=0):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.join_party(ctx.guild.id,ctx.author.id,party_id); await ctx.send(("🤝 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.join_party(ctx.guild.id,ctx.author.id,party_id); await _rpg_action_panel(ctx, "Party", msg, ok)
 
 
 @rpg_party.command(name="leave")
 async def rpg_party_leave(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.leave_party(ctx.guild.id,ctx.author.id); await ctx.send(("🚪 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.leave_party(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx, "Party", msg, ok)
 
 
 @rpg_party.command(name="dungeon")
 async def rpg_party_dungeon(ctx,*,name:str=""):
     await _rpg_delete(ctx); result=await bot.rpg.party_dungeon(ctx.guild.id,ctx.author.id,name.strip() or None)
-    if "error" in result: await ctx.send(result["error"],delete_after=8); return
+    if "error" in result: await _rpg_action_panel(ctx,"Party Dungeon",result["error"],False); return
     if not result["win"]:
-        await ctx.send(f"💀 **Party Dungeon Failed** — {result['name']}\n"+"\n".join("• "+x for x in result['log']))
-        return
+        e=_rpg_embed(f"💀 Party Dungeon — {result['name']}","\n".join("• "+x for x in result['log']),discord.Colour.red())
+        await _rpg_panel(ctx,[e]); return
     lines=[f"<@{uid}>: +{xp} XP / +{gold} gold" for uid,xp,gold in result["rewards"]]
-    await ctx.send(f"🏆 **Party Dungeon Cleared: {result['name']}**\n"+"\n".join("• "+x for x in result['log'])+"\n\n"+"\n".join(lines))
+    e=_rpg_embed(f"🏆 Party Dungeon Cleared — {result['name']}","\n".join("• "+x for x in result['log'])+"\n\n"+"\n".join(lines),discord.Colour.green())
+    await _rpg_panel(ctx,[e])
 
 
 @rpg_party.command(name="info")
 async def rpg_party_info(ctx,party_id:int=0):
     await _rpg_delete(ctx); info=await bot.rpg.party_info(ctx.guild.id,pid=party_id if party_id else None,user_id=ctx.author.id)
-    if not info: await ctx.send("Party not found.",delete_after=6); return
-    party,members=info; await ctx.send(f"**🛡️ {party[1]}** — Party `{party[0]}`\n"+"\n".join(f"• <@{uid}> — {role}" for uid,role in members))
+    if not info: await _rpg_action_panel(ctx,"Party","Party not found.",False); return
+    party,members=info
+    e=_rpg_embed(f"🛡️ {party[1]}",f"Party ID: **{party[0]}**\nLeader: <@{party[3]}>\nMembers: **{len(members)}/4**\n\n"+"\n".join(f"• <@{uid}> — **{role.title()}**" for uid,role in members))
+    await _rpg_panel(ctx,[e])
 
 
 @rpg_root.group(name="guild", invoke_without_command=True)
 async def rpg_guild(ctx):
     await _rpg_delete(ctx); info=await bot.rpg.guild_info(ctx.guild.id,user_id=ctx.author.id)
     if info:
-        g,members=info; await ctx.send(f"**🏰 {g[1]}** — Lv {g[3]} • Guild XP {g[4]} • Bank {g[5]} gold\nMembers: **{len(members)}**")
+        g,members=info
+        e=_rpg_embed(f"🏰 {g[1]}",f"Level **{g[3]}** • Guild XP **{g[4]}** • Bank **{g[5]} gold**\nLeader: <@{g[2]}>\nMembers: **{len(members)}**")
+        await _rpg_panel(ctx,[e])
     else:
-        guilds=await bot.rpg.guilds(ctx.guild.id); await ctx.send("**🏰 Guilds**\n"+("\n".join(f"• **{n}** — Lv {lv} • {xp} XP" for n,l,lv,xp,b in guilds) or "No guilds yet."))
-
+        rows=await bot.rpg.guilds(ctx.guild.id)
+        pages=_rpg_pages("Guild Directory",rows,page_size=6,icon="🏰",formatter=lambda x:f"**{x[0]}**\nLv **{x[2]}** • XP **{x[3]}** • Bank **{x[4]}g** • Leader <@{x[1]}>")
+        await _rpg_panel(ctx,pages)
 
 @rpg_guild.command(name="list")
 async def rpg_guild_list(ctx):
-    await rpg_guild.callback(ctx)
-
-
+    await _rpg_delete(ctx); rows=await bot.rpg.guilds(ctx.guild.id)
+    pages=_rpg_pages("Guild Directory",rows,page_size=6,icon="🏰",formatter=lambda x:f"**{x[0]}**\nLv **{x[2]}** • XP **{x[3]}** • Bank **{x[4]}g** • Leader <@{x[1]}>")
+    await _rpg_panel(ctx,pages)
 @rpg_guild.command(name="create")
 async def rpg_guild_create(ctx,*,name:str=""):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.create_guild(ctx.guild.id,ctx.author.id,name); await ctx.send(("🏰 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.create_guild(ctx.guild.id,ctx.author.id,name); await _rpg_action_panel(ctx, "Guild", msg, ok)
 
 
 @rpg_guild.command(name="join")
 async def rpg_guild_join(ctx,*,name:str=""):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.join_guild(ctx.guild.id,ctx.author.id,name); await ctx.send(("🤝 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.join_guild(ctx.guild.id,ctx.author.id,name); await _rpg_action_panel(ctx, "Guild", msg, ok)
 
 
 @rpg_guild.command(name="info")
 async def rpg_guild_info(ctx,*,name:str=""):
     await _rpg_delete(ctx); info=await bot.rpg.guild_info(ctx.guild.id,name or None)
-    if not info: await ctx.send("Guild not found. Use `!rpg guild list`.",delete_after=7); return
-    g,members=info; await ctx.send(f"**🏰 {g[1]}** — Level {g[2]}\nGuild XP: **{g[3]}** • Bank: **{g[4]} gold**\nLeader: <@{g[2-1]}>\nMembers: "+", ".join(f"<@{uid}>" for uid,_ in members))
+    if not info: await _rpg_action_panel(ctx,"Guild","Guild not found. Use `!rpg guild list`.",False); return
+    g,members=info
+    e=_rpg_embed(f"🏰 {g[1]}",f"Level **{g[3]}**\nGuild XP: **{g[4]}** • Bank: **{g[5]} gold**\nLeader: <@{g[2]}>\nMembers: **{len(members)}**")
+    await _rpg_panel(ctx,[e])
 
 
 @rpg_guild.command(name="members")
 async def rpg_guild_members(ctx):
     await _rpg_delete(ctx); info=await bot.rpg.guild_info(ctx.guild.id,user_id=ctx.author.id)
-    if not info: await ctx.send("You are not in a guild.",delete_after=6); return
-    g,members=info; await ctx.send(f"**🏰 {g[1]} Members**\n"+"\n".join(f"• <@{uid}> — {rank}" for uid,rank in members))
-
-
+    if not info: await _rpg_action_panel(ctx,"Guild Members","You are not in a guild.",False); return
+    g,members=info
+    pages=_rpg_pages(f"{g[1]} — Members",members,page_size=10,icon="🏰",formatter=lambda x:f"<@{x[0]}> — **{x[1].title()}**")
+    await _rpg_panel(ctx,pages)
 @rpg_guild.command(name="leave")
 async def rpg_guild_leave(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.leave_guild(ctx.guild.id,ctx.author.id); await ctx.send(("🚪 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.leave_guild(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx, "Guild", msg, ok)
 
 
 @rpg_guild.command(name="deposit")
 async def rpg_guild_deposit(ctx,amount:int=0):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.guild_deposit(ctx.guild.id,ctx.author.id,amount); await ctx.send(("💰 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.guild_deposit(ctx.guild.id,ctx.author.id,amount); await _rpg_action_panel(ctx, "Guild Treasury", msg, ok)
 
 
 @rpg_guild.command(name="upgrade")
 async def rpg_guild_upgrade(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.guild_upgrade(ctx.guild.id,ctx.author.id); await ctx.send(("⬆️ " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.guild_upgrade(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx, "Guild Upgrade", msg, ok)
 
 
 @rpg_root.group(name="kingdom", invoke_without_command=True)
@@ -1800,54 +1967,54 @@ async def rpg_kingdom(ctx):
     info=await bot.rpg.kingdom_info(ctx.guild.id,user_id=ctx.author.id)
     if info:
         k,members=info
-        await ctx.send(f"**👑 {k[1]}** — Level {k[3]} • Treasury {k[4]}g • Renown {k[5]}\nSovereign: <@{k[2]}>\nMembers: **{len(members)}**")
+        e=_rpg_embed(f"👑 {k[1]}",f"Level **{k[3]}** • Treasury **{k[4]}g** • Renown **{k[5]}**\nSovereign: <@{k[2]}>\nMembers: **{len(members)}**")
+        await _rpg_panel(ctx,[e])
     else:
         rows=await bot.rpg.kingdom_list(ctx.guild.id)
-        await ctx.send("**👑 Kingdoms of Horizon**\n"+("\n".join(f"• **{n}** — Lv {lv} • Renown {r} • King <@{ruler}>" for n,ruler,lv,t,r in rows) if rows else "No kingdoms yet. Found one with `!rpg kingdom create <name>`."))
-
+        pages=_rpg_pages("Kingdoms of Horizon",rows,page_size=6,icon="👑",formatter=lambda x:f"**{x[0]}**\nLevel **{x[2]}** • Treasury **{x[3]}g** • Renown **{x[4]}**\nSovereign: <@{x[1]}>")
+        await _rpg_panel(ctx,pages)
 
 @rpg_kingdom.command(name="list")
 async def rpg_kingdom_list(ctx):
-    await rpg_kingdom.callback(ctx)
-
-
+    await _rpg_delete(ctx); rows=await bot.rpg.kingdom_list(ctx.guild.id)
+    pages=_rpg_pages("Kingdoms of Horizon",rows,page_size=6,icon="👑",formatter=lambda x:f"**{x[0]}**\nLevel **{x[2]}** • Treasury **{x[3]}g** • Renown **{x[4]}**\nSovereign: <@{x[1]}>")
+    await _rpg_panel(ctx,pages)
 @rpg_kingdom.command(name="create")
 async def rpg_kingdom_create(ctx, *, name: str = ""):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_create(ctx.guild.id,ctx.author.id,name); await ctx.send(("👑 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_create(ctx.guild.id,ctx.author.id,name); await _rpg_action_panel(ctx, "Kingdom", msg, ok)
 
 
 @rpg_kingdom.command(name="join")
 async def rpg_kingdom_join(ctx, *, name: str = ""):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_join(ctx.guild.id,ctx.author.id,name); await ctx.send(("🏰 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_join(ctx.guild.id,ctx.author.id,name); await _rpg_action_panel(ctx, "Kingdom", msg, ok)
 
 
 @rpg_kingdom.command(name="info")
 async def rpg_kingdom_info(ctx, *, name: str = ""):
     await _rpg_delete(ctx); info=await bot.rpg.kingdom_info(ctx.guild.id,name or None,user_id=ctx.author.id)
-    if not info: await ctx.send("Kingdom not found.",delete_after=7); return
+    if not info: await _rpg_action_panel(ctx,"Kingdom", "Kingdom not found.",False); return
     k,members=info
-    await ctx.send(f"**👑 {k[1]}** — Level {k[3]} • Treasury {k[4]}g • Renown {k[5]}\nKing: <@{k[2]}>\n"+"\n".join(f"• <@{uid}> — **{role.title()}**" for uid,role in members[:25]))
-
-
+    e=_rpg_embed(f"👑 {k[1]}",f"Level **{k[3]}** • Treasury **{k[4]}g** • Renown **{k[5]}**\nSovereign: <@{k[2]}>\nMembers: **{len(members)}**")
+    await _rpg_panel(ctx,[e])
 @rpg_kingdom.command(name="appoint")
 async def rpg_kingdom_appoint(ctx, member: discord.Member = None, role: str = "citizen"):
     await _rpg_delete(ctx)
-    if not member: await ctx.send("Use `!rpg kingdom appoint @user <duke|count|knight|citizen|outlaw>`.",delete_after=8); return
+    if not member: await _rpg_action_panel(ctx,"Kingdom Appointment","Use `!rpg kingdom appoint @user <duke|count|knight|citizen|outlaw>`.",False); return
     ok,msg=await bot.rpg.kingdom_promote(ctx.guild.id,ctx.author.id,member.id,role)
-    await ctx.send(("👑 " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx,"Kingdom Appointment",msg,ok)
 
 
 @rpg_kingdom.command(name="leave")
 async def rpg_kingdom_leave(ctx):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_leave(ctx.guild.id,ctx.author.id); await ctx.send(("🚪 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_leave(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx, "Kingdom", msg, ok)
 
 
 @rpg_root.group(name="bounty", invoke_without_command=True)
 async def rpg_bounty(ctx):
     await _rpg_delete(ctx)
     rows=await bot.rpg.bounties(ctx.guild.id)
-    await ctx.send("**🎯 Bounty Board**\n"+("\n".join(f"`#{i}` — **{target}** • **{reward} gold** • posted by <@{poster}>" for i,target,reward,poster in rows) if rows else "No active bounties."))
-
+    pages=_rpg_pages("Bounty Board",rows,page_size=8,icon="🎯",formatter=lambda x:f"`#{x[0]}` — **{x[1]}**\nReward: **{x[2]} gold** • Posted by <@{x[3]}>")
+    await _rpg_panel(ctx,pages)
 
 @rpg_bounty.command(name="list")
 async def rpg_bounty_list(ctx): await rpg_bounty.callback(ctx)
@@ -1863,38 +2030,39 @@ async def rpg_bounty_post(ctx, *, target_and_reward: str = ""):
     elif len(parts)==2 and parts[0].isdigit():
         reward,target=int(parts[0]),parts[1]
     if not target or reward<=0:
-        await ctx.send("Use `!rpg bounty post <target> <gold>`.",delete_after=7); return
+        await _rpg_action_panel(ctx,"Bounty","Use `!rpg bounty post <target> <gold>`.",False); return
     ok,msg=await bot.rpg.bounty_post(ctx.guild.id,ctx.author.id,target,reward)
-    await ctx.send(("🎯 " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx, "Bounty", msg, ok)
 
 
 @rpg_root.command(name="dungeon")
 async def rpg_dungeon(ctx,*,name:str=""):
     await _rpg_delete(ctx)
     result=await bot.rpg.start_combat(ctx.guild.id,ctx.author.id,"dungeon",name.strip() or None)
-    if "error" in result: await ctx.send(result["error"],delete_after=8); return
+    if "error" in result: await _rpg_action_panel(ctx,"Dungeon",result["error"],False); return
     view=RPGCombatView(ctx,result["state"])
     view.message=await ctx.send(embed=_combat_embed(result["state"]),view=view)
 
 
 @rpg_root.command(name="dungeons")
 async def rpg_dungeons(ctx):
-    await _rpg_delete(ctx); await ctx.send("**🏰 Dungeon Atlas**\n\n"+"\n".join(f"**{n}** — Level {req}+ • {floors} floors\n{desc}" for n,req,floors,xp,gold,desc in DUNGEONS))
-
-
+    await _rpg_delete(ctx)
+    pages=_rpg_pages("Dungeon Atlas",DUNGEONS,page_size=4,icon="🏰",formatter=lambda x:f"**{x[0]}**\nLv **{x[1]}+** • **{x[2]} floors** • {x[3]} XP base • {x[4]}g base\n{x[5]}")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="skill")
 async def rpg_skill(ctx,stat:str=""):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.spend_skill(ctx.guild.id,ctx.author.id,stat); await ctx.send(("✨ " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.spend_skill(ctx.guild.id,ctx.author.id,stat); await _rpg_action_panel(ctx, "Skill Point", msg, ok)
 
 
 @rpg_root.command(name="battle", aliases=["duel"])
 async def rpg_battle(ctx,member:discord.Member=None):
     await _rpg_delete(ctx)
-    if not member: await ctx.send("Use `!rpg battle @player`.",delete_after=6); return
+    if not member: await _rpg_action_panel(ctx,"Duel","Use `!rpg battle @player`.",False); return
     result=await bot.rpg.duel(ctx.guild.id,ctx.author.id,member.id)
-    if "error" in result: await ctx.send(result["error"],delete_after=7); return
+    if "error" in result: await _rpg_action_panel(ctx,"Duel",result["error"],False); return
     winner=ctx.guild.get_member(result["winner"]); loser=ctx.guild.get_member(result["loser"])
-    await ctx.send(f"⚔️ **Duel Complete**\nWinner: {winner.mention if winner else result['winner']}\nDefeated: {loser.mention if loser else result['loser']}\nWinner reward: **80 XP + 120 gold**")
+    e=_rpg_embed("⚔️ Duel Complete",f"**Winner:** {winner.mention if winner else result['winner']}\n**Defeated:** {loser.mention if loser else result['loser']}\n\nWinner reward: **80 XP + 120 gold**",discord.Colour.green())
+    await _rpg_panel(ctx,[e])
 
 
 @rpg_root.command(name="pet")
@@ -1910,22 +2078,24 @@ async def rpg_pet(ctx,action:str="info",item_or_name:str="",*,name:str="Spirit")
         ok,msg=await bot.rpg.pet(ctx.guild.id,ctx.author.id,action,pet_name)
     else:
         ok,msg=await bot.rpg.pet(ctx.guild.id,ctx.author.id,action,item_or_name or name)
-    await ctx.send(("🐾 " if ok else "❌ ")+msg)
+    await _rpg_action_panel(ctx, "Pet", msg, ok)
 
 
 @rpg_root.command(name="achievements", aliases=["achieve"])
 async def rpg_achievements(ctx):
-    await _rpg_delete(ctx); unlocked=await bot.rpg.achievement_list(ctx.guild.id,ctx.author.id); await ctx.send("**🏆 Achievements**\n\n"+"\n".join(f"🏅 **{ACHIEVEMENTS[k][0]}** — {ACHIEVEMENTS[k][1]}" for k,_ in unlocked) if unlocked else "**🏆 Achievements**\nNo achievements unlocked yet.")
-
-
+    await _rpg_delete(ctx)
+    unlocked=await bot.rpg.achievement_list(ctx.guild.id,ctx.author.id)
+    rows=[(k,ACHIEVEMENTS[k]) for k,_ in unlocked]
+    pages=_rpg_pages("Achievements",rows,page_size=6,icon="🏆",formatter=lambda x:f"🏅 **{x[1][0]}**\n{x[1][1]} • Reward **{x[1][2]} XP**")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="leaderboard", aliases=["lb"])
 async def rpg_leaderboard(ctx):
     await _rpg_delete(ctx)
     async with aiosqlite.connect(bot.rpg.path) as db:
-        cur=await db.execute("SELECT user_id,level,xp,gold FROM rpg_players WHERE guild_id=? ORDER BY level DESC,xp DESC LIMIT 15",(ctx.guild.id,)); rows=await cur.fetchall()
-    await ctx.send("**🏆 RPG Leaderboard**\n\n"+"\n".join(f"**{i}.** <@{uid}> — Lv {lv} • {xp} XP • {gold}g" for i,(uid,lv,xp,gold) in enumerate(rows,1)) if rows else "No RPG heroes yet.")
-
-
+        cur=await db.execute("SELECT user_id,level,xp,gold FROM rpg_players WHERE guild_id=? ORDER BY level DESC,xp DESC LIMIT 50",(ctx.guild.id,)); rows=await cur.fetchall()
+    ranked=[(i+1,*row) for i,row in enumerate(rows)]
+    pages=_rpg_pages("RPG Leaderboard",ranked,page_size=10,icon="🏆",formatter=lambda x:f"**#{x[0]}** <@{x[1]}> — **Lv {x[2]}** • {x[3]} XP • {x[4]}g")
+    await _rpg_panel(ctx,pages) if rows else await _rpg_action_panel(ctx,"RPG Leaderboard","No RPG heroes yet.",False)
 @rpg_root.command(name="list")
 async def rpg_market_list(ctx,item_key:str="",quantity:int=1,price:int=1):
     await _rpg_delete(ctx); ok,msg=await bot.rpg.create_market(ctx.guild.id,ctx.author.id,item_key,quantity,price); await ctx.send(("🏪 " if ok else "❌ ")+msg)
@@ -1934,12 +2104,11 @@ async def rpg_market_list(ctx,item_key:str="",quantity:int=1,price:int=1):
 @rpg_root.command(name="market")
 async def rpg_market(ctx):
     await _rpg_delete(ctx); rows=await bot.rpg.market(ctx.guild.id)
-    await ctx.send("**🏪 Player Market**\n\n"+"\n".join(f"`#{mid}` — <@{seller}> — `{item}` ×{qty} • {price}g each — `!rpg marketbuy {mid}`" for mid,seller,item,qty,price in rows) if rows else "**🏪 Player Market**\nNo listings yet.")
-
-
+    pages=_rpg_pages("Player Market",rows,page_size=8,icon="🏪",formatter=lambda x:f"`#{x[0]}` — <@{x[1]}>\n**{ITEMS.get(x[2],{'name':x[2]})['name']}** ×{x[3]} • **{x[4]}g each**\nBuy: `!rpg marketbuy {x[0]}`")
+    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="marketbuy")
 async def rpg_market_buy(ctx,listing_id:int=0):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.market_buy(ctx.guild.id,ctx.author.id,listing_id); await ctx.send(("🏪 " if ok else "❌ ")+msg)
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.market_buy(ctx.guild.id,ctx.author.id,listing_id); await _rpg_action_panel(ctx, "Market Purchase", msg, ok)
 
 
 # Keep the older top-level RPG shortcuts working, but route them through the real RPG engine.
