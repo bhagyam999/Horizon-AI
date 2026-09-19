@@ -4,41 +4,65 @@ Horizon is the Discord-side community core for **Log Horizon**.
 
 ## Current build
 
-This build keeps the existing AI, moderation, RPG, events, profiles, economy, dashboard bridge and server tools while expanding the Discord game layer and prefix-based AI.
+Horizon is built as a low-noise, prefix-first Discord bot. Slash commands remain available for compatibility, but everyday server interaction uses `!` commands similar to established multipurpose Discord bots.
 
 ### AI
 
-- `/ask` — ask Horizon directly
-- `/ai_status` — check Gemini connectivity
-- `/ai_models` — inspect models available to the configured Gemini key
 - `!ai <message>` — talk to Horizon anywhere in the server
-- `!h <message>` and `!horizon <message>` are aliases
-- Prefix mode replaces mention-to-chat so normal mentions stay normal Discord mentions
-- `/set_ai_channel` and `/disable_ai_channel` remain available for dedicated AI chat
+- `!h <message>` and `!horizon <message>` — aliases
+- `!ask <question>` — ask Horizon directly
+- `!aistatus` — provider status
+- `!aimodels` — available Gemini models
+- No dedicated AI channel is used. Normal mentions stay normal Discord mentions.
 
 ### Games
 
-- `!games` — compact game hub
+- `!games` — game hub
 - `!game <name>` — launch a game with one reusable game message
 - `!stop` — stop the active game
-- `!join` / `!begin` — Werewolf/Mafia lobby flow
-- `!guess <letter>` — Hangman; Horizon edits the original game message instead of posting a new board every turn
+- `!join` / `!begin` — Werewolf/Mafia lobby
+- `!guess <letter>` — Hangman; Horizon edits the original game message
 - `!rps <rock|paper|scissors>` — immediate RPS
-- `!vote @player`, `!dayend`, `!nightend` — hidden-role game controls
+- `!vote @player`, `!dayend`, `!nightend` — hidden-role controls
+- Trivia, Would You Rather and Truth or Dare use buttons where buttons are useful.
+- Mafia/Werewolf roles and night actions are sent through DMs; public game state is kept in one channel message.
 
-Games are now designed around low channel noise: prefix commands can be deleted after processing, while the bot updates one game message in place. Button-based games such as Trivia, Would You Rather and Truth or Dare keep their interactive buttons. Werewolf and Mafia use private DMs for roles and night actions, so players do not publicly see another player's role/action.
+### Server / moderation
 
-Every game launch explains what the game is and what to do next, so players do not get a dead “game started” message with no instructions.
+- `!help [category]` — categorized command guide
+- `!config show` — server configuration summary
+- `!config welcome #channel` — welcome destination
+- `!config logs #channel` — moderation-log destination
+- `!mod on|off` and `!modaction log|warn|timeout`
+- `!warn`, `!warnings`, `!clear`, `!timeout`, `!kick`, `!ban`
+- `!serverinfo`, `!userinfo`, `!avatar`, `!channelinfo`, `!permissions`
 
-### Server and moderation
+### Typed announcements
 
-- Contextual moderation and escalation handling
-- Welcome messages
-- Profiles, XP, leaderboard, inventory and daily rewards
-- Community events and event signups
-- Server announcements and configurable channels
-- `/horizon_permissions` — inspect Horizon's effective Discord permissions
-- `/horizon_settings` and `/server_stats`
+There is no fixed announcement channel command. Each announcement chooses its **type, ping and destination** when it is sent.
+
+Prefix format:
+
+`!announce <type> <ping> [#channel] | <title> | <message>`
+
+Available types include:
+
+`general` · `event` · `tournament` · `game` · `community` · `update` · `important` · `warning` · `maintenance` · `giveaway` · `news`
+
+Examples:
+
+- `!announce tournament @Tournament #events | Anigame Tournament | Sign-ups open Saturday at 8 PM IST.`
+- `!announce event none #events | Game Night | Join us tonight for community games.`
+- `!announce important @everyone | Server Update | The rules have been updated.`
+
+The same typed announcement system is available through `/announce`, with Discord's native channel picker. `@everyone`/`@here` and role pings are permission-checked.
+
+### RPG / community
+
+- `!profile`, `!character`, `!rpgroll`, `!inventory`, `!daily`, `!leaderboard`
+- `!questcreate`, `!questlist`
+- `!eventcreate`, `!eventlist`, `!eventjoin`
+- Server facts/personality: `!remember`, `!forget`, `!memories`, `!personality`
 
 ## Railway environment
 

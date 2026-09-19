@@ -3,6 +3,8 @@ import datetime
 import logging
 import os
 import random
+import re
+import shlex
 
 import discord
 from discord import app_commands
@@ -259,26 +261,6 @@ async def ask(interaction: discord.Interaction, question: str):
         await interaction.followup.send(
             f"I couldn't reach the AI right now. `{str(exc)[:300]}`"
         )
-
-
-@bot.tree.command(name="set_ai_channel", description="Make this channel Horizon AI chat.")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def set_ai_channel(interaction: discord.Interaction):
-    await bot.db.set_setting(
-        interaction.guild_id,
-        "ai_channel_id",
-        interaction.channel_id,
-    )
-    await interaction.response.send_message(
-        f"This channel (<#{interaction.channel_id}>) is now Horizon AI chat."
-    )
-
-
-@bot.tree.command(name="disable_ai_channel", description="Disable automatic AI chat.")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def disable_ai_channel(interaction: discord.Interaction):
-    await bot.db.set_setting(interaction.guild_id, "ai_channel_id", 0)
-    await interaction.response.send_message("Horizon AI chat is disabled.")
 
 
 @bot.tree.command(name="set_personality", description="Set Horizon's server personality.")
@@ -785,19 +767,6 @@ async def set_log_channel(interaction: discord.Interaction):
 
 # -------------------- Server tools --------------------
 
-@bot.tree.command(name="set_announcement_channel", description="Use this channel for announcements.")
-@app_commands.checks.has_permissions(manage_guild=True)
-async def set_announcement_channel(interaction: discord.Interaction):
-    await bot.db.set_setting(
-        interaction.guild_id,
-        "announcement_channel_id",
-        interaction.channel_id,
-    )
-    await interaction.response.send_message(
-        f"Announcements will be posted in <#{interaction.channel_id}>."
-    )
-
-
 @bot.tree.command(name="set_welcome_channel", description="Use this channel for welcome messages.")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def set_welcome_channel(interaction: discord.Interaction):
@@ -811,32 +780,102 @@ async def set_welcome_channel(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="announce", description="Post a server announcement embed.")
+ANNOUNCEMENT_TYPES = {
+    "general": ("📢", 0x5865F2),
+    "event": ("📅", 0x57F287),
+    "tournament": ("🏆", 0xFEE75C),
+    "game": ("🎮", 0x3498DB),
+    "community": ("🌌", 0x9B59B6),
+    "update": ("🔔", 0x2ECC71),
+    "important": ("🚨", 0xE74C3C),
+    "warning": ("⚠️", 0xE67E22),
+    "maintenance": ("🛠️", 0x95A5A6),
+    "giveaway": ("🎁", 0xE91E63),
+    "news": ("📰", 0x1ABC9C),
+}
+
+
+def announcement_embed(kind: str, title: str, message: str, author: str):
+    kind = kind.lower().strip()
+    icon, colour = ANNOUNCEMENT_TYPES.get(kind, ("📢", 0x5865F2))
+    pretty = kind.replace("_", " ").title()
+    embed = discord.Embed(
+        title=f"{icon} {title}",
+        description=message,
+        colour=discord.Colour(colour),
+    )
+    embed.add_field(name="Type", value=pretty, inline=True)
+    embed.set_footer(text=f"Log Horizon • Announced by {author}")
+    return embed
+
+
+def resolve_announcement_ping(guild: discord.Guild, token: str):
+    token = (token or "none").strip()
+    if token.lower() in {"none", "no", "silent"}:
+        return "", None
+    if token.lower() in {"everyone", "@everyone"}:
+        return "@everyone", "everyone"
+    if token.lower() in {"here", "@here"}:
+        return "@here", "here"
+    match = re.fullmatch(r"<@&(\d+)>", token)
+    if match:
+        role = guild.get_role(int(match.group(1)))
+        return (role.mention if role else None), role
+    match = re.fullmatch(r"<@!?(\d+)>", token)
+    if match:
+        member = guild.get_member(int(match.group(1)))
+        return (member.mention if member else None), member
+    lowered = token.lstrip("@").casefold()
+    for role in guild.roles:
+        if role.name.casefold() == lowered:
+            return role.mention, role
+    for member in guild.members:
+        if member.display_name.casefold() == lowered or member.name.casefold() == lowered:
+            return member.mention, member
+    return None, None
+
+
+@bot.tree.command(name="announce", description="Create a typed announcement with an optional ping and channel.")
+@app_commands.describe(
+    kind="general, event, tournament, game, update, important, warning, giveaway, news or maintenance",
+    title="Announcement title",
+    message="Announcement body",
+    ping="Optional @everyone, @here, role mention, member mention or none",
+    channel="Optional channel; defaults to this channel",
+)
 @app_commands.checks.has_permissions(manage_guild=True)
 async def announce(
     interaction: discord.Interaction,
+    kind: str,
     title: str,
     message: str,
+    ping: str = "none",
+    channel: discord.TextChannel | None = None,
 ):
-    settings = await bot.db.settings(interaction.guild_id)
-    channel_id = settings["announcement_channel_id"] or interaction.channel_id
-    channel = interaction.guild.get_channel(channel_id)
-
-    if not channel:
-        await interaction.response.send_message(
-            "I couldn't find the configured announcement channel."
-        )
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.")
         return
-
-    embed = discord.Embed(
-        title="📢 " + title,
-        description=message,
-    )
-    embed.set_footer(text=f"Announced by {interaction.user.display_name}")
-    await channel.send(embed=embed)
-    await interaction.response.send_message(
-        f"Announcement posted in <#{channel_id}>."
-    )
+    kind = kind.lower().strip()
+    if kind not in ANNOUNCEMENT_TYPES:
+        await interaction.response.send_message("Unknown announcement type. Use `/help announcements` for the available types.")
+        return
+    target = channel or interaction.channel
+    mention, target_obj = resolve_announcement_ping(interaction.guild, ping)
+    if ping.lower().strip() in {"@everyone", "everyone", "@here", "here"} and not interaction.user.guild_permissions.mention_everyone:
+        await interaction.response.send_message("You need the **Mention @everyone, @here, and All Roles** permission to use that ping.", ephemeral=True)
+        return
+    if isinstance(target_obj, discord.Role) and not target_obj.is_default():
+        me = interaction.guild.me
+        if not target_obj.mentionable and not (me and me.guild_permissions.manage_roles):
+            await interaction.response.send_message("That role is not mentionable and Horizon does not have Manage Roles.", ephemeral=True)
+            return
+    if mention is None:
+        await interaction.response.send_message("I couldn't resolve that ping. Use `none`, `@here`, `@everyone`, a role mention, or a member mention.", ephemeral=True)
+        return
+    embed = announcement_embed(kind, title, message, interaction.user.display_name)
+    allowed = discord.AllowedMentions(everyone=True, roles=True, users=True, replied_user=False)
+    await target.send(content=mention or None, embed=embed, allowed_mentions=allowed)
+    await interaction.response.send_message(f"{embed.title} posted in {target.mention}.", ephemeral=True)
 
 
 @bot.tree.command(name="horizon_settings", description="Show Horizon server settings.")
@@ -850,10 +889,8 @@ async def horizon_settings(interaction: discord.Interaction):
 
     await interaction.response.send_message(
         "**Horizon settings**\n"
-        f"AI channel: {channel_text('ai_channel_id')}\n"
         f"Log channel: {channel_text('log_channel_id')}\n"
         f"Welcome channel: {channel_text('welcome_channel_id')}\n"
-        f"Announcement channel: {channel_text('announcement_channel_id')}\n"
         f"Moderation: {'enabled' if settings['mod_enabled'] else 'disabled'}\n"
         f"Personality: {settings['personality'] or 'default'}"
     )
@@ -905,35 +942,16 @@ async def horizon_permissions(interaction: discord.Interaction):
 async def help_command(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🌌 Horizon Command Guide",
-        description="AI, moderation, games, RPG, events and server tools.",
+        description="Horizon uses compact `!` prefix commands for everyday server use. Slash commands remain available where useful.",
+        colour=discord.Colour.blurple(),
     )
-    embed.add_field(
-        name="AI",
-        value="`/ask` `/ai_status` `/set_ai_channel` `/disable_ai_channel` `/set_personality` `/remember` `/forget` `/memories`",
-        inline=False,
-    )
-    embed.add_field(
-        name="Games",
-        value="Prefix mode: `!games` `!game <name>` `!guess <letter>` `!join` `!begin` `!vote @user` `!stop` `!ai <message>`\nSlash mode remains available too.",
-        inline=False,
-    )
-    embed.add_field(
-        name="RPG",
-        value="`/character` `/rpg_roll` `/quest_create` `/quest_list` `/inventory`",
-        inline=False,
-    )
-    embed.add_field(
-        name="Community",
-        value="`/profile` `/leaderboard` `/daily` `/event_create` `/event_list` `/event_join`",
-        inline=False,
-    )
-    embed.add_field(
-        name="Moderation",
-        value="`/warn` `/warnings` `/mod_action` `/mod_enable` `/set_log_channel`",
-        inline=False,
-    )
+    embed.add_field(name="AI", value="`!ai <message>` `!ask <question>` `!aistatus` `!aimodels` `!personality` `!remember` `!forget` `!memories`", inline=False)
+    embed.add_field(name="Games", value="`!games` `!game <name>` `!guess <letter>` `!join` `!begin` `!vote @user` `!dayend` `!nightend` `!stop` `!rps <choice>`", inline=False)
+    embed.add_field(name="RPG / Community", value="`!profile` `!leaderboard` `!daily` `!inventory` `!character` `!rpgroll` `!questlist` `!eventlist` `!eventjoin <id>`", inline=False)
+    embed.add_field(name="Moderation", value="`!warn @user` `!warnings @user` `!mod on/off` `!modaction <log|warn|timeout>` `!clear <amount>` `!timeout @user <minutes>` `!kick @user` `!ban @user`", inline=False)
+    embed.add_field(name="Server / Announcements", value="`!announce <type> <ping> [#channel] | <title> | <message>` `!config show` `!config welcome #channel` `!config logs #channel` `!serverinfo` `!permissions`", inline=False)
+    embed.add_field(name="Help", value="`!help` or `!help <category>` — categories: `ai`, `games`, `rpg`, `moderation`, `announcements`, `server`", inline=False)
     await interaction.response.send_message(embed=embed)
-
 
 
 # -------------------- Prefix commands / compact game mode --------------------
@@ -1186,6 +1204,433 @@ async def prefix_rps(ctx, choice: str = ""):
         outcome = "LOSE"
     await ctx.send(f"**Rock Paper Scissors**\nYou chose **{choice}**. Horizon chose **{computer}**.\n\n**{outcome}!**")
 
+
+# -------------------- General prefix command system --------------------
+
+def _prefix_help_text(category: str | None = None):
+    pages = {
+        "ai": "**AI**\n`!ai <message>` — chat with Horizon\n`!ask <question>` — ask Horizon\n`!aistatus` — AI provider status\n`!aimodels` — available models\n`!personality <text>` — server personality (staff)\n`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
+        "games": "**Games**\n`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — hidden-role lobby\n`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf\n`!rps <rock|paper|scissors>` — RPS\n`!stop` — stop the current game",
+        "rpg": "**RPG / Community**\n`!profile [nickname] [preferences]`\n`!character [name] [class]`\n`!rpgroll`\n`!inventory`\n`!daily`\n`!leaderboard`\n`!questlist`\n`!eventlist` / `!eventjoin <id>`",
+        "moderation": "**Moderation**\n`!warn @user [reason]`\n`!warnings @user`\n`!mod on|off`\n`!modaction log|warn|timeout`\n`!clear <1-100>`\n`!timeout @user <minutes> [reason]`\n`!kick @user [reason]`\n`!ban @user [reason]`",
+        "announcements": "**Announcements**\n`!announce <type> <ping> [#channel] | <title> | <message>`\nTypes: `general`, `event`, `tournament`, `game`, `community`, `update`, `important`, `warning`, `maintenance`, `giveaway`, `news`\nPing: `none`, `@here`, `@everyone`, a role mention, or a member mention.\nExample: `!announce tournament @Tournament #events | Anigame Tournament | Sign-ups open Saturday at 8 PM IST.`",
+        "server": "**Server**\n`!config show`\n`!config welcome #channel`\n`!config logs #channel`\n`!config personality <text>`\n`!serverinfo`\n`!permissions`\n`!userinfo @user`\n`!avatar @user`\n`!channelinfo`",
+    }
+    if category and category.lower() in pages:
+        return pages[category.lower()]
+    return "**🌌 Horizon Prefix Commands**\n\n" + "\n\n".join(pages.values()) + "\n\nUse `!help <category>` for one section."
+
+
+@bot.command(name="help", aliases=["commands"])
+async def prefix_help(ctx, category: str = ""):
+    await _quiet_delete(ctx.message)
+    await ctx.send(_prefix_help_text(category), allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.command(name="ping")
+async def prefix_ping(ctx):
+    await _quiet_delete(ctx.message)
+    await ctx.send(f"🏓 Pong! `{round(bot.latency * 1000)} ms`", delete_after=10)
+
+
+@bot.command(name="ask")
+async def prefix_ask(ctx, *, question: str = ""):
+    await _quiet_delete(ctx.message)
+    if not question.strip():
+        await ctx.send("Use `!ask <question>`.", delete_after=6); return
+    async with ctx.typing():
+        try:
+            answer = await ai_reply(ctx.guild.id, ctx.author.id, ctx.author.display_name, question.strip())
+            for chunk in split_text(answer): await ctx.send(chunk)
+        except Exception:
+            log.exception("Prefix ask failed")
+            await ctx.send("Horizon AI is temporarily unavailable.", delete_after=8)
+
+
+@bot.command(name="aistatus", aliases=["ai_status"])
+async def prefix_ai_status(ctx):
+    await _quiet_delete(ctx.message)
+    ok, detail = await bot.ai.status()
+    await ctx.send(f"**Horizon AI:** {'Online' if ok else 'Offline'}\n{detail}", delete_after=12)
+
+
+@bot.command(name="aimodels", aliases=["ai_models"])
+async def prefix_ai_models(ctx):
+    await _quiet_delete(ctx.message)
+    try:
+        names = await bot.ai.gemini.model_names()
+        usable = [n for n in names if "gemini" in n.lower()]
+        await ctx.send("**Gemini models visible to Horizon:**\n" + ("\n".join(f"• `{n}`" for n in usable[:40]) or "No Gemini models returned."))
+    except Exception:
+        await ctx.send("I couldn't retrieve the model list right now.", delete_after=8)
+
+
+@bot.command(name="personality")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_personality(ctx, *, personality: str = ""):
+    await _quiet_delete(ctx.message)
+    if not personality.strip():
+        await ctx.send("Use `!personality <how Horizon should behave>`.", delete_after=6); return
+    await bot.db.set_setting(ctx.guild.id, "personality", personality.strip())
+    await ctx.send("Horizon server personality updated.", delete_after=7)
+
+
+@bot.command(name="remember")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_remember(ctx, *, fact: str = ""):
+    await _quiet_delete(ctx.message)
+    if not fact.strip():
+        await ctx.send("Use `!remember <server fact>`.", delete_after=6); return
+    await bot.db.add_memory(ctx.guild.id, fact.strip(), ctx.author.id)
+    await ctx.send("Saved to Horizon server knowledge.", delete_after=7)
+
+
+@bot.command(name="forget")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_forget(ctx, memory_id: int = 0):
+    await _quiet_delete(ctx.message)
+    removed = await bot.db.delete_memory(ctx.guild.id, memory_id)
+    await ctx.send("Memory removed." if removed else "Memory not found.", delete_after=7)
+
+
+@bot.command(name="memories")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_memories(ctx):
+    await _quiet_delete(ctx.message)
+    rows = await bot.db.memories(ctx.guild.id, 50)
+    text = "\n".join(f"`{row[0]}` — {row[1]}" for row in rows) or "No memories saved."
+    await ctx.send(text[:4000])
+
+
+@bot.command(name="profile")
+async def prefix_profile(ctx, nickname: str = None, *, preferences: str = None):
+    await _quiet_delete(ctx.message)
+    if nickname is not None or preferences is not None:
+        await bot.db.set_profile(ctx.guild.id, ctx.author.id, nickname, preferences)
+    data = await bot.db.profile(ctx.guild.id, ctx.author.id)
+    await ctx.send(f"**{ctx.author.display_name}**\nNickname: {data['nickname'] or '—'}\nPreferences: {data['preferences'] or '—'}\nLevel: {level_for(data['xp'])} | XP: {data['xp']} | Coins: {data['coins']}")
+
+
+@bot.command(name="leaderboard", aliases=["lb"])
+async def prefix_leaderboard(ctx):
+    await _quiet_delete(ctx.message)
+    rows = await bot.db.leaderboard(ctx.guild.id)
+    lines = [f"**{i}.** <@{uid}> — Lv {level_for(xp)} | {xp} XP | {coins} coins" for i,(uid,xp,coins) in enumerate(rows,1)]
+    await ctx.send("\n".join(lines) or "No XP has been earned yet.")
+
+
+@bot.command(name="inventory", aliases=["inv"])
+async def prefix_inventory(ctx):
+    await _quiet_delete(ctx.message)
+    rows = await bot.db.inventory(ctx.guild.id, ctx.author.id)
+    await ctx.send("\n".join(f"• {item} × {qty}" for item,qty in rows) or "Inventory is empty.")
+
+
+@bot.command(name="daily")
+async def prefix_daily(ctx):
+    await _quiet_delete(ctx.message)
+    if await bot.db.is_cooldown(ctx.guild.id, ctx.author.id, "daily"):
+        await ctx.send("You already claimed your daily reward.", delete_after=6); return
+    await bot.db.cooldown(ctx.guild.id, ctx.author.id, "daily", 86400)
+    data = await bot.db.add_xp(ctx.guild.id, ctx.author.id, 50, 100)
+    await ctx.send(f"🎁 **100 coins** and **50 XP** claimed. Level **{level_for(data['xp'])}**!")
+
+
+@bot.command(name="rpgroll", aliases=["rpg_roll", "roll"])
+async def prefix_rpg_roll(ctx):
+    await _quiet_delete(ctx.message)
+    await ctx.send(f"🎲 **{ctx.author.display_name}** rolled **{random.randint(1,20)}/20**.")
+
+
+@bot.command(name="character")
+async def prefix_character(ctx, name: str = None, role: str = None):
+    await _quiet_delete(ctx.message)
+    data = await bot.db.profile(ctx.guild.id, ctx.author.id)
+    if name or role:
+        prefs = data["preferences"] or ""
+        if role:
+            prefs = prefs.split(" | RPG class:")[0] + f" | RPG class: {role}"
+        await bot.db.set_profile(ctx.guild.id, ctx.author.id, name or data["nickname"], prefs)
+        data = await bot.db.profile(ctx.guild.id, ctx.author.id)
+    await ctx.send(f"**{data['nickname'] or ctx.author.display_name}**\nLevel {level_for(data['xp'])} | XP {data['xp']}\n{data['preferences'] or 'No class chosen.'}")
+
+
+@bot.command(name="questlist", aliases=["quest_list"])
+async def prefix_quest_list(ctx):
+    await _quiet_delete(ctx.message)
+    rows = await bot.db.quests(ctx.guild.id)
+    await ctx.send("\n".join(f"`#{qid}` **{title}** — {description} ({xp} XP, {coins} coins)" for qid,title,description,xp,coins in rows) or "No quests yet.")
+
+
+@bot.command(name="questcreate", aliases=["quest_create"])
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_quest_create(ctx, title: str = "", *, details: str = ""):
+    await _quiet_delete(ctx.message)
+    parts = [part.strip() for part in details.split("|")]
+    if not title.strip() or not parts or not parts[0]:
+        await ctx.send("Format: `!questcreate <title> | <description> | <xp> | <coins>`", delete_after=8); return
+    description = parts[0]
+    try: reward_xp = max(0, int(parts[1])) if len(parts) > 1 and parts[1] else 100
+    except ValueError: reward_xp = 100
+    try: reward_coins = max(0, int(parts[2])) if len(parts) > 2 and parts[2] else 50
+    except ValueError: reward_coins = 50
+    quest_id = await bot.db.create_quest(ctx.guild.id, title.strip(), description, reward_xp, reward_coins, ctx.author.id)
+    await ctx.send(f"📜 Quest **{title.strip()}** created as `#{quest_id}` — {reward_xp} XP / {reward_coins} coins.")
+
+
+@bot.command(name="eventcreate", aliases=["event_create"])
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_event_create(ctx, title: str = "", *, details: str = ""):
+    await _quiet_delete(ctx.message)
+    parts = [part.strip() for part in details.split("|")]
+    if not title.strip() or len(parts) < 2:
+        await ctx.send("Format: `!eventcreate <title> | <when> | <description>`", delete_after=8); return
+    event_id = await bot.db.create_event(ctx.guild.id, ctx.channel.id, title.strip(), parts[1], parts[0], ctx.author.id)
+    embed = discord.Embed(title="📅 " + title.strip(), description=parts[1], colour=discord.Colour.blurple())
+    embed.add_field(name="When", value=parts[0])
+    embed.set_footer(text=f"Event #{event_id} • !eventjoin {event_id}")
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="eventlist", aliases=["event_list"])
+async def prefix_event_list(ctx):
+    await _quiet_delete(ctx.message)
+    rows = await bot.db.events(ctx.guild.id)
+    await ctx.send("\n".join(f"`#{eid}` **{title}** — {starts}\n{desc}" for eid,title,desc,starts,_,_ in rows) or "No events yet.")
+
+
+@bot.command(name="eventjoin", aliases=["event_join"])
+async def prefix_event_join(ctx, event_id: int = 0):
+    await _quiet_delete(ctx.message)
+    await bot.db.signup(event_id, ctx.author.id)
+    await ctx.send(f"{ctx.author.mention} joined event `#{event_id}`.", delete_after=7)
+
+
+@bot.command(name="warn")
+@commands.has_guild_permissions(manage_messages=True)
+async def prefix_warn(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
+    await _quiet_delete(ctx.message)
+    if not member:
+        await ctx.send("Use `!warn @user [reason]`.", delete_after=6); return
+    data = await bot.db.add_warning(ctx.guild.id, member.id, ctx.author.id, reason)
+    await ctx.send(f"{member.mention} warned. Total warnings: **{data['warnings']}**.")
+
+
+@bot.command(name="warnings")
+@commands.has_guild_permissions(manage_messages=True)
+async def prefix_warnings(ctx, member: discord.Member = None):
+    await _quiet_delete(ctx.message)
+    if not member:
+        await ctx.send("Use `!warnings @user`.", delete_after=6); return
+    rows = await bot.db.warnings(ctx.guild.id, member.id)
+    await ctx.send("\n".join(f"`#{wid}` <@{mid}> — {reason} ({created})" for wid,mid,reason,created in rows) or "No warnings recorded.")
+
+
+@bot.command(name="mod")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_mod(ctx, state: str = ""):
+    await _quiet_delete(ctx.message)
+    state = state.lower().strip()
+    if state not in {"on", "off"}:
+        settings = await bot.db.settings(ctx.guild.id)
+        await ctx.send(f"Contextual moderation is **{'on' if settings['mod_enabled'] else 'off'}**. Use `!mod on` or `!mod off`.", delete_after=8); return
+    await bot.db.set_setting(ctx.guild.id, "mod_enabled", 1 if state == "on" else 0)
+    await ctx.send(f"Contextual moderation is now **{state}**.", delete_after=7)
+
+
+@bot.command(name="modaction")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_mod_action(ctx, action: str = ""):
+    await _quiet_delete(ctx.message)
+    action = action.lower().strip()
+    if action not in {"log","warn","timeout"}:
+        await ctx.send("Use `!modaction log`, `!modaction warn`, or `!modaction timeout`.", delete_after=7); return
+    await bot.db.set_setting(ctx.guild.id, "mod_action", {"log":0,"warn":1,"timeout":2}[action])
+    await ctx.send(f"Severe-escalation moderation action set to **{action}**.", delete_after=7)
+
+
+@bot.command(name="clear", aliases=["purge"])
+@commands.has_guild_permissions(manage_messages=True)
+async def prefix_clear(ctx, amount: int = 0):
+    if amount < 1 or amount > 100:
+        await _quiet_delete(ctx.message)
+        await ctx.send("Use `!clear 1-100`.", delete_after=6); return
+    try:
+        deleted = await ctx.channel.purge(limit=amount + 1)
+        notice = await ctx.send(f"🧹 Deleted **{max(0, len(deleted)-1)}** messages.", delete_after=4)
+    except discord.Forbidden:
+        await ctx.send("I need **Manage Messages** to clear messages.", delete_after=7)
+
+
+@bot.command(name="timeout")
+@commands.has_guild_permissions(moderate_members=True)
+async def prefix_timeout(ctx, member: discord.Member = None, minutes: int = 10, *, reason: str = "No reason provided"):
+    await _quiet_delete(ctx.message)
+    if not member:
+        await ctx.send("Use `!timeout @user <minutes> [reason]`.", delete_after=7); return
+    if minutes < 1 or minutes > 40320:
+        await ctx.send("Minutes must be between 1 and 40320.", delete_after=7); return
+    try:
+        await member.timeout(datetime.timedelta(minutes=minutes), reason=reason)
+        await ctx.send(f"⏳ {member.mention} timed out for **{minutes} minutes**.")
+    except discord.Forbidden:
+        await ctx.send("I can't timeout that member. Check my role position and Moderate Members permission.", delete_after=8)
+
+
+@bot.command(name="kick")
+@commands.has_guild_permissions(kick_members=True)
+async def prefix_kick(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
+    await _quiet_delete(ctx.message)
+    if not member: await ctx.send("Use `!kick @user [reason]`.", delete_after=6); return
+    try:
+        await member.kick(reason=reason); await ctx.send(f"👢 {member.mention} was kicked.")
+    except discord.Forbidden: await ctx.send("I can't kick that member. Check my role position and Kick Members permission.", delete_after=8)
+
+
+@bot.command(name="ban")
+@commands.has_guild_permissions(ban_members=True)
+async def prefix_ban(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
+    await _quiet_delete(ctx.message)
+    if not member: await ctx.send("Use `!ban @user [reason]`.", delete_after=6); return
+    try:
+        await member.ban(reason=reason); await ctx.send(f"🔨 {member.mention} was banned.")
+    except discord.Forbidden: await ctx.send("I can't ban that member. Check my role position and Ban Members permission.", delete_after=8)
+
+
+@bot.command(name="userinfo", aliases=["user"])
+async def prefix_userinfo(ctx, member: discord.Member = None):
+    await _quiet_delete(ctx.message)
+    member = member or ctx.author
+    roles = ", ".join(r.mention for r in member.roles[1:][-10:]) or "None"
+    await ctx.send(f"**{member.display_name}**\nID: `{member.id}`\nCreated: {discord.utils.format_dt(member.created_at, 'R')}\nJoined: {discord.utils.format_dt(member.joined_at, 'R') if member.joined_at else 'Unknown'}\nRoles: {roles}")
+
+
+@bot.command(name="avatar")
+async def prefix_avatar(ctx, member: discord.Member = None):
+    await _quiet_delete(ctx.message)
+    member = member or ctx.author
+    embed = discord.Embed(title=f"{member.display_name}'s avatar", colour=discord.Colour.blurple())
+    embed.set_image(url=member.display_avatar.url)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name="serverinfo", aliases=["server"])
+async def prefix_serverinfo(ctx):
+    await _quiet_delete(ctx.message)
+    g = ctx.guild
+    await ctx.send(f"**{g.name}**\nMembers: **{g.member_count}**\nChannels: **{len(g.channels)}**\nRoles: **{len(g.roles)-1}**\nCreated: {discord.utils.format_dt(g.created_at, 'R')}\nOwner: <@{g.owner_id}>")
+
+
+@bot.command(name="channelinfo")
+async def prefix_channelinfo(ctx):
+    await _quiet_delete(ctx.message)
+    c = ctx.channel
+    await ctx.send(f"**#{getattr(c,'name','DM')}**\nID: `{c.id}`\nType: `{c.type}`\nCreated: {discord.utils.format_dt(c.created_at, 'R')}")
+
+
+@bot.command(name="permissions")
+async def prefix_permissions(ctx):
+    await _quiet_delete(ctx.message)
+    me = ctx.guild.me
+    if not me:
+        await ctx.send("I couldn't inspect my permissions here.", delete_after=6); return
+    perms = me.guild_permissions
+    important = {"Administrator":perms.administrator,"Manage Server":perms.manage_guild,"Manage Messages":perms.manage_messages,"Moderate Members":perms.moderate_members,"Manage Roles":perms.manage_roles,"Send Messages":perms.send_messages,"Embed Links":perms.embed_links,"Read Message History":perms.read_message_history,"Mention Everyone":perms.mention_everyone}
+    await ctx.send("**Horizon Permission Check**\n" + "\n".join(f"{'✅' if v else '❌'} **{k}**" for k,v in important.items()))
+
+
+@bot.group(name="config", invoke_without_command=True)
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_config(ctx):
+    await _quiet_delete(ctx.message)
+    settings = await bot.db.settings(ctx.guild.id)
+    def ch(k): return f"<#{settings[k]}>" if settings[k] else "off"
+    await ctx.send(f"**Horizon Config**\nWelcome: {ch('welcome_channel_id')}\nLogs: {ch('log_channel_id')}\nModeration: {'on' if settings['mod_enabled'] else 'off'}\nMod action: {['log','warn','timeout'][settings['mod_action']]}\nUse `!config welcome #channel`, `!config logs #channel`, or `!config show`.\nAI channels are not used; use `!ai <message>`.\nAnnouncements choose their channel and ping directly.")
+
+
+@prefix_config.command(name="show")
+async def config_show(ctx):
+    await _quiet_delete(ctx.message)
+    settings = await bot.db.settings(ctx.guild.id)
+    def ch(k): return f"<#{settings[k]}>" if settings[k] else "off"
+    await ctx.send(f"**Horizon Config**\nWelcome: {ch('welcome_channel_id')}\nLogs: {ch('log_channel_id')}\nModeration: {'on' if settings['mod_enabled'] else 'off'}\nMod action: {['log','warn','timeout'][settings['mod_action']]}\nAI channels: not used\nAnnouncements: choose type, ping and channel per announcement.")
+
+
+@prefix_config.command(name="welcome")
+async def config_welcome(ctx, channel: discord.TextChannel = None):
+    await _quiet_delete(ctx.message)
+    channel = channel or ctx.channel
+    await bot.db.set_setting(ctx.guild.id, "welcome_channel_id", channel.id)
+    await ctx.send(f"Welcome messages will be posted in {channel.mention}.", delete_after=7)
+
+
+@prefix_config.command(name="logs")
+async def config_logs(ctx, channel: discord.TextChannel = None):
+    await _quiet_delete(ctx.message)
+    channel = channel or ctx.channel
+    await bot.db.set_setting(ctx.guild.id, "log_channel_id", channel.id)
+    await ctx.send(f"Moderation logs will be posted in {channel.mention}.", delete_after=7)
+
+
+@prefix_config.command(name="personality")
+async def config_personality(ctx, *, personality: str = ""):
+    await _quiet_delete(ctx.message)
+    if not personality.strip():
+        await ctx.send("Use `!config personality <text>`.", delete_after=6); return
+    await bot.db.set_setting(ctx.guild.id, "personality", personality.strip())
+    await ctx.send("Horizon personality updated.", delete_after=7)
+
+
+@bot.command(name="announce")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_announce(ctx, kind: str = "", ping: str = "none", *, raw: str = ""):
+    """Typed announcements: !announce <type> <ping> [#channel] | <title> | <message>."""
+    await _quiet_delete(ctx.message)
+    if kind.lower() not in ANNOUNCEMENT_TYPES:
+        await ctx.send("Use `!help announcements` for announcement types and examples.", delete_after=10); return
+    parts = [part.strip() for part in raw.split("|")]
+    if len(parts) < 2:
+        await ctx.send("Format: `!announce <type> <ping> [#channel] | <title> | <message>`", delete_after=10); return
+    title, message = parts[0], " | ".join(parts[1:])
+    target = ctx.channel
+    # Optional channel is accepted as the first token of ping, e.g. `#events`.
+    channel_token = ping
+    if channel_token.startswith("<#") and channel_token.endswith(">"):
+        try:
+            channel_id = int(channel_token[2:-1])
+            candidate = ctx.guild.get_channel(channel_id)
+            if isinstance(candidate, discord.TextChannel):
+                target = candidate
+                ping = "none"
+        except ValueError:
+            pass
+    # More ergonomic form: `!announce event @role #events | title | body`
+    if raw.startswith("#"):
+        first, _, remainder = raw.partition(" ")
+        if first.startswith("<#"):
+            try:
+                candidate = ctx.guild.get_channel(int(first[2:-1]))
+                if isinstance(candidate, discord.TextChannel):
+                    target = candidate
+                    parts = [part.strip() for part in remainder.split("|")]
+                    if len(parts) >= 2:
+                        title, message = parts[0], " | ".join(parts[1:])
+            except ValueError:
+                pass
+    mention, target_obj = resolve_announcement_ping(ctx.guild, ping)
+    if ping.lower() in {"@everyone","everyone","@here","here"} and not ctx.author.guild_permissions.mention_everyone:
+        await ctx.send("You need the Mention Everyone permission for that ping.", delete_after=8); return
+    if isinstance(target_obj, discord.Role) and not target_obj.is_default():
+        me = ctx.guild.me
+        if not target_obj.mentionable and not (me and me.guild_permissions.manage_roles):
+            await ctx.send("That role isn't mentionable and Horizon doesn't have Manage Roles.", delete_after=8); return
+    if mention is None:
+        await ctx.send("I couldn't resolve that ping. Use `none`, `@here`, `@everyone`, a role mention, or a member mention.", delete_after=8); return
+    embed = announcement_embed(kind, title, message, ctx.author.display_name)
+    await target.send(content=mention or None, embed=embed, allowed_mentions=discord.AllowedMentions(everyone=True, roles=True, users=True))
+    await ctx.send(f"{embed.title} posted in {target.mention}.", delete_after=7)
+
+
 async def start_hidden_role_game(channel, session, players):
     key = session["key"]
     random.shuffle(players)
@@ -1365,30 +1810,28 @@ async def on_message(message: discord.Message):
                 except discord.HTTPException:
                     log.exception("Could not timeout member.")
 
-        if (
-            settings["ai_channel_id"]
-            and message.channel.id == settings["ai_channel_id"]
-        ):
-            async with message.channel.typing():
-                try:
-                    answer = await ai_reply(
-                        message.guild.id,
-                        message.author.id,
-                        message.author.display_name,
-                        message.content,
-                    )
-                    for chunk in split_text(answer):
-                        await message.reply(chunk, mention_author=False)
-                except Exception:
-                    log.exception("AI channel failed.")
-                    await message.reply(
-                        "My AI connection is temporarily unavailable. "
-                        "Try `/ask` again in a moment.",
-                        mention_author=False,
-                    )
-
     # Keep command processing alive when on_message is overridden.
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("You don't have permission to use that command.", delete_after=6)
+        return
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"Missing argument. Use `!help` to see the command format.", delete_after=7)
+        return
+    if isinstance(error, commands.BadArgument):
+        await ctx.send("I couldn't understand one of those arguments. Use `!help` for the format.", delete_after=7)
+        return
+    log.exception("Prefix command error", exc_info=error)
+    try:
+        await ctx.send("Something went wrong while running that command.", delete_after=7)
+    except discord.HTTPException:
+        pass
 
 
 @bot.tree.error

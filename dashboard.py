@@ -184,7 +184,7 @@ Current user: Website visitor
                 f"<p>AI: {'configured' if self.bot.ai.enabled else 'offline'}</p>"
                 f"<p>Provider: {self.bot.ai.provider_name}</p>"
                 f"<p>Model: {self.bot.ai.model}</p>"
-                "<p>Use Discord slash commands to configure Horizon.</p>"
+                "<p>Use Horizon <b>!</b> prefix commands for everyday server controls. AI channels are not used; announcements choose their type, ping and channel per message.</p>"
                 "</body></html>"
             ),
             content_type="text/html",
