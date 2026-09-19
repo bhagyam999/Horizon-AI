@@ -20,7 +20,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
-from rpg import RPGService, RACES, CLASSES, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES
+from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, LIFE_PATHS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
@@ -1323,6 +1323,75 @@ def _rpg_embed(title, description=""):
     return discord.Embed(title=title, description=description, colour=discord.Colour.blurple())
 
 
+def _combat_embed(state, result=None):
+    enemy=state["enemy"]
+    hp=max(0,state["player_hp"]); ehp=max(0,state["enemy_hp"])
+    bar_len=14
+    pbar="█"*max(0,min(bar_len,int(bar_len*hp/max(1,100))))
+    ebar="█"*max(0,min(bar_len,int(bar_len*ehp/max(1,enemy["hp"]))))
+    mode="🏰 Dungeon" if state["mode"]=="dungeon" else "🗺️ Adventure"
+    floor=f" • Floor {state['floor']}/{state['floors']}" if state["mode"]=="dungeon" else ""
+    desc=f"**{mode}{floor}**\n\n⚔️ **{enemy['name']}** Lv {enemy['level']}\n`{ebar}` **{ehp} HP**\n\n❤️ **You**\n`{pbar}` **{hp} HP**\n\n" + "\n".join(f"• {line}" for line in state["log"][-6:])
+    if result and result.get("finished"):
+        if result.get("win"):
+            desc += f"\n\n🏆 **Victory!** +{result.get('xp',0)} XP • +{result.get('gold',0)} gold • **{ITEMS.get(result.get('drop'),{'name':result.get('drop','loot')})['name']}**"
+            if result.get("level_after",0)>result.get("level_before",0):
+                desc += f"\n✨ **LEVEL UP!** Level {result['level_before']} → **{result['level_after']}**"
+        elif result.get("fled"):
+            desc += "\n\n🏃 **You escaped.**"
+        else:
+            desc += "\n\n💀 **Defeated.** You survived with 1 HP. Rest before trying again."
+    return _rpg_embed(f"⚔️ {state['name']}", desc)
+
+
+class RPGCombatView(discord.ui.View):
+    def __init__(self, ctx, state):
+        super().__init__(timeout=180)
+        self.ctx=ctx
+        self.state=state
+        self.message=None
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id!=self.ctx.author.id:
+            await interaction.response.send_message("This battle belongs to another hero.", ephemeral=True)
+            return False
+        return True
+
+    async def _act(self, interaction, action):
+        result=await bot.rpg.combat_action(self.ctx.guild.id,self.ctx.author.id,action)
+        if result.get("error"):
+            await interaction.response.send_message(result["error"], ephemeral=True)
+            return
+        self.state=result.get("state",self.state)
+        if result.get("finished"):
+            for child in self.children: child.disabled=True
+            await interaction.response.edit_message(embed=_combat_embed(self.state,result),view=self)
+            self.stop()
+            return
+        await interaction.response.edit_message(embed=_combat_embed(self.state),view=self)
+
+    @discord.ui.button(label="Attack",emoji="⚔️",style=discord.ButtonStyle.primary)
+    async def attack(self,interaction,button): await self._act(interaction,"attack")
+
+    @discord.ui.button(label="Skill",emoji="✨",style=discord.ButtonStyle.success)
+    async def skill(self,interaction,button): await self._act(interaction,"skill")
+
+    @discord.ui.button(label="Potion/Food",emoji="🧪",style=discord.ButtonStyle.secondary)
+    async def potion(self,interaction,button): await self._act(interaction,"potion")
+
+    @discord.ui.button(label="Defend",emoji="🛡️",style=discord.ButtonStyle.secondary)
+    async def defend(self,interaction,button): await self._act(interaction,"defend")
+
+    @discord.ui.button(label="Flee",emoji="🏃",style=discord.ButtonStyle.danger)
+    async def flee(self,interaction,button): await self._act(interaction,"flee")
+
+    async def on_timeout(self):
+        for child in self.children: child.disabled=True
+        if self.message:
+            try: await self.message.edit(view=self)
+            except Exception: pass
+
+
 @bot.group(name="rpg", invoke_without_command=True)
 async def rpg_root(ctx):
     await _rpg_delete(ctx)
@@ -1332,14 +1401,13 @@ async def rpg_root(ctx):
         "**🌌 HORIZON RPG**\n\n"
         "A persistent multiplayer RPG for Log Horizon.\n"
         "`!rpg start <name> <race> <class>` — create your hero\n"
-        "`!rpg profile` — character sheet\n"
-        "`!rpg adventure` — fight and explore\n"
-        "`!rpg quests` — quest board\n"
-        "`!rpg party create <name>` — build a team\n"
-        "`!rpg guild create <name>` — found a guild\n"
-        "`!rpg dungeon` — enter a dungeon\n"
-        "`!rpg shop` / `!rpg craft` / `!rpg market` — economy\n"
-        "`!rpg pet` / `!rpg achievements` / `!rpg leaderboard`\n\n"
+        "`!rpg profile` — full character sheet\n"
+        "`!rpg adventure` — **interactive battle**\n"
+        "`!rpg dungeon` — **floor-by-floor interactive dungeon**\n"
+        "`!rpg change` / `!rpg evolve` — reshape your build\n"
+        "`!rpg quests` / `!rpg party` / `!rpg guild` — build your life with others\n"
+        "`!rpg kingdom` — become a **King, Duke, Knight, Citizen or Outlaw**\n"
+        "`!rpg items` / `!rpg eggs` / `!rpg pet` — collect hundreds of items and companions\n\n"
         "Use `!rpg help` for the full command map."
     )
 
@@ -1349,20 +1417,20 @@ async def rpg_help(ctx):
     await _rpg_delete(ctx)
     await ctx.send(
         "**🌌 Horizon RPG Command Map**\n\n"
-        "**Hero**\n"
-        "`!rpg start <name> <race> <class>` `!rpg profile` `!rpg stats` `!rpg classes` `!rpg races` `!rpg rest`\n\n"
-        "**Adventure**\n"
-        "`!rpg adventure` `!rpg hunt` `!rpg dungeon [name]` `!rpg battle @user`\n\n"
-        "**Quests**\n"
-        "`!rpg quests` `!rpg quest <id>` `!rpg claim <id>`\n\n"
-        "**Teams**\n"
-        "`!rpg party create <name>` `!rpg party join <id>` `!rpg party info [id]` `!rpg party leave`\n\n"
-        "**Guilds**\n"
-        "`!rpg guild list` `!rpg guild create <name>` `!rpg guild join <name>` `!rpg guild info [name]` `!rpg guild deposit <gold>` `!rpg guild upgrade`\n\n"
-        "**Economy**\n"
-        "`!rpg inventory` `!rpg equip <item>` `!rpg shop` `!rpg buy <item> [qty]` `!rpg sell <item> [qty]` `!rpg recipes` `!rpg craft <item> [qty]` `!rpg market` `!rpg list <item> <qty> <price>` `!rpg marketbuy <id>`\n\n"
-        "**Life & Progression**\n"
-        "`!rpg daily` `!rpg gather` `!rpg fish` `!rpg mine` `!rpg pet adopt <name>` `!rpg achievements` `!rpg leaderboard`"
+        "**Hero & Progression**\n"
+        "`!rpg start <name> <race> <class>` `!rpg profile` `!rpg stats` `!rpg races` `!rpg subraces` `!rpg classes` `!rpg subclasses`\n"
+        "`!rpg change race|subrace|class|subclass|path|evolution <name>` `!rpg paths` `!rpg evolve` `!rpg spend <stat> [points]`\n\n"
+        "**World & Combat**\n"
+        "`!rpg adventure` — interactive combat `!rpg areas` `!rpg travel <area>` `!rpg dungeons` `!rpg dungeon [name]`\n"
+        "Battles use buttons: **Attack / Skill / Potion / Defend / Flee** and update one message.\n\n"
+        "**Quests & Teams**\n"
+        "`!rpg quests` `!rpg quest <id>` `!rpg claim <id>` `!rpg party create <name>` `!rpg party join <id>` `!rpg party dungeon`\n\n"
+        "**Guilds & Kingdoms**\n"
+        "`!rpg guild ...` `!rpg kingdom list` `!rpg kingdom create <name>` `!rpg kingdom join <name>` `!rpg kingdom info`\n"
+        "`!rpg kingdom appoint @user <duke|count|knight|citizen|outlaw>` — build your court.\n\n"
+        "**Life & Economy**\n"
+        "`!rpg inventory` `!rpg shop` `!rpg craft` `!rpg market` `!rpg gather` `!rpg fish` `!rpg mine` `!rpg daily` `!rpg rest`\n"
+        "`!rpg pet adopt` `!rpg pet hatch <egg>` `!rpg achievements` `!rpg leaderboard` `!rpg bounty post <target> <gold>`"
     )
 
 
@@ -1370,7 +1438,7 @@ async def rpg_help(ctx):
 async def rpg_start(ctx, name: str = "", race: str = "human", class_name: str = "warrior"):
     await _rpg_delete(ctx)
     if not name:
-        await ctx.send("Use `!rpg start <name> <race> <class>`.\nRaces: `human`, `elf`, `dwarf`, `orc`, `kitsune`.\nClasses: `warrior`, `mage`, `rogue`, `ranger`, `paladin`, `summoner`.", delete_after=10); return
+        await ctx.send("Use `!rpg start <name> <race> <class>`.\nSee `!rpg races` and `!rpg classes` for the expanded choices.", delete_after=10); return
     try:
         ok, text = await bot.rpg.create_player(ctx.guild.id, ctx.author.id, name, race, class_name)
     except ValueError:
@@ -1392,6 +1460,79 @@ async def rpg_races(ctx):
     await ctx.send("**🧬 Races**\n\n"+"\n".join(lines))
 
 
+@rpg_root.command(name="subraces")
+async def rpg_subraces(ctx, *, race: str = ""):
+    await _rpg_delete(ctx)
+    race=race.lower().strip()
+    rows=[(k,v) for k,v in SUBRACES.items() if not race or v[0]==race]
+    if not rows:
+        await ctx.send("No matching subraces. Use `!rpg subraces <race>` or check `!rpg races`.",delete_after=7); return
+    await ctx.send("**🧬 Subraces**\n\n"+"\n".join(f"**{k.replace('_',' ').title()}** → {parent.title()} • HP {v['hp']:+} ATK {v['atk']:+} DEF {v['def']:+} SPD {v['spd']:+} Crit {v['crit']:+}%" for k,(parent,v) in rows))
+
+
+@rpg_root.command(name="subclasses")
+async def rpg_subclasses(ctx, *, class_name: str = ""):
+    await _rpg_delete(ctx)
+    class_name=class_name.lower().strip()
+    rows=[(k,v) for k,v in SUBCLASSES.items() if not class_name or v[0]==class_name]
+    if not rows:
+        await ctx.send("No matching subclasses. Use `!rpg subclasses <class>` or `!rpg classes`.",delete_after=7); return
+    await ctx.send("**⚔️ Subclasses (Level 10+)**\n\n"+"\n".join(f"**{k.replace('_',' ').title()}** → {parent.title()} — {desc}" for k,(parent,desc,_) in rows))
+
+
+@rpg_root.command(name="paths")
+async def rpg_paths(ctx):
+    await _rpg_delete(ctx)
+    await ctx.send("**🧭 Life Paths**\n\n"+"\n".join(f"**{k.title()}** — {v}" for k,v in LIFE_PATHS.items()))
+
+
+@rpg_root.command(name="change")
+async def rpg_change(ctx, kind: str = "", *, value: str = ""):
+    await _rpg_delete(ctx)
+    if not kind or not value:
+        await ctx.send("Use `!rpg change <race|subrace|class|subclass|path|evolution> <name>`.",delete_after=8); return
+    ok,msg=await bot.rpg.change_identity(ctx.guild.id,ctx.author.id,kind,value)
+    await ctx.send(("🔄 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="evolve")
+async def rpg_evolve(ctx, *, evolution: str = ""):
+    await _rpg_delete(ctx)
+    p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
+    if not p:
+        await ctx.send("Create a hero first.",delete_after=7); return
+    available=[(lvl,name) for lvl,name in CLASS_EVOLUTIONS.get(p["class_name"],[]) if p["level"]>=lvl]
+    if not evolution:
+        if not available:
+            next_req=CLASS_EVOLUTIONS.get(p["class_name"],[(20,"evolution")])[0][0]
+            await ctx.send(f"Your next evolution unlocks at level **{next_req}**.",delete_after=8); return
+        await ctx.send("**✨ Available Evolutions**\n"+"\n".join(f"• `{name}` — unlocked at level {lvl}" for lvl,name in available)); return
+    ok,msg=await bot.rpg.change_identity(ctx.guild.id,ctx.author.id,"evolution",evolution)
+    await ctx.send(("✨ " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="spend")
+async def rpg_spend(ctx, stat: str = "", points: int = 1):
+    await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.spend_stat(ctx.guild.id,ctx.author.id,stat,points)
+    await ctx.send(("📈 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="areas")
+async def rpg_areas(ctx):
+    await _rpg_delete(ctx)
+    await ctx.send("**🗺️ World Atlas**\n\n"+"\n".join(f"`{k}` — **{v['name']}** • Lv {v['level']}+ • {v['type'].title()}\n{v['desc']}" for k,v in AREAS.items()))
+
+
+@rpg_root.command(name="travel")
+async def rpg_travel(ctx, *, area: str = ""):
+    await _rpg_delete(ctx)
+    if not area:
+        await ctx.send("Use `!rpg travel <area_key>`. See `!rpg areas`.",delete_after=7); return
+    ok,msg=await bot.rpg.travel(ctx.guild.id,ctx.author.id,area)
+    await ctx.send(("🧭 " if ok else "❌ ")+msg)
+
+
 @rpg_root.command(name="profile", aliases=["character", "sheet"])
 async def rpg_profile(ctx):
     await _rpg_delete(ctx)
@@ -1402,9 +1543,12 @@ async def rpg_profile(ctx):
     xp_next=100*p['level']*p['level']
     await ctx.send(embed=_rpg_embed(f"⚔️ {p['name']}",
         f"**Level {p['level']} {p['race'].title()} {p['class_name'].title()}** • {p['title']}\n"
-        f"XP **{p['xp']}/{xp_next}** • Gold **{p['gold']}** • Prestige **{p['prestige']}**\n"
-        f"HP **{p['hp']+b['hp']}/{p['max_hp']+b['hp']}** • MP **{p['mp']+b['mp']}/{p['max_mp']+b['mp']}** • Stamina **{p['stamina']}/100**\n\n"
+        f"Subrace: **{p.get('subrace') or 'None'}** • Subclass: **{p.get('subclass') or 'None'}** • Evolution: **{p.get('evolution') or 'None'}**\n"
+        f"Path: **{p.get('life_path','adventurer').title()}** • Kingdom: **{p.get('kingdom_name') or 'None'}** ({p.get('kingdom_role') or 'wanderer'})\n"
+        f"XP **{p['xp']}/{xp_next}** • Gold **{p['gold']}** • Prestige **{p['prestige']}** • Renown **{p.get('renown',0)}**\n"
+        f"HP **{p['hp']+b['hp']}/{p['max_hp']+b['hp']}** • MP **{p['mp']+b['mp']}/{p['max_mp']+b['mp']}** • Stamina **{p['stamina']}/100**\n"
         f"ATK **{p['atk']+b['atk']}** • DEF **{p['defense']+b['defense']}** • SPD **{p['speed']+b['speed']}** • Crit **{p['crit']+b['crit']}%**\n"
+        f"Unspent: **{p.get('stat_points',0)} stat** / **{p.get('skill_points',0)} skill** / **{p.get('talent_points',0)} talent** points\n"
         f"Location: **{p['location']}**\n\n**Equipment**\n" + ("\n".join(f"{slot.title()}: {ITEMS.get(item, {'name':item})['name']}" for slot,item in gear.items()) or "No equipment")))
 
 
@@ -1416,15 +1560,11 @@ async def rpg_stats(ctx):
 @rpg_root.command(name="adventure", aliases=["hunt"])
 async def rpg_adventure(ctx):
     await _rpg_delete(ctx)
-    result=await bot.rpg.adventure(ctx.guild.id,ctx.author.id)
+    result=await bot.rpg.start_combat(ctx.guild.id,ctx.author.id,"adventure")
     if "error" in result:
         await ctx.send(result["error"], delete_after=8); return
-    enemy=result['enemy']
-    if result['win']:
-        text=f"**⚔️ Adventure Complete**\nYou defeated **{enemy['name']}**.\n\n**+{result['xp']} XP** • **+{result['gold']} gold** • **{ITEMS[result['drop']]['name']} ×1**\nHP remaining: **{result['hp']}**\n\n"+"\n".join("• "+x for x in result['log'])
-    else:
-        text=f"**💀 Defeated**\n**{enemy['name']}** overwhelmed you. You escaped with 1 HP.\n\n"+"\n".join("• "+x for x in result['log'])
-    await ctx.send(text)
+    view=RPGCombatView(ctx,result["state"])
+    view.message=await ctx.send(embed=_combat_embed(result["state"]),view=view)
 
 
 @rpg_root.command(name="rest")
@@ -1446,6 +1586,37 @@ async def rpg_inventory(ctx):
     rows=await bot.rpg.inventory(ctx.guild.id,ctx.author.id)
     lines=[f"• `{key}` — **{ITEMS.get(key,{'name':key})['name']} ×{qty}**" for key,qty in rows]
     await ctx.send("**🎒 Inventory**\n"+"\n".join(lines) if lines else "**🎒 Inventory**\nEmpty.")
+
+
+@rpg_root.command(name="items")
+async def rpg_items(ctx, category: str = "all", page: int = 1):
+    await _rpg_delete(ctx)
+    category=category.lower(); page=max(1,page)
+    allowed={"all","weapon","armor","offhand","consumable","food","material","egg","relic"}
+    if category not in allowed:
+        await ctx.send("Categories: `weapon`, `armor`, `offhand`, `consumable`, `food`, `material`, `egg`, `relic`.",delete_after=8); return
+    rows=[(k,v) for k,v in ITEMS.items() if category=="all" or v.get("slot")==category]
+    rows.sort(key=lambda x:(x[1].get("rarity","common"),x[1]["name"]))
+    per_page=25; total=max(1,(len(rows)+per_page-1)//per_page); page=min(page,total)
+    chunk=rows[(page-1)*per_page:page*per_page]
+    text="\n".join(f"`{k}` — **{v['name']}** • {v.get('rarity','common').title()} • {v.get('slot','item')} • {v.get('price',0)}g" for k,v in chunk)
+    await ctx.send(f"**🎒 Item Codex — {category.title()}** • Page **{page}/{total}** • {len(rows)} items\n\n{text}")
+
+
+@rpg_root.command(name="eggs")
+async def rpg_eggs(ctx):
+    await _rpg_delete(ctx)
+    rows=[(k,v) for k,v in ITEMS.items() if v.get("slot")=="egg"]
+    await ctx.send("**🥚 Pet Egg Codex**\n\n"+"\n".join(f"`{k}` — **{v['name']}** • {v['rarity'].title()} • found while adventuring • hatch with `!rpg pet hatch {k} <name>`" for k,v in rows))
+
+
+@rpg_root.command(name="use")
+async def rpg_use(ctx, item_key: str = "", quantity: int = 1):
+    await _rpg_delete(ctx)
+    if not item_key:
+        await ctx.send("Use `!rpg use <item_key> [qty]`.",delete_after=7); return
+    ok,msg=await bot.rpg.use_item(ctx.guild.id,ctx.author.id,item_key,quantity)
+    await ctx.send(("🍖 " if ok else "❌ ")+msg)
 
 
 @rpg_root.command(name="equip")
@@ -1623,14 +1794,87 @@ async def rpg_guild_upgrade(ctx):
     await _rpg_delete(ctx); ok,msg=await bot.rpg.guild_upgrade(ctx.guild.id,ctx.author.id); await ctx.send(("⬆️ " if ok else "❌ ")+msg)
 
 
+@rpg_root.group(name="kingdom", invoke_without_command=True)
+async def rpg_kingdom(ctx):
+    await _rpg_delete(ctx)
+    info=await bot.rpg.kingdom_info(ctx.guild.id,user_id=ctx.author.id)
+    if info:
+        k,members=info
+        await ctx.send(f"**👑 {k[1]}** — Level {k[3]} • Treasury {k[4]}g • Renown {k[5]}\nSovereign: <@{k[2]}>\nMembers: **{len(members)}**")
+    else:
+        rows=await bot.rpg.kingdom_list(ctx.guild.id)
+        await ctx.send("**👑 Kingdoms of Horizon**\n"+("\n".join(f"• **{n}** — Lv {lv} • Renown {r} • King <@{ruler}>" for n,ruler,lv,t,r in rows) if rows else "No kingdoms yet. Found one with `!rpg kingdom create <name>`."))
+
+
+@rpg_kingdom.command(name="list")
+async def rpg_kingdom_list(ctx):
+    await rpg_kingdom.callback(ctx)
+
+
+@rpg_kingdom.command(name="create")
+async def rpg_kingdom_create(ctx, *, name: str = ""):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_create(ctx.guild.id,ctx.author.id,name); await ctx.send(("👑 " if ok else "❌ ")+msg)
+
+
+@rpg_kingdom.command(name="join")
+async def rpg_kingdom_join(ctx, *, name: str = ""):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_join(ctx.guild.id,ctx.author.id,name); await ctx.send(("🏰 " if ok else "❌ ")+msg)
+
+
+@rpg_kingdom.command(name="info")
+async def rpg_kingdom_info(ctx, *, name: str = ""):
+    await _rpg_delete(ctx); info=await bot.rpg.kingdom_info(ctx.guild.id,name or None,user_id=ctx.author.id)
+    if not info: await ctx.send("Kingdom not found.",delete_after=7); return
+    k,members=info
+    await ctx.send(f"**👑 {k[1]}** — Level {k[3]} • Treasury {k[4]}g • Renown {k[5]}\nKing: <@{k[2]}>\n"+"\n".join(f"• <@{uid}> — **{role.title()}**" for uid,role in members[:25]))
+
+
+@rpg_kingdom.command(name="appoint")
+async def rpg_kingdom_appoint(ctx, member: discord.Member = None, role: str = "citizen"):
+    await _rpg_delete(ctx)
+    if not member: await ctx.send("Use `!rpg kingdom appoint @user <duke|count|knight|citizen|outlaw>`.",delete_after=8); return
+    ok,msg=await bot.rpg.kingdom_promote(ctx.guild.id,ctx.author.id,member.id,role)
+    await ctx.send(("👑 " if ok else "❌ ")+msg)
+
+
+@rpg_kingdom.command(name="leave")
+async def rpg_kingdom_leave(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.kingdom_leave(ctx.guild.id,ctx.author.id); await ctx.send(("🚪 " if ok else "❌ ")+msg)
+
+
+@rpg_root.group(name="bounty", invoke_without_command=True)
+async def rpg_bounty(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.bounties(ctx.guild.id)
+    await ctx.send("**🎯 Bounty Board**\n"+("\n".join(f"`#{i}` — **{target}** • **{reward} gold** • posted by <@{poster}>" for i,target,reward,poster in rows) if rows else "No active bounties."))
+
+
+@rpg_bounty.command(name="list")
+async def rpg_bounty_list(ctx): await rpg_bounty.callback(ctx)
+
+
+@rpg_bounty.command(name="post")
+async def rpg_bounty_post(ctx, *, target_and_reward: str = ""):
+    await _rpg_delete(ctx)
+    parts=target_and_reward.strip().rsplit(maxsplit=1)
+    reward=0; target=""
+    if len(parts)==2 and parts[-1].isdigit():
+        target,reward=parts[0],int(parts[-1])
+    elif len(parts)==2 and parts[0].isdigit():
+        reward,target=int(parts[0]),parts[1]
+    if not target or reward<=0:
+        await ctx.send("Use `!rpg bounty post <target> <gold>`.",delete_after=7); return
+    ok,msg=await bot.rpg.bounty_post(ctx.guild.id,ctx.author.id,target,reward)
+    await ctx.send(("🎯 " if ok else "❌ ")+msg)
+
+
 @rpg_root.command(name="dungeon")
 async def rpg_dungeon(ctx,*,name:str=""):
-    await _rpg_delete(ctx); result=await bot.rpg.dungeon(ctx.guild.id,ctx.author.id,name.strip() or None)
+    await _rpg_delete(ctx)
+    result=await bot.rpg.start_combat(ctx.guild.id,ctx.author.id,"dungeon",name.strip() or None)
     if "error" in result: await ctx.send(result["error"],delete_after=8); return
-    text=f"**🏰 {result['name']}**\n"+"\n".join("• "+x for x in result['log'])+"\n\n"
-    if result['win']: text+=f"🏆 **Dungeon cleared!** +{result['xp']} XP • +{result['gold']} gold"
-    else: text+="💀 **Dungeon failed.** Rest and try again."
-    await ctx.send(text)
+    view=RPGCombatView(ctx,result["state"])
+    view.message=await ctx.send(embed=_combat_embed(result["state"]),view=view)
 
 
 @rpg_root.command(name="dungeons")
@@ -1654,8 +1898,19 @@ async def rpg_battle(ctx,member:discord.Member=None):
 
 
 @rpg_root.command(name="pet")
-async def rpg_pet(ctx,action:str="info",*,name:str="Spirit"):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.pet(ctx.guild.id,ctx.author.id,action.lower(),name); await ctx.send(("🐾 " if ok else "❌ ")+msg)
+async def rpg_pet(ctx,action:str="info",item_or_name:str="",*,name:str="Spirit"):
+    await _rpg_delete(ctx)
+    action=action.lower()
+    if action=="hatch":
+        egg=item_or_name.lower()
+        pet_name=name if name!="Spirit" else "Spirit"
+        ok,msg=await bot.rpg.egg_hatch(ctx.guild.id,ctx.author.id,egg,pet_name)
+    elif action in {"adopt","rename"}:
+        pet_name=item_or_name or name
+        ok,msg=await bot.rpg.pet(ctx.guild.id,ctx.author.id,action,pet_name)
+    else:
+        ok,msg=await bot.rpg.pet(ctx.guild.id,ctx.author.id,action,item_or_name or name)
+    await ctx.send(("🐾 " if ok else "❌ ")+msg)
 
 
 @rpg_root.command(name="achievements", aliases=["achieve"])

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import aiosqlite
@@ -52,6 +52,214 @@ ITEMS = {
     "arcane_shard": {"name": "Arcane Shard", "slot": "material", "rarity": "rare", "price": 120},
 }
 
+
+# ---------------------------------------------------------------------------
+# Expanded world data.  The catalog is generated from themed templates so the
+# game has hundreds of usable, searchable items without a giant hand-written
+# wall of repetitive dictionaries.
+# ---------------------------------------------------------------------------
+RACES.update({
+    "halfling": {"hp": -8, "atk": 1, "def": 0, "spd": 5, "crit": 5, "desc": "Small, lucky and exceptionally nimble."},
+    "tiefling": {"hp": 0, "atk": 4, "def": -1, "spd": 2, "crit": 4, "desc": "Infernal-blooded spellblade with natural power."},
+    "dragonkin": {"hp": 20, "atk": 5, "def": 3, "spd": -1, "crit": 2, "desc": "Draconic blood grants power and resilience."},
+    "beastfolk": {"hp": 5, "atk": 2, "def": 1, "spd": 4, "crit": 4, "desc": "Animal traits sharpen senses and movement."},
+    "fae": {"hp": -10, "atk": 3, "def": 0, "spd": 6, "crit": 6, "desc": "Fey-born and elusive, with strong magical affinity."},
+    "vampire": {"hp": 15, "atk": 5, "def": 2, "spd": 3, "crit": 5, "desc": "A cursed immortal race that thrives at night."},
+    "golem": {"hp": 45, "atk": 4, "def": 9, "spd": -5, "crit": 0, "desc": "Living stone built to endure devastating punishment."},
+})
+
+SUBRACES = {
+    "high_elf": ("elf", {"hp": 0, "atk": 2, "def": 0, "spd": 1, "crit": 2}),
+    "wood_elf": ("elf", {"hp": 5, "atk": 1, "def": 0, "spd": 3, "crit": 1}),
+    "dark_elf": ("elf", {"hp": -2, "atk": 4, "def": -1, "spd": 2, "crit": 3}),
+    "mountain_dwarf": ("dwarf", {"hp": 12, "atk": 1, "def": 3, "spd": -1, "crit": 0}),
+    "hill_dwarf": ("dwarf", {"hp": 18, "atk": 0, "def": 2, "spd": -2, "crit": 0}),
+    "forest_dwarf": ("dwarf", {"hp": 6, "atk": 2, "def": 1, "spd": 0, "crit": 1}),
+    "high_orc": ("orc", {"hp": 8, "atk": 3, "def": 1, "spd": -1, "crit": 0}),
+    "half_orc": ("orc", {"hp": 4, "atk": 2, "def": 2, "spd": 1, "crit": 1}),
+    "red_kitsune": ("kitsune", {"hp": 0, "atk": 4, "def": -1, "spd": 2, "crit": 4}),
+    "white_kitsune": ("kitsune", {"hp": 3, "atk": 1, "def": 1, "spd": 3, "crit": 3}),
+    "dragonborn": ("dragonkin", {"hp": 10, "atk": 3, "def": 2, "spd": 0, "crit": 1}),
+    "drakeborn": ("dragonkin", {"hp": 15, "atk": 4, "def": 1, "spd": -1, "crit": 2}),
+    "catfolk": ("beastfolk", {"hp": 0, "atk": 2, "def": 0, "spd": 5, "crit": 3}),
+    "wolfkin": ("beastfolk", {"hp": 6, "atk": 3, "def": 1, "spd": 3, "crit": 2}),
+    "foxkin": ("beastfolk", {"hp": -2, "atk": 3, "def": 0, "spd": 4, "crit": 5}),
+    "spring_fae": ("fae", {"hp": 0, "atk": 2, "def": 1, "spd": 3, "crit": 3}),
+    "night_fae": ("fae", {"hp": -2, "atk": 5, "def": -1, "spd": 4, "crit": 5}),
+    "blood_vampire": ("vampire", {"hp": 10, "atk": 3, "def": 2, "spd": 2, "crit": 3}),
+    "noble_vampire": ("vampire", {"hp": 5, "atk": 5, "def": 1, "spd": 3, "crit": 4}),
+    "iron_golem": ("golem", {"hp": 25, "atk": 2, "def": 5, "spd": -2, "crit": 0}),
+    "crystal_golem": ("golem", {"hp": 10, "atk": 5, "def": 3, "spd": -1, "crit": 1}),
+    "storm_human": ("human", {"hp": 0, "atk": 2, "def": 0, "spd": 3, "crit": 3}),
+    "desert_human": ("human", {"hp": 5, "atk": 1, "def": 2, "spd": 1, "crit": 1}),
+}
+
+CLASSES.update({
+    "berserker": {"hp": 45, "mp": 5, "atk": 11, "def": 3, "spd": 1, "crit": 5, "resource": "Rage", "desc": "High-risk melee fighter that trades defense for explosive damage."},
+    "knight": {"hp": 40, "mp": 10, "atk": 7, "def": 10, "spd": -1, "crit": 1, "resource": "Valor", "desc": "Armored protector built to survive and guard allies."},
+    "assassin": {"hp": 0, "mp": 15, "atk": 10, "def": 1, "spd": 10, "crit": 12, "resource": "Energy", "desc": "Extreme speed and critical-hit specialist."},
+    "cleric": {"hp": 20, "mp": 35, "atk": 5, "def": 5, "spd": 0, "crit": 2, "resource": "Faith", "desc": "Support caster with healing and holy damage."},
+    "druid": {"hp": 15, "mp": 30, "atk": 7, "def": 4, "spd": 2, "crit": 3, "resource": "Nature", "desc": "Nature caster who shifts between offense and support."},
+    "monk": {"hp": 20, "mp": 15, "atk": 8, "def": 5, "spd": 8, "crit": 6, "resource": "Chi", "desc": "Martial artist focused on speed, combos and counterattacks."},
+    "bard": {"hp": 10, "mp": 30, "atk": 6, "def": 3, "spd": 5, "crit": 5, "resource": "Inspiration", "desc": "Battle musician who buffs allies and disrupts foes."},
+    "necromancer": {"hp": 0, "mp": 45, "atk": 10, "def": 0, "spd": 1, "crit": 4, "resource": "Soul", "desc": "Dark caster who commands the dead."},
+    "warlock": {"hp": 10, "mp": 40, "atk": 11, "def": 1, "spd": 2, "crit": 5, "resource": "Pact", "desc": "Forbidden magic specialist powered by risky bargains."},
+    "alchemist": {"hp": 10, "mp": 25, "atk": 6, "def": 3, "spd": 4, "crit": 4, "resource": "Catalyst", "desc": "Potion, bomb and transmutation expert."},
+    "engineer": {"hp": 20, "mp": 20, "atk": 7, "def": 6, "spd": 2, "crit": 3, "resource": "Charge", "desc": "Uses gadgets, turrets and mechanical weapons."},
+    "duelist": {"hp": 15, "mp": 10, "atk": 9, "def": 4, "spd": 7, "crit": 8, "resource": "Tempo", "desc": "One-on-one specialist who grows stronger through perfect timing."},
+    "lancer": {"hp": 25, "mp": 10, "atk": 9, "def": 6, "spd": 5, "crit": 3, "resource": "Resolve", "desc": "Mobile spear fighter with powerful gap-closing attacks."},
+    "spellblade": {"hp": 20, "mp": 30, "atk": 9, "def": 4, "spd": 4, "crit": 5, "resource": "Arcana", "desc": "Hybrid fighter weaving weapon and magic together."},
+})
+
+SUBCLASSES = {
+    "vanguard": ("warrior", "Durable frontline specialist", {"hp": 20, "def": 3}),
+    "blade_master": ("warrior", "Weapon mastery specialist", {"atk": 4, "spd": 2}),
+    "berserk_lord": ("berserker", "Uncontrolled damage dealer", {"atk": 6, "crit": 3}),
+    "iron_guardian": ("knight", "Defensive protector", {"hp": 30, "def": 5}),
+    "arcane_knight": ("knight", "Magic-infused tank", {"mp": 15, "atk": 3}),
+    "fire_mage": ("mage", "Destructive elemental caster", {"atk": 6, "crit": 3}),
+    "frost_mage": ("mage", "Control-focused caster", {"def": 2, "mp": 20}),
+    "battle_mage": ("mage", "Close-range spell fighter", {"hp": 15, "atk": 4}),
+    "shadow_assassin": ("assassin", "Stealth and critical specialist", {"spd": 4, "crit": 5}),
+    "nightblade": ("rogue", "Dark dual-wielder", {"atk": 4, "crit": 4}),
+    "sniper": ("ranger", "Long-range precision", {"atk": 5, "crit": 5}),
+    "beast_master": ("ranger", "Pet-focused ranger", {"hp": 15, "atk": 3}),
+    "holy_priest": ("cleric", "Healing and protection", {"mp": 25, "def": 3}),
+    "battle_cleric": ("cleric", "Holy frontline fighter", {"hp": 20, "atk": 4}),
+    "storm_druid": ("druid", "Lightning and storm magic", {"atk": 5, "spd": 2}),
+    "wild_druid": ("druid", "Transformation specialist", {"hp": 25, "def": 2}),
+    "dragon_monk": ("monk", "Explosive martial arts", {"atk": 5, "crit": 3}),
+    "shadow_monk": ("monk", "Evasive martial artist", {"spd": 5, "crit": 3}),
+    "minstrel": ("bard", "Party support", {"mp": 20, "def": 2}),
+    "war_chanter": ("bard", "Offensive support", {"atk": 4, "crit": 3}),
+    "bone_lord": ("necromancer", "Army-of-undead specialist", {"mp": 30, "def": 1}),
+    "soul_reaper": ("necromancer", "Single-target dark magic", {"atk": 7, "crit": 4}),
+    "demon_pact": ("warlock", "High-damage pact magic", {"atk": 6, "mp": 15}),
+    "void_caller": ("warlock", "Reality-warping caster", {"crit": 5, "mp": 20}),
+    "bombardier": ("alchemist", "Explosive alchemist", {"atk": 6, "crit": 3}),
+    "transmuter": ("alchemist", "Resource-efficient crafter", {"def": 3, "mp": 20}),
+    "artificer": ("engineer", "Construct specialist", {"atk": 4, "def": 4}),
+    "machinist": ("engineer", "Ranged gadget fighter", {"atk": 5, "spd": 3}),
+    "fencer": ("duelist", "Precision swordplay", {"spd": 3, "crit": 4}),
+    "champion": ("duelist", "Arena specialist", {"hp": 20, "atk": 3}),
+    "dragoon": ("lancer", "Aerial spear fighter", {"atk": 5, "spd": 3}),
+    "templar": ("lancer", "Holy spear knight", {"def": 4, "hp": 15}),
+    "spellbreaker": ("spellblade", "Anti-magic duelist", {"atk": 4, "def": 3}),
+    "arcane_fencer": ("spellblade", "Magic sword specialist", {"mp": 20, "crit": 3}),
+}
+
+CLASS_EVOLUTIONS = {
+    "warrior": [(20, "warlord"), (35, "hero")], "mage": [(20, "archmage"), (35, "grand_archmage")],
+    "rogue": [(20, "shadow_lord"), (35, "phantom" )], "ranger": [(20, "forest_lord"), (35, "star_hunter")],
+    "paladin": [(20, "holy_crusader"), (35, "divine_guardian")], "summoner": [(20, "spirit_master"), (35, "celestial_conjurer")],
+    "berserker": [(20, "berserker_lord"), (35, "apocalypse" )], "knight": [(20, "royal_knight"), (35, "immortal_guardian")],
+    "assassin": [(20, "deathstalker"), (35, "void_assassin")], "cleric": [(20, "high_priest"), (35, "saint")],
+    "druid": [(20, "ancient_druid"), (35, "world_shaper")], "monk": [(20, "grandmaster"), (35, "dragon_sage")],
+    "bard": [(20, "legendary_bard"), (35, "mythic_orator")], "necromancer": [(20, "lich"), (35, "death_sovereign")],
+    "warlock": [(20, "demon_lord"), (35, "void_sovereign")], "alchemist": [(20, "master_alchemist"), (35, "philosophers_adept")],
+    "engineer": [(20, "master_artificer"), (35, "magitech_overlord")], "duelist": [(20, "sword_saint"), (35, "arena_legend")],
+    "lancer": [(20, "dragon_lord"), (35, "heaven_lancer")], "spellblade": [(20, "arcane_knight"), (35, "ether_blade")],
+}
+
+LIFE_PATHS = {
+    "adventurer": "Questing explorer; gains extra rewards from discovery.",
+    "noble": "A courtly life focused on influence and estates.",
+    "royal": "A ruler or royal court member who can hold kingdom offices.",
+    "merchant": "Trade-focused character with better market opportunities.",
+    "outlaw": "Wanted wanderer who thrives outside the law.",
+    "thug": "Street enforcer who earns renown through intimidation and jobs.",
+    "hunter": "Monster tracker with improved hunting rewards.",
+    "scholar": "Lore seeker with bonuses to quests and exploration.",
+    "artisan": "Crafter and blacksmith with production bonuses.",
+    "pirate": "Freebooter who seeks treasure on the high seas.",
+}
+
+AREAS = {
+    "horizon_village": {"name": "Horizon Village", "level": 1, "type": "town", "desc": "The safe starting settlement."},
+    "whispering_woods": {"name": "Whispering Woods", "level": 2, "type": "wild", "desc": "Ancient forest paths filled with beasts and herbs."},
+    "ember_plains": {"name": "Ember Plains", "level": 5, "type": "wild", "desc": "Scorched fields where fire monsters roam."},
+    "silver_coast": {"name": "Silver Coast", "level": 7, "type": "coast", "desc": "Port towns, pirates and sea monsters."},
+    "moonfall_marsh": {"name": "Moonfall Marsh", "level": 10, "type": "wild", "desc": "A cursed wetland beneath an endless moon."},
+    "frostpeak": {"name": "Frostpeak", "level": 13, "type": "mountain", "desc": "Frozen mountains guarding ancient ruins."},
+    "sunken_ruins": {"name": "Sunken Ruins", "level": 16, "type": "ruins", "desc": "Lost civilization beneath the tides."},
+    "skyreach": {"name": "Skyreach", "level": 20, "type": "sky", "desc": "Floating islands connected by ancient portals."},
+    "demon_wastes": {"name": "Demon Wastes", "level": 25, "type": "hell", "desc": "A brutal land where corrupted monsters rule."},
+    "crystal_desert": {"name": "Crystal Desert", "level": 30, "type": "desert", "desc": "A shimmering desert hiding buried kingdoms."},
+    "astral_frontier": {"name": "Astral Frontier", "level": 40, "type": "astral", "desc": "Endgame territory beyond ordinary reality."},
+    "world_tree": {"name": "World Tree", "level": 50, "type": "mythic", "desc": "The legendary final region of the known world."},
+}
+
+KINGDOM_ROLES = {"king": "Sovereign of the kingdom", "duke": "High noble and regional governor", "count": "Noble governing a county", "knight": "Sworn military noble", "citizen": "Recognized resident", "outlaw": "Outside the kingdom's law"}
+
+PET_EGGS = {
+    "common_egg": ("Common Egg", "Common", 150), "forest_egg": ("Forest Egg", "Uncommon", 300),
+    "moon_egg": ("Moon Egg", "Rare", 600), "dragon_egg": ("Dragon Egg", "Epic", 1200),
+    "phoenix_egg": ("Phoenix Egg", "Legendary", 3000), "celestial_egg": ("Celestial Egg", "Mythic", 7500),
+    "void_egg": ("Void Egg", "Mythic", 9000), "royal_egg": ("Royal Egg", "Epic", 2000),
+}
+
+
+def _build_expanded_items():
+    # Keep the original iconic items, then add a large discoverable catalog.
+    generated = {}
+    weapon_bases = [
+        ("sword", "Sword", 9), ("greatsword", "Greatsword", 13), ("katana", "Katana", 11),
+        ("rapier", "Rapier", 8), ("axe", "Axe", 12), ("greataxe", "Greataxe", 15),
+        ("mace", "Mace", 10), ("hammer", "Warhammer", 13), ("spear", "Spear", 10),
+        ("lance", "Lance", 12), ("dagger", "Dagger", 7), ("bow", "Bow", 9),
+        ("crossbow", "Crossbow", 11), ("staff", "Staff", 8), ("wand", "Wand", 7),
+        ("orb", "Arcane Orb", 8), ("scythe", "Scythe", 14), ("claws", "Claws", 9),
+    ]
+    metals = [("bronze", "Bronze", "common", 1.0), ("steel", "Steel", "uncommon", 1.2),
+              ("silver", "Silver", "rare", 1.5), ("mithril", "Mithril", "epic", 2.0),
+              ("dragon", "Dragon", "legendary", 3.0), ("celestial", "Celestial", "mythic", 4.5)]
+    for mat_key, mat_name, rarity, mult in metals:
+        for key, label, base in weapon_bases:
+            k=f"{mat_key}_{key}"; generated[k]={"name":f"{mat_name} {label}","slot":"weapon","rarity":rarity,"atk":int(base*mult)+2,"crit":2 if key in {"rapier","dagger","katana","bow"} else 0,"price":int(90*base*mult)}
+    armor_sets=[("chainmail","Chainmail",8),("plate","Plate Armor",13),("leather","Leather Armor",5),("scale","Scale Armor",10),
+                ("mage","Mage Robe",4),("cleric","Cleric Vestments",5),("assassin","Assassin Garb",4),("ranger","Ranger Leathers",6),
+                ("royal","Royal Armor",12),("dragon","Dragon Armor",16),("celestial","Celestial Armor",20)]
+    for mat_key, mat_name, rarity, mult in metals:
+        for key,label,base in armor_sets:
+            k=f"{mat_key}_{key}"; generated[k]={"name":f"{mat_name} {label}","slot":"armor","rarity":rarity,"def":int(base*mult),"hp":int(base*mult*1.5),"price":int(120*base*mult)}
+    for i,(name,rarity,price) in enumerate([
+        ("Small Health Potion","common",45),("Health Potion","uncommon",90),("Greater Health Potion","rare",180),("Superior Health Potion","epic",350),
+        ("Elixir of Vitality","legendary",700),("Full Restore Elixir","mythic",1500),
+        ("Small Mana Potion","common",50),("Mana Potion","uncommon",100),("Greater Mana Potion","rare",200),("Superior Mana Potion","epic",400),
+        ("Stamina Tonic","uncommon",80),("Antidote","common",35),("Burn Cure","common",35),("Freeze Cure","common",35),("Focus Elixir","rare",220),
+        ("Strength Draught","rare",250),("Iron Skin Potion","rare",250),("Swiftstep Potion","rare",250),("Critical Elixir","epic",500),("Phoenix Elixir","legendary",1200)]):
+        key=name.lower().replace(" ","_").replace("-",""); generated[key]={"name":name,"slot":"consumable","rarity":rarity,"heal":35+i*8 if "Health" in name or "Restore" in name or "Vitality" in name else 0,"mana":30+i*6 if "Mana" in name else 0,"price":price}
+    foods=["Honey Bread","Berry Pie","Hearty Stew","Grilled Fish","Roasted Meat","Forest Mushroom Soup","Spicy Curry","Royal Feast","Traveler's Ration","Sweet Bun","Apple Tart","Moonberry Jam","Dragon Steak","Phoenix Fruit","Crystal Melon","Seafood Platter","Mountain Cheese","Golden Rice","Herbal Tea","Spiced Tea","Warm Milk","Campfire Skewer","Meat Pie","Fish Sandwich","Adventure Biscuit","Festival Cake","King's Banquet","Duke's Banquet","Elven Salad","Dwarven Ale Bread","Kitsune Dumplings"]
+    for i,name in enumerate(foods):
+        key="food_"+name.lower().replace(" ","_").replace("'","")
+        generated[key]={"name":name,"slot":"food","rarity":"common" if i<10 else ("uncommon" if i<20 else "rare"),"heal":18+i*4,"stamina":8+(i%6)*3,"price":25+i*12}
+    materials=["oak log","silver ore","mithril ore","dragon scale","phoenix feather","moon crystal","sun shard","shadow essence","beast fang","wolf claw","goblin ear","orc tusk","slime core","wraith dust","demon horn","angel feather","fae pollen","ancient bone","star fragment","void crystal","sea pearl","coral","amber","ruby","sapphire","emerald","topaz","obsidian","quartz","leather scrap","silk thread","magic fiber","enchanted wood","ashwood","frostwood","red herb","blue herb","golden herb","nightshade","sunflower seed"]
+    for i,name in enumerate(materials):
+        key="mat_"+name.replace(" ","_"); rarity="common" if i<15 else ("uncommon" if i<28 else ("rare" if i<37 else "epic")); generated[key]={"name":name.title(),"slot":"material","rarity":rarity,"price":20+i*18}
+    for egg_key,(egg_name,rarity,price) in PET_EGGS.items():
+        generated[egg_key]={"name":egg_name,"slot":"egg","rarity":rarity,"price":price,"pet_egg":True}
+    # Additional trinkets / offhands create another equipment layer.
+    shields=[("buckler","Buckler",6),("tower_shield","Tower Shield",12),("mirror_shield","Mirror Shield",10),("dragon_shield","Dragon Shield",16),("celestial_shield","Celestial Shield",20),("spellbook","Spellbook",3),("totem","Totem",4),("quiver","Quiver",2)]
+    for mat_key,mat_name,rarity,mult in metals:
+        for key,label,base in shields:
+            k=f"{mat_key}_{key}"; generated[k]={"name":f"{mat_name} {label}","slot":"offhand","rarity":rarity,"def":int(base*mult),"hp":int(base*mult),"mp":int(base*mult*2) if key in {"spellbook","totem","quiver"} else 0,"price":int(100*base*mult)}
+    # A few utility relics make exploration loot more interesting.
+    relics=["Explorer's Compass","Adventurer's Lantern","Guild Crest","Royal Signet","Thief's Coin","Scholar's Lens","Hunter's Charm","Duke's Seal","King's Crown Fragment","Void Compass","Dragon Heart Shard","World Tree Seed"]
+    for i,name in enumerate(relics):
+        key="relic_"+name.lower().replace(" ","_").replace("'",""); generated[key]={"name":name,"slot":"relic","rarity":["uncommon","rare","epic","legendary","mythic"][min(4,i//3)],"atk":i//4,"def":i//5,"spd":i//3,"crit":i//2,"price":300+i*250}
+    ITEMS.update(generated)
+    ITEMS.setdefault("dragon_trophy", {"name":"Dragon Trophy","slot":"material","rarity":"legendary","price":1000})
+
+_build_expanded_items()
+for _egg_key, _egg_name, _rarity, _price in [
+    ("fire_egg","Fire Egg","rare",700),("water_egg","Water Egg","rare",700),("frost_egg","Frost Egg","epic",1400),
+    ("ruin_egg","Ruin Egg","epic",1600),("sky_egg","Sky Egg","legendary",3200),("demon_egg","Demon Egg","legendary",3800),
+    ("desert_egg","Desert Egg","epic",1800),("astral_egg","Astral Egg","mythic",8500),("world_egg","World Egg","mythic",12000),
+    ("beast_egg","Beast Egg","uncommon",400),("spirit_egg","Spirit Egg","rare",900),("shadow_egg","Shadow Egg","epic",1800),
+]:
+    ITEMS[_egg_key]={"name":_egg_name,"slot":"egg","rarity":_rarity,"price":_price,"pet_egg":True}
+SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price") and v.get("slot") in {"weapon","armor","offhand","consumable","food"}]
+
 RECIPES = {
     "life_potion": {"iron_ore": 1, "herb": 2},
     "mana_potion": {"herb": 3, "arcane_shard": 1},
@@ -86,6 +294,7 @@ ACHIEVEMENTS = {
 @dataclass
 class RPGService:
     path: str
+    active_combats: dict[tuple[int, int], dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
 
     async def setup(self):
         async with aiosqlite.connect(self.path) as db:
@@ -100,6 +309,10 @@ class RPGService:
                 crit INTEGER NOT NULL DEFAULT 5, skill_points INTEGER NOT NULL DEFAULT 0,
                 stamina INTEGER NOT NULL DEFAULT 100, location TEXT NOT NULL DEFAULT 'Horizon Village',
                 guild_name TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT 'Adventurer', prestige INTEGER NOT NULL DEFAULT 0,
+                subclass TEXT NOT NULL DEFAULT '', subrace TEXT NOT NULL DEFAULT '', evolution TEXT NOT NULL DEFAULT '',
+                life_path TEXT NOT NULL DEFAULT 'adventurer', renown INTEGER NOT NULL DEFAULT 0, fame INTEGER NOT NULL DEFAULT 0,
+                stat_points INTEGER NOT NULL DEFAULT 0, talent_points INTEGER NOT NULL DEFAULT 0, kingdom_name TEXT NOT NULL DEFAULT '',
+                kingdom_role TEXT NOT NULL DEFAULT '', area_key TEXT NOT NULL DEFAULT 'horizon_village',
                 last_daily REAL NOT NULL DEFAULT 0, last_adventure REAL NOT NULL DEFAULT 0,
                 last_hunt REAL NOT NULL DEFAULT 0, last_weekly REAL NOT NULL DEFAULT 0,
                 PRIMARY KEY (guild_id, user_id)
@@ -156,7 +369,35 @@ class RPGService:
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, seller_id INTEGER NOT NULL,
                 item_key TEXT NOT NULL, quantity INTEGER NOT NULL, price_each INTEGER NOT NULL, created_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS rpg_kingdoms (
+                guild_id INTEGER NOT NULL, name TEXT NOT NULL, ruler_id INTEGER NOT NULL, level INTEGER NOT NULL DEFAULT 1,
+                treasury INTEGER NOT NULL DEFAULT 0, renown INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, name)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_kingdom_members (
+                guild_id INTEGER NOT NULL, kingdom_name TEXT NOT NULL, user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'citizen', joined_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, kingdom_name, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_bounties (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, poster_id INTEGER NOT NULL,
+                target_name TEXT NOT NULL, reward INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at REAL NOT NULL
+            );
             """)
+            # Lightweight migrations for existing Horizon RPG databases.
+            migrations = {
+                "subclass": "TEXT NOT NULL DEFAULT ''", "subrace": "TEXT NOT NULL DEFAULT ''",
+                "evolution": "TEXT NOT NULL DEFAULT ''", "life_path": "TEXT NOT NULL DEFAULT 'adventurer'",
+                "renown": "INTEGER NOT NULL DEFAULT 0", "fame": "INTEGER NOT NULL DEFAULT 0",
+                "stat_points": "INTEGER NOT NULL DEFAULT 0", "talent_points": "INTEGER NOT NULL DEFAULT 0",
+                "kingdom_name": "TEXT NOT NULL DEFAULT ''", "kingdom_role": "TEXT NOT NULL DEFAULT ''",
+                "area_key": "TEXT NOT NULL DEFAULT 'horizon_village'",
+            }
+            cur = await db.execute("PRAGMA table_info(rpg_players)")
+            existing = {row[1] for row in await cur.fetchall()}
+            for column, definition in migrations.items():
+                if column not in existing:
+                    await db.execute(f"ALTER TABLE rpg_players ADD COLUMN {column} {definition}")
             await db.commit()
 
     def _level_xp(self, level: int) -> int:
@@ -226,9 +467,16 @@ class RPGService:
             cur = await db.execute("SELECT level,xp FROM rpg_players WHERE guild_id=? AND user_id=?", (guild_id,user_id)); p = await cur.fetchone()
             old_level = p[0]
             new_level = old_level
-            while p[1] >= self._level_xp(new_level): new_level += 1
-            if new_level != old_level:
-                await db.execute("UPDATE rpg_players SET level=?,skill_points=skill_points+? WHERE guild_id=? AND user_id=?", (new_level,new_level-old_level,guild_id,user_id))
+            while p[1] >= self._level_xp(new_level) and new_level < 100: new_level += 1
+            levels = new_level - old_level
+            if levels:
+                # Every level gives both an automatic growth package and points
+                # the player can deliberately invest.  This makes progression
+                # visible instead of merely changing the number on the sheet.
+                await db.execute(
+                    "UPDATE rpg_players SET level=?, max_hp=max_hp+?, hp=max_hp+?, max_mp=max_mp+?, mp=max_mp+?, atk=atk+?, defense=defense+?, speed=speed+?, skill_points=skill_points+?, stat_points=stat_points+?, talent_points=talent_points+? WHERE guild_id=? AND user_id=?",
+                    (new_level, levels*12, levels*12, levels*5, levels*5, levels*2, levels, levels, levels*2, levels*3, levels, guild_id, user_id)
+                )
             await db.commit()
             return old_level, new_level
 
@@ -281,6 +529,18 @@ class RPGService:
         await self.add_item(guild_id,user_id,"life_potion",1)
         return (xp,gold,new),None
 
+    async def use_item(self,guild_id,user_id,item_key,quantity=1):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        item_key=item_key.lower(); item=ITEMS.get(item_key)
+        if not item or item.get("slot") not in {"consumable","food"}:return False,"That item cannot be used this way."
+        quantity=max(1,min(int(quantity),10))
+        if not await self.remove_item(guild_id,user_id,item_key,quantity):return False,"You don't own enough of that item."
+        heal=item.get("heal",0)*quantity; mana=item.get("mana",0)*quantity; stamina=item.get("stamina",0)*quantity
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET hp=min(max_hp,hp+?),mp=min(max_mp,mp+?),stamina=min(100,stamina+?) WHERE guild_id=? AND user_id=?",(heal,mana,stamina,guild_id,user_id)); await db.commit()
+        return True,f"Used **{item['name']} ×{quantity}** — +{heal} HP, +{mana} MP, +{stamina} stamina."
+
     async def equip(self,guild_id,user_id,item_key):
         p=await self.player(guild_id,user_id)
         if not p: return False,"Start a hero first."
@@ -293,17 +553,95 @@ class RPGService:
             await db.commit()
         return True,f"Equipped **{item['name']}**."
 
+    def _progression_bonus(self, p):
+        bonus={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
+        subrace=p.get("subrace") or ""
+        if subrace in SUBRACES:
+            _, values=SUBRACES[subrace]
+            bonus["hp"]+=values.get("hp",0); bonus["atk"]+=values.get("atk",0); bonus["defense"]+=values.get("def",0)
+            bonus["speed"]+=values.get("spd",0); bonus["crit"]+=values.get("crit",0)
+        subclass=p.get("subclass") or ""
+        if subclass in SUBCLASSES:
+            _,_,values=SUBCLASSES[subclass]
+            bonus["hp"]+=values.get("hp",0); bonus["atk"]+=values.get("atk",0); bonus["defense"]+=values.get("def",0)
+            bonus["speed"]+=values.get("spd",0); bonus["crit"]+=values.get("crit",0); bonus["mp"]+=values.get("mp",0)
+        if p.get("evolution"):
+            tier=2 if p["level"]>=35 else 1
+            bonus["atk"]+=4*tier; bonus["defense"]+=2*tier; bonus["hp"]+=15*tier; bonus["mp"]+=10*tier; bonus["crit"]+=2*tier
+        return bonus
+
     async def stats(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
         if not p:return None
         gear={}
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=dict(await cur.fetchall())
-        bonus={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
+        bonus=self._progression_bonus(p)
         for key in gear.values():
             item=ITEMS.get(key,{})
             bonus["atk"]+=item.get("atk",0); bonus["defense"]+=item.get("def",0); bonus["hp"]+=item.get("hp",0); bonus["mp"]+=item.get("mp",0); bonus["speed"]+=item.get("spd",0); bonus["crit"]+=item.get("crit",0)
         return p,gear,bonus
+
+    async def change_identity(self,guild_id,user_id,kind,value):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        kind=kind.lower(); value=value.lower().strip()
+        costs={"race":1500,"class":1200,"subrace":2200,"subclass":3000,"path":1800,"evolution":5000}
+        if kind not in costs:return False,"Change one of: race, subrace, class, subclass, path, evolution."
+        if kind=="race":
+            if value not in RACES:return False,f"Unknown race. Use `!rpg races`."
+            if value==p["race"]:return False,"You already are that race."
+            updates={"race":value,"subrace":""}
+        elif kind=="class":
+            if value not in CLASSES:return False,"Unknown class. Use `!rpg classes`."
+            if value==p["class_name"]:return False,"You already have that class."
+            updates={"class_name":value,"subclass":"","evolution":""}
+        elif kind=="subrace":
+            if value not in SUBRACES:return False,"Unknown subrace. Use `!rpg subraces`."
+            parent,_=SUBRACES[value]
+            if parent!=p["race"]:return False,f"That subrace belongs to **{parent.title()}**, not {p['race'].title()}."
+            updates={"subrace":value}
+        elif kind=="subclass":
+            if value not in SUBCLASSES:return False,"Unknown subclass. Use `!rpg subclasses`."
+            parent,_,_=SUBCLASSES[value]
+            if parent!=p["class_name"]:return False,f"That subclass requires **{parent.title()}**."
+            if p["level"]<10:return False,"Subclasses unlock at level **10**."
+            updates={"subclass":value,"evolution":""}
+        elif kind=="path":
+            if value not in LIFE_PATHS:return False,"Unknown life path. Use `!rpg paths`."
+            updates={"life_path":value}
+        else:
+            evolutions=[name for lvl,name in CLASS_EVOLUTIONS.get(p["class_name"],[]) if p["level"]>=lvl]
+            if value not in evolutions:return False,"That evolution is not unlocked for your class and level."
+            updates={"evolution":value}
+        cost=costs[kind]
+        if p["gold"]<cost:return False,f"Changing your {kind} costs **{cost} gold**. You have {p['gold']}."
+        new_race=updates.get("race",p["race"]); new_class=updates.get("class_name",p["class_name"])
+        old_base=self._class_stats(p["race"],p["class_name"]); new_base=self._class_stats(new_race,new_class)
+        growth=p["level"]-1
+        old_atk=old_base["atk"]+growth*2; old_def=old_base["defense"]+growth; old_spd=old_base["speed"]+growth; old_hp=old_base["max_hp"]+growth*12; old_mp=old_base["max_mp"]+growth*5
+        keep_atk=max(0,p["atk"]-old_atk); keep_def=max(0,p["defense"]-old_def); keep_spd=max(0,p["speed"]-old_spd); keep_hp=max(0,p["max_hp"]-old_hp); keep_mp=max(0,p["max_mp"]-old_mp)
+        new_max_hp=new_base["max_hp"]+growth*12+keep_hp; new_max_mp=new_base["max_mp"]+growth*5+keep_mp
+        new_atk=new_base["atk"]+growth*2+keep_atk; new_def=new_base["defense"]+growth+keep_def; new_spd=new_base["speed"]+growth+keep_spd
+        fields=", ".join(f"{k}=?" for k in updates)
+        vals=list(updates.values())+[p["gold"]-cost,new_max_hp,new_max_mp,new_atk,new_def,new_spd,max(1,min(p["hp"],new_max_hp)),max(0,min(p["mp"],new_max_mp)),guild_id,user_id]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(f"UPDATE rpg_players SET {fields}, gold=?, max_hp=?, max_mp=?, atk=?, defense=?, speed=?, hp=?, mp=? WHERE guild_id=? AND user_id=?",vals)
+            await db.commit()
+        return True,f"Your **{kind}** changed to **{value.replace('_',' ').title()}** for **{cost} gold**."
+
+    async def spend_stat(self,guild_id,user_id,stat,amount=1):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        amount=max(1,min(int(amount),25)); stat=stat.lower()
+        mapping={"attack":"atk","atk":"atk","defense":"defense","def":"defense","speed":"speed","spd":"speed","crit":"crit","hp":"max_hp","mana":"max_mp","mp":"max_mp"}
+        column=mapping.get(stat)
+        if not column:return False,"Choose attack, defense, speed, crit, hp or mana."
+        if p["stat_points"]<amount:return False,f"You only have **{p['stat_points']} stat points**."
+        gain=amount*5 if column in {"max_hp","max_mp"} else amount
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(f"UPDATE rpg_players SET {column}={column}+?, stat_points=stat_points-? WHERE guild_id=? AND user_id=?",(gain,amount,guild_id,user_id)); await db.commit()
+        return True,f"Spent **{amount}** stat point(s) on **{stat}** (+{gain})."
 
     async def create_guild(self,guild_id,user_id,name):
         if await self.player(guild_id,user_id) is None:return False,"Create an RPG character first."
@@ -344,6 +682,18 @@ class RPGService:
             if not row:return None
             cur=await db.execute("SELECT user_id,rank FROM rpg_guild_members WHERE guild_id=? AND guild_name=?",(guild_id,row[1])); members=await cur.fetchall()
             return row,members
+
+    async def leave_guild(self,guild_id,user_id):
+        info=await self.guild_info(guild_id,user_id=user_id)
+        if not info:return False,"You are not in a guild."
+        g,members=info
+        if g[2]==user_id:
+            return False,"The guild leader cannot leave. Transfer leadership or create a new guild."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("DELETE FROM rpg_guild_members WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            await db.execute("UPDATE rpg_players SET guild_name='' WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            await db.commit()
+        return True,f"You left **{g[1]}**."
 
     async def create_party(self,guild_id,user_id,name):
         if not await self.player(guild_id,user_id):return False,"Create a hero first."
@@ -451,7 +801,12 @@ class RPGService:
             cur=await db.execute("SELECT achievement_key,unlocked_at FROM rpg_achievements WHERE guild_id=? AND user_id=? ORDER BY unlocked_at",(guild_id,user_id)); return await cur.fetchall()
 
     async def shop(self):
-        return [(k,v) for k,v in ITEMS.items() if v.get("price") and v["slot"] in {"weapon","armor","offhand","consumable"}]
+        # A rotating storefront keeps the command readable even though the
+        # world now contains hundreds of discoverable items.
+        featured=[k for k in SHOP_ITEMS if ITEMS[k].get("rarity") in {"common","uncommon","rare"}]
+        random.shuffle(featured)
+        keys=featured[:24]
+        return [(k,ITEMS[k]) for k in keys]
 
     async def buy(self,guild_id,user_id,item_key,quantity=1):
         p=await self.player(guild_id,user_id); item=ITEMS.get(item_key.lower())
@@ -560,6 +915,9 @@ class RPGService:
             if action=="rename":
                 if not pet:return False,"Adopt a companion first with `!rpg pet adopt <name>`."
                 await db.execute("UPDATE rpg_pets SET name=? WHERE guild_id=? AND user_id=?",(name[:24],guild_id,user_id)); await db.commit(); return True,f"Your companion is now called **{name[:24]}**."
+            if action=="release":
+                if not pet:return False,"You have no companion."
+                await db.execute("DELETE FROM rpg_pets WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit(); return True,f"You released **{pet[0]}**, freeing your companion slot."
             if not pet:return False,"You have no companion. Use `!rpg pet adopt <name>`."
             return True,f"**{pet[0]}** — {pet[1]} • Lv {pet[2]} • XP {pet[3]} • +{pet[4]} ATK / +{pet[5]} DEF"
 
@@ -628,6 +986,259 @@ class RPGService:
         async with aiosqlite.connect(self.path) as db:
             await db.execute(f"UPDATE rpg_players SET {column}={column}+?,skill_points=skill_points-1 WHERE guild_id=? AND user_id=?",(5 if column in {"max_hp","max_mp"} else 1,guild_id,user_id)); await db.commit()
         return True,f"Skill point spent on **{stat}**."
+
+    def _combat_stats(self, p):
+        data=self._progression_bonus(p)
+        return {
+            "hp": p["hp"] + data["hp"], "max_hp": p["max_hp"] + data["hp"],
+            "mp": p["mp"] + data["mp"], "max_mp": p["max_mp"] + data["mp"],
+            "atk": p["atk"] + data["atk"], "defense": p["defense"] + data["defense"],
+            "speed": p["speed"] + data["speed"], "crit": p["crit"] + data["crit"],
+        }
+
+    def _enemy_for_level(self, level, area_key="horizon_village"):
+        area=AREAS.get(area_key, AREAS["horizon_village"])
+        candidates=[e for e in ENEMIES if e["level"] <= max(level,area["level"])+4]
+        enemy=random.choice(candidates or ENEMIES).copy()
+        scale=max(0,level-enemy["level"])
+        area_scale=max(0,area["level"]-enemy["level"])
+        enemy["level"] += scale//2 + area_scale//3
+        enemy["hp"] += scale*9 + area_scale*8
+        enemy["atk"] += scale*2 + area_scale*2
+        enemy["def"] += scale//2 + area_scale
+        enemy["xp"] += scale*12 + area_scale*15
+        enemy["gold"] += scale*8 + area_scale*10
+        # Regional enemies can drop both classic materials and new themed loot.
+        regional={
+            "whispering_woods":["herb","mat_wolf_claw","forest_egg"],
+            "ember_plains":["mat_red_herb","mat_obsidian","fire_egg"],
+            "silver_coast":["mat_sea_pearl","food_grilled_fish","water_egg"],
+            "moonfall_marsh":["mat_nightshade","mat_shadow_essence","moon_egg"],
+            "frostpeak":["mat_frostwood","mat_sapphire","frost_egg"],
+            "sunken_ruins":["mat_ancient_bone","mat_ruby","ruin_egg"],
+            "skyreach":["mat_star_fragment","mat_angel_feather","sky_egg"],
+            "demon_wastes":["mat_demon_horn","mat_void_crystal","demon_egg"],
+            "crystal_desert":["mat_crystal_melon","mat_amber","desert_egg"],
+            "astral_frontier":["mat_void_crystal","mat_star_fragment","astral_egg"],
+            "world_tree":["mat_world_tree_seed","celestial_egg","phoenix_egg"],
+        }
+        drops=list(dict.fromkeys(enemy.get("drops",[])+regional.get(area_key,[])))
+        enemy["drops"]= [d for d in drops if d in ITEMS] or ["herb"]
+        return enemy
+
+    async def start_combat(self,guild_id,user_id,mode="adventure",dungeon_name=None):
+        p=await self.player(guild_id,user_id)
+        if not p:return {"error":"Create a hero first."}
+        key=(guild_id,user_id)
+        if key in self.active_combats:return {"error":"You are already in a battle. Finish it first."}
+        if p["hp"]<=0:return {"error":"You are down. Use `!rpg rest` first."}
+        if mode=="adventure":
+            remaining=await self._cooldown(p,"last_adventure",20)
+            if remaining>0:return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
+            enemy=self._enemy_for_level(p["level"],p.get("area_key","horizon_village"))
+            state={"mode":"adventure","enemy":enemy,"enemy_hp":enemy["hp"],"player_hp":p["hp"],"player_max_hp":self._combat_stats(p)["max_hp"],"floor":1,"floors":1,"name":"Adventure","log":[f"You encountered **{enemy['name']}** in {AREAS.get(p.get('area_key','horizon_village'),AREAS['horizon_village'])['name']}."],"started":time.time()}
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_players SET last_adventure=? WHERE guild_id=? AND user_id=?",(time.time(),guild_id,user_id)); await db.commit()
+        else:
+            available=[d for d in DUNGEONS if p["level"]>=d[1]]
+            d=next((x for x in available if dungeon_name and x[0].lower()==dungeon_name.lower()),None) if dungeon_name else (available[-1] if available else None)
+            if not d:return {"error":"No dungeon unlocked yet."}
+            n,req,floors,xp,gold,desc=d
+            enemy=self._enemy_for_level(p["level"]+req//2,"horizon_village")
+            state={"mode":"dungeon","enemy":enemy,"enemy_hp":enemy["hp"]+20,"player_hp":p["hp"],"player_max_hp":self._combat_stats(p)["max_hp"],"floor":1,"floors":floors,"name":n,"reward_xp":xp,"reward_gold":gold,"log":[f"**Floor 1/{floors}** — {enemy['name']} blocks your path."],"started":time.time()}
+        self.active_combats[key]=state
+        return {"state":state,"stats":self._combat_stats(p)}
+
+    async def combat_action(self,guild_id,user_id,action):
+        key=(guild_id,user_id); state=self.active_combats.get(key)
+        if not state:return {"error":"No active battle."}
+        p=await self.player(guild_id,user_id)
+        if not p:return {"error":"Character not found."}
+        stats=self._combat_stats(p); action=action.lower()
+        log=[]; defending=False
+        if action=="attack":
+            crit=random.random()<min(.65,stats["crit"]/100)
+            dmg=max(1,stats["atk"]+random.randint(-3,5)-state["enemy"].get("def",0)//2)
+            if crit:dmg*=2
+            state["enemy_hp"]-=dmg; log.append(f"You hit **{state['enemy']['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
+        elif action=="skill":
+            costs={"mage":15,"warlock":15,"necromancer":15,"cleric":12,"paladin":10,"druid":12,"summoner":12,"spellblade":10}
+            cost=costs.get(p["class_name"],8)
+            if p["mp"]<cost:return {"error":f"You need **{cost} MP** for your class skill."}
+            skill_mult=1.65 if p["class_name"] in {"mage","warlock","necromancer"} else 1.45
+            dmg=max(2,int(stats["atk"]*skill_mult)+random.randint(0,8)-state["enemy"].get("def",0)//3)
+            state["enemy_hp"]-=dmg
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_players SET mp=max(0,mp-?) WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id)); await db.commit()
+            log.append(f"✨ **{p['class_name'].title()} skill** dealt **{dmg}** damage.")
+        elif action in {"potion","food"}:
+            inv=dict(await self.inventory(guild_id,user_id))
+            choices=[(k,q) for k,q in inv.items() if q>0 and ITEMS.get(k,{}).get("slot") in {"consumable","food"}]
+            if not choices:return {"error":"You have no usable potion or food."}
+            # Prefer the strongest recovery item available.
+            item=max((k for k,_ in choices), key=lambda k: ITEMS[k].get("heal",0)+ITEMS[k].get("stamina",0)*2+ITEMS[k].get("mana",0))
+            data=ITEMS[item]
+            if not await self.remove_item(guild_id,user_id,item,1):return {"error":"That item is no longer available."}
+            heal=data.get("heal",0); mana=data.get("mana",0)
+            await self._apply_recovery(guild_id,user_id,heal,mana)
+            state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
+            log.append(f"🍖 You used **{data['name']}** and recovered **{heal} HP**{' and '+str(mana)+' MP' if mana else ''}.")
+        elif action=="defend":
+            defending=True; log.append("🛡️ You brace for the next hit, reducing incoming damage.")
+        elif action=="flee":
+            if state["mode"]=="dungeon" and state["floor"]>1:return {"error":"You cannot flee after the first dungeon floor."}
+            if random.random()<0.65:
+                self.active_combats.pop(key,None)
+                await self._set_hp(guild_id,user_id,max(1,state["player_hp"]))
+                return {"finished":True,"win":False,"fled":True,"log":[*state["log"],"🏃 You escaped the battle."]}
+            log.append("You failed to escape!")
+        else:
+            return {"error":"Choose Attack, Skill, Potion, Defend or Flee."}
+        state["log"].extend(log)
+        if state["enemy_hp"]<=0:
+            if state["mode"]=="dungeon" and state["floor"]<state["floors"]:
+                state["floor"]+=1
+                state["enemy"]=self._enemy_for_level(p["level"]+state["floor"],p.get("area_key","horizon_village"))
+                state["enemy_hp"]=state["enemy"]["hp"]+state["floor"]*18
+                state["player_hp"]=min(stats["max_hp"],state["player_hp"]+max(5,stats["max_hp"]//8))
+                state["log"].append(f"🏰 **Floor {state['floor']}/{state['floors']}** — **{state['enemy']['name']}** appears. You recover a little HP between floors.")
+                await self._set_hp(guild_id,user_id,state["player_hp"])
+                return {"finished":False,"state":state,"stats":stats}
+            xp=(state.get("enemy",{}).get("xp",40)+random.randint(0,25)) if state["mode"]=="adventure" else state["reward_xp"]+state["floors"]*55
+            gold=(state.get("enemy",{}).get("gold",30)+random.randint(0,35)) if state["mode"]=="adventure" else state["reward_gold"]+random.randint(0,120)
+            drop=random.choice(state["enemy"].get("drops",["herb"]))
+            if random.random()<0.08:
+                egg_pool=[k for k,v in ITEMS.items() if v.get("slot")=="egg" and (v.get("rarity") in {"common","uncommon","rare"} or p["level"]>=20)]
+                if egg_pool: drop=random.choice(egg_pool)
+            await self._set_hp(guild_id,user_id,max(1,state["player_hp"]))
+            old_level,new_level=await self.add_rewards(guild_id,user_id,xp,gold); await self.add_item(guild_id,user_id,drop,1)
+            await self.progress_quests(guild_id,user_id,"hunt",1)
+            if state["mode"]=="dungeon":
+                await self.progress_quests(guild_id,user_id,"dungeon",1)
+                if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
+            await self.check_achievements(guild_id,user_id)
+            self.active_combats.pop(key,None)
+            return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"state":state,"level_before":old_level,"level_after":new_level}
+        # Enemy's turn after player action.
+        if not defending and random.random()<min(.18,stats["speed"]/220):
+            state["log"].append(f"💨 You dodged **{state['enemy']['name']}**.")
+        else:
+            dmg=max(1,state["enemy"]["atk"]+random.randint(-3,4)-stats["defense"]//3)
+            if defending:dmg=max(1,dmg//2)
+            state["player_hp"]-=dmg; state["log"].append(f"🩸 **{state['enemy']['name']}** hit you for **{dmg}**.")
+        if state["player_hp"]<=0:
+            state["player_hp"]=1; await self._set_hp(guild_id,user_id,1); self.active_combats.pop(key,None)
+            return {"finished":True,"win":False,"state":state,"defeated":True}
+        await self._set_hp(guild_id,user_id,state["player_hp"])
+        return {"finished":False,"state":state,"stats":stats}
+
+    async def _set_hp(self,guild_id,user_id,hp):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET hp=? WHERE guild_id=? AND user_id=?",(max(1,int(hp)),guild_id,user_id)); await db.commit()
+
+    async def _apply_recovery(self,guild_id,user_id,heal,mana):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET hp=min(max_hp,hp+?),mp=min(max_mp,mp+?) WHERE guild_id=? AND user_id=?",(heal,mana,guild_id,user_id)); await db.commit()
+
+    async def travel(self,guild_id,user_id,area_key):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        area=AREAS.get(area_key.lower())
+        if not area:return False,"Unknown area. Use `!rpg areas`."
+        if p["level"]<area["level"]:return False,f"That area requires level **{area['level']}**."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET area_key=?,location=? WHERE guild_id=? AND user_id=?",(area_key.lower(),area["name"],guild_id,user_id)); await db.commit()
+        return True,f"You traveled to **{area['name']}**. {area['desc']}"
+
+    async def egg_hatch(self,guild_id,user_id,egg_key,name="Spirit"):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        egg_key=egg_key.lower(); data=ITEMS.get(egg_key)
+        if not data or data.get("slot")!="egg":return False,"That is not a pet egg."
+        if not await self.remove_item(guild_id,user_id,egg_key,1):return False,"You don't own that egg."
+        species_by={"common":["Wolf Pup","Rabbit","Fox","Cat"],"uncommon":["Forest Wolf","Moon Fox","Hawk","Dire Hound"],"rare":["Moon Cat","Spirit Fox","Griffin Chick","Frost Wolf"],"epic":["Dragon Whelp","Phoenix Chick","Royal Griffin","Shadow Drake"],"legendary":["Phoenix","Elder Dragon","Celestial Lion"],"mythic":["Void Dragon","Star Serpent","World Tree Sprite"]}
+        rarity=data.get("rarity","common"); species=random.choice(species_by.get(rarity,species_by["common"]))
+        bonus=2+{"common":0,"uncommon":2,"rare":4,"epic":7,"legendary":11,"mythic":16}.get(rarity,0)
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT 1 FROM rpg_pets WHERE guild_id=? AND user_id=?",(guild_id,user_id)); exists=await cur.fetchone()
+            if exists:return False,"You already have a companion. Release or rename it first."
+            await db.execute("INSERT INTO rpg_pets VALUES(?,?,?,?,?,?,?)",(guild_id,user_id,name[:24],species,1,0,bonus,bonus)); await db.commit()
+        return True,f"The **{data['name']}** hatched into **{species}**! Your pet starts with **+{bonus} ATK / +{bonus} DEF**."
+
+    async def kingdom_list(self,guild_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT name,ruler_id,level,treasury,renown FROM rpg_kingdoms WHERE guild_id=? ORDER BY level DESC,renown DESC",(guild_id,)); return await cur.fetchall()
+
+    async def kingdom_create(self,guild_id,user_id,name):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        if p["level"]<15:return False,"Founding a kingdom requires **level 15**."
+        if p["gold"]<50000:return False,"Founding a kingdom requires **50,000 gold**."
+        name=name.strip()[:32]
+        if not name:return False,"Give your kingdom a name."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT 1 FROM rpg_kingdoms WHERE guild_id=? AND lower(name)=lower(?)",(guild_id,name))
+            if await cur.fetchone():return False,"That kingdom already exists."
+            await db.execute("INSERT INTO rpg_kingdoms(guild_id,name,ruler_id,treasury,created_at) VALUES(?,?,?,?,?)",(guild_id,name,user_id,0,time.time()))
+            await db.execute("INSERT INTO rpg_kingdom_members VALUES(?,?,?,?,?)",(guild_id,name,user_id,"king",time.time()))
+            await db.execute("UPDATE rpg_players SET gold=gold-50000,kingdom_name=?,kingdom_role=?,title='King',life_path='royal',renown=renown+100 WHERE guild_id=? AND user_id=?",(name,"king",guild_id,user_id)); await db.commit()
+        return True,f"**{name}** has been founded. You are its **King**."
+
+    async def kingdom_join(self,guild_id,user_id,name):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT name FROM rpg_kingdoms WHERE guild_id=? AND lower(name)=lower(?)",(guild_id,name)); row=await cur.fetchone()
+            if not row:return False,"Kingdom not found."
+            await db.execute("DELETE FROM rpg_kingdom_members WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            await db.execute("INSERT INTO rpg_kingdom_members VALUES(?,?,?,?,?)",(guild_id,row[0],user_id,"citizen",time.time()))
+            await db.execute("UPDATE rpg_players SET kingdom_name=?,kingdom_role='citizen',life_path='noble' WHERE guild_id=? AND user_id=?",(row[0],guild_id,user_id)); await db.commit()
+        return True,f"You joined **{row[0]}** as a citizen."
+
+    async def kingdom_info(self,guild_id,name=None,user_id=None):
+        async with aiosqlite.connect(self.path) as db:
+            if name:cur=await db.execute("SELECT * FROM rpg_kingdoms WHERE guild_id=? AND lower(name)=lower(?)",(guild_id,name))
+            elif user_id:cur=await db.execute("SELECT k.* FROM rpg_kingdoms k JOIN rpg_kingdom_members m ON k.guild_id=m.guild_id AND k.name=m.kingdom_name WHERE k.guild_id=? AND m.user_id=? LIMIT 1",(guild_id,user_id))
+            else:cur=await db.execute("SELECT * FROM rpg_kingdoms WHERE guild_id=? ORDER BY level DESC LIMIT 1",(guild_id,))
+            kingdom=await cur.fetchone()
+            if not kingdom:return None
+            cur=await db.execute("SELECT user_id,role FROM rpg_kingdom_members WHERE guild_id=? AND kingdom_name=? ORDER BY role",(guild_id,kingdom[1])); members=await cur.fetchall()
+            return kingdom,members
+
+    async def kingdom_promote(self,guild_id,user_id,target_id,role):
+        role=role.lower(); info=await self.kingdom_info(guild_id,user_id=user_id)
+        if not info:return False,"You are not in a kingdom."
+        k,members=info
+        if k[2]!=user_id:return False,"Only the King can appoint nobles."
+        if role not in KINGDOM_ROLES or role=="king":return False,"Appoint: duke, count, knight, citizen or outlaw."
+        if not any(uid==target_id for uid,_ in members):return False,"That player is not in your kingdom."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_kingdom_members SET role=? WHERE guild_id=? AND kingdom_name=? AND user_id=?",(role,guild_id,k[1],target_id))
+            await db.execute("UPDATE rpg_players SET kingdom_role=?,title=? WHERE guild_id=? AND user_id=?",(role,role.title(),guild_id,target_id)); await db.commit()
+        return True,f"<@{target_id}> is now a **{role.title()}** of **{k[1]}**."
+
+    async def kingdom_leave(self,guild_id,user_id):
+        info=await self.kingdom_info(guild_id,user_id=user_id)
+        if not info:return False,"You are not in a kingdom."
+        k,_=info
+        if k[2]==user_id:return False,"The King cannot leave. Abdicate by transferring the crown first."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("DELETE FROM rpg_kingdom_members WHERE guild_id=? AND kingdom_name=? AND user_id=?",(guild_id,k[1],user_id))
+            await db.execute("UPDATE rpg_players SET kingdom_name='',kingdom_role='',title='Adventurer' WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
+        return True,f"You left **{k[1]}**."
+
+    async def bounty_post(self,guild_id,user_id,target_name,reward):
+        if reward<100:return False,"Bounties must be at least 100 gold."
+        p=await self.player(guild_id,user_id)
+        if not p or p["gold"]<reward:return False,"You don't have enough gold."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(reward,guild_id,user_id))
+            await db.execute("INSERT INTO rpg_bounties(guild_id,poster_id,target_name,reward,created_at) VALUES(?,?,?,?,?)",(guild_id,user_id,target_name[:64],reward,time.time())); await db.commit()
+        return True,f"Bounty posted on **{target_name}** for **{reward} gold**."
+
+    async def bounties(self,guild_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id,target_name,reward,poster_id FROM rpg_bounties WHERE guild_id=? AND status='open' ORDER BY reward DESC LIMIT 20",(guild_id,)); return await cur.fetchall()
 
     async def duel(self,guild_id,user_id,target_id):
         a=await self.player(guild_id,user_id); b=await self.player(guild_id,target_id)
