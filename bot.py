@@ -21,6 +21,7 @@ from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
 from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, LIFE_PATHS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES
+from storage import backup_database, migrate_legacy_database, resolve_database_path
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
@@ -53,17 +54,30 @@ class Horizon(commands.Bot):
             intents=intents,
             help_command=None,
         )
-        self.db = Database(os.getenv("HORIZON_DB", os.path.join(BASE_DIR, "horizon.db")))
+        self.db_path = resolve_database_path(BASE_DIR)
+        # If an older deployment stored the DB beside the bot code, migrate it
+        # into the persistent location before initializing the schema.
+        migrate_legacy_database(self.db_path, os.path.join(BASE_DIR, "horizon.db"))
+        self.db = Database(self.db_path)
         self.ai = AIProvider()
         self.mod = ModerationEngine()
         self.games = GameManager()
         self.dashboard = Dashboard(self)
-        self.rpg = RPGService(os.getenv("HORIZON_DB", os.path.join(BASE_DIR, "horizon.db")))
+        self.rpg = RPGService(self.db_path)
+        self._db_backup_task = None
         self.history: dict[int, list[str]] = {}
 
     async def setup_hook(self):
         await self.db.setup()
         await self.rpg.setup()
+        # Take an immediate snapshot and then keep rolling backups. This is a
+        # safety net; the actual database must still live on persistent storage
+        # (Railway Volume) to survive container replacement.
+        try:
+            backup_database(self.db_path)
+        except Exception:
+            log.exception("Initial database backup failed.")
+        self._db_backup_task = asyncio.create_task(self._database_backup_loop())
         await self.dashboard.start()
 
         # Keep slash commands in ONE scope. Discord can show duplicates when
@@ -93,6 +107,29 @@ class Horizon(commands.Bot):
         else:
             await self.tree.sync()
             log.info("Global Horizon commands synced.")
+
+    async def _database_backup_loop(self):
+        while True:
+            await asyncio.sleep(1800)
+            try:
+                backup_database(self.db_path)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Scheduled database backup failed.")
+
+    async def close(self):
+        if self._db_backup_task:
+            self._db_backup_task.cancel()
+            try:
+                await self._db_backup_task
+            except asyncio.CancelledError:
+                pass
+        try:
+            backup_database(self.db_path)
+        except Exception:
+            log.exception("Final database backup failed.")
+        await super().close()
 
     async def on_guild_join(self, guild: discord.Guild):
         await self.db.settings(guild.id)
