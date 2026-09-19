@@ -5,6 +5,7 @@ import os
 import random
 import re
 import shlex
+import aiosqlite
 
 import discord
 from discord import app_commands
@@ -19,6 +20,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
+from rpg import RPGService, RACES, CLASSES, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
@@ -56,10 +58,12 @@ class Horizon(commands.Bot):
         self.mod = ModerationEngine()
         self.games = GameManager()
         self.dashboard = Dashboard(self)
+        self.rpg = RPGService(os.getenv("HORIZON_DB", os.path.join(BASE_DIR, "horizon.db")))
         self.history: dict[int, list[str]] = {}
 
     async def setup_hook(self):
         await self.db.setup()
+        await self.rpg.setup()
         await self.dashboard.start()
 
         # Keep slash commands in ONE scope. Discord can show duplicates when
@@ -947,7 +951,7 @@ async def help_command(interaction: discord.Interaction):
     )
     embed.add_field(name="AI", value="`!ai <message>` `!ask <question>` `!aistatus` `!aimodels` `!personality` `!remember` `!forget` `!memories`", inline=False)
     embed.add_field(name="Games", value="`!games` `!game <name>` `!guess <letter>` `!join` `!begin` `!vote @user` `!dayend` `!nightend` `!stop` `!rps <choice>`", inline=False)
-    embed.add_field(name="RPG / Community", value="`!profile` `!leaderboard` `!daily` `!inventory` `!character` `!rpgroll` `!questlist` `!eventlist` `!eventjoin <id>`", inline=False)
+    embed.add_field(name="RPG / Community", value="`!rpg` `!rpg start` `!rpg profile` `!rpg adventure` `!rpg quests` `!rpg party` `!rpg guild` `!rpg dungeon` `!rpg shop` `!rpg craft` `!rpg market` `!rpg pet` `!rpg achievements` `!rpg leaderboard`", inline=False)
     embed.add_field(name="Moderation", value="`!warn @user` `!warnings @user` `!mod on/off` `!modaction <log|warn|timeout>` `!clear <amount>` `!timeout @user <minutes>` `!kick @user` `!ban @user`", inline=False)
     embed.add_field(name="Server / Announcements", value="`!announce <type> <ping> [#channel] | <title> | <message>` `!config show` `!config welcome #channel` `!config logs #channel` `!serverinfo` `!permissions`", inline=False)
     embed.add_field(name="Help", value="`!help` or `!help <category>` — categories: `ai`, `games`, `rpg`, `moderation`, `announcements`, `server`", inline=False)
@@ -1211,7 +1215,7 @@ def _prefix_help_text(category: str | None = None):
     pages = {
         "ai": "**AI**\n`!ai <message>` — chat with Horizon\n`!ask <question>` — ask Horizon\n`!aistatus` — AI provider status\n`!aimodels` — available models\n`!personality <text>` — server personality (staff)\n`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
         "games": "**Games**\n`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — hidden-role lobby\n`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf\n`!rps <rock|paper|scissors>` — RPS\n`!stop` — stop the current game",
-        "rpg": "**RPG / Community**\n`!profile [nickname] [preferences]`\n`!character [name] [class]`\n`!rpgroll`\n`!inventory`\n`!daily`\n`!leaderboard`\n`!questlist`\n`!eventlist` / `!eventjoin <id>`",
+        "rpg": "**🌌 Horizon RPG**\n`!rpg` — RPG hub\n`!rpg start <name> <race> <class>` — create hero\n`!rpg profile` / `!rpg stats` — character sheet\n`!rpg adventure` / `!rpg dungeon` — PvE\n`!rpg quests` / `!rpg quest accept <id>` / `!rpg quest claim <id>`\n`!rpg party create/join/dungeon` — team play\n`!rpg guild create/join/members/deposit/upgrade` — guild system\n`!rpg shop/buy/sell/craft/market` — economy\n`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
         "moderation": "**Moderation**\n`!warn @user [reason]`\n`!warnings @user`\n`!mod on|off`\n`!modaction log|warn|timeout`\n`!clear <1-100>`\n`!timeout @user <minutes> [reason]`\n`!kick @user [reason]`\n`!ban @user [reason]`",
         "announcements": "**Announcements**\n`!announce <type> <ping> [#channel] | <title> | <message>`\nTypes: `general`, `event`, `tournament`, `game`, `community`, `update`, `important`, `warning`, `maintenance`, `giveaway`, `news`\nPing: `none`, `@here`, `@everyone`, a role mention, or a member mention.\nExample: `!announce tournament @Tournament #events | Anigame Tournament | Sign-ups open Saturday at 8 PM IST.`",
         "server": "**Server**\n`!config show`\n`!config welcome #channel`\n`!config logs #channel`\n`!config personality <text>`\n`!serverinfo`\n`!permissions`\n`!userinfo @user`\n`!avatar @user`\n`!channelinfo`",
@@ -1302,109 +1306,428 @@ async def prefix_memories(ctx):
     await ctx.send(text[:4000])
 
 
+# -------------------- Persistent Horizon RPG --------------------
+
+async def _rpg_delete(ctx):
+    await _quiet_delete(ctx.message)
+
+async def _rpg_require(ctx):
+    ok, value = await bot.rpg.ensure_player(ctx.guild.id, ctx.author.id)
+    if not ok:
+        await ctx.send(value, delete_after=8)
+        return None
+    return value
+
+
+def _rpg_embed(title, description=""):
+    return discord.Embed(title=title, description=description, colour=discord.Colour.blurple())
+
+
+@bot.group(name="rpg", invoke_without_command=True)
+async def rpg_root(ctx):
+    await _rpg_delete(ctx)
+    if ctx.invoked_subcommand is not None:
+        return
+    await ctx.send(
+        "**🌌 HORIZON RPG**\n\n"
+        "A persistent multiplayer RPG for Log Horizon.\n"
+        "`!rpg start <name> <race> <class>` — create your hero\n"
+        "`!rpg profile` — character sheet\n"
+        "`!rpg adventure` — fight and explore\n"
+        "`!rpg quests` — quest board\n"
+        "`!rpg party create <name>` — build a team\n"
+        "`!rpg guild create <name>` — found a guild\n"
+        "`!rpg dungeon` — enter a dungeon\n"
+        "`!rpg shop` / `!rpg craft` / `!rpg market` — economy\n"
+        "`!rpg pet` / `!rpg achievements` / `!rpg leaderboard`\n\n"
+        "Use `!rpg help` for the full command map."
+    )
+
+
+@rpg_root.command(name="help")
+async def rpg_help(ctx):
+    await _rpg_delete(ctx)
+    await ctx.send(
+        "**🌌 Horizon RPG Command Map**\n\n"
+        "**Hero**\n"
+        "`!rpg start <name> <race> <class>` `!rpg profile` `!rpg stats` `!rpg classes` `!rpg races` `!rpg rest`\n\n"
+        "**Adventure**\n"
+        "`!rpg adventure` `!rpg hunt` `!rpg dungeon [name]` `!rpg battle @user`\n\n"
+        "**Quests**\n"
+        "`!rpg quests` `!rpg quest <id>` `!rpg claim <id>`\n\n"
+        "**Teams**\n"
+        "`!rpg party create <name>` `!rpg party join <id>` `!rpg party info [id]` `!rpg party leave`\n\n"
+        "**Guilds**\n"
+        "`!rpg guild list` `!rpg guild create <name>` `!rpg guild join <name>` `!rpg guild info [name]` `!rpg guild deposit <gold>` `!rpg guild upgrade`\n\n"
+        "**Economy**\n"
+        "`!rpg inventory` `!rpg equip <item>` `!rpg shop` `!rpg buy <item> [qty]` `!rpg sell <item> [qty]` `!rpg recipes` `!rpg craft <item> [qty]` `!rpg market` `!rpg list <item> <qty> <price>` `!rpg marketbuy <id>`\n\n"
+        "**Life & Progression**\n"
+        "`!rpg daily` `!rpg gather` `!rpg fish` `!rpg mine` `!rpg pet adopt <name>` `!rpg achievements` `!rpg leaderboard`"
+    )
+
+
+@rpg_root.command(name="start")
+async def rpg_start(ctx, name: str = "", race: str = "human", class_name: str = "warrior"):
+    await _rpg_delete(ctx)
+    if not name:
+        await ctx.send("Use `!rpg start <name> <race> <class>`.\nRaces: `human`, `elf`, `dwarf`, `orc`, `kitsune`.\nClasses: `warrior`, `mage`, `rogue`, `ranger`, `paladin`, `summoner`.", delete_after=10); return
+    try:
+        ok, text = await bot.rpg.create_player(ctx.guild.id, ctx.author.id, name, race, class_name)
+    except ValueError:
+        ok, text = False, "Invalid race or class. Use `!rpg races` and `!rpg classes`."
+    await ctx.send(("✅ " if ok else "❌ ") + text)
+
+
+@rpg_root.command(name="classes")
+async def rpg_classes(ctx):
+    await _rpg_delete(ctx)
+    lines=[f"**{k.title()}** — {v['desc']} • +{v['atk']} ATK / +{v['def']} DEF / +{v['hp']} HP / +{v['speed'] if 'speed' in v else v['spd']} SPD" for k,v in CLASSES.items()]
+    await ctx.send("**⚔️ Classes**\n\n"+"\n".join(lines))
+
+
+@rpg_root.command(name="races")
+async def rpg_races(ctx):
+    await _rpg_delete(ctx)
+    lines=[f"**{k.title()}** — {v['desc']} • HP {v['hp']:+} / ATK {v['atk']:+} / DEF {v['def']:+} / SPD {v['spd']:+} / Crit {v['crit']:+}%" for k,v in RACES.items()]
+    await ctx.send("**🧬 Races**\n\n"+"\n".join(lines))
+
+
+@rpg_root.command(name="profile", aliases=["character", "sheet"])
+async def rpg_profile(ctx):
+    await _rpg_delete(ctx)
+    data=await bot.rpg.stats(ctx.guild.id,ctx.author.id)
+    if not data:
+        await ctx.send("Start your hero with `!rpg start <name> <race> <class>`.", delete_after=8); return
+    p,gear,b=data
+    xp_next=100*p['level']*p['level']
+    await ctx.send(embed=_rpg_embed(f"⚔️ {p['name']}",
+        f"**Level {p['level']} {p['race'].title()} {p['class_name'].title()}** • {p['title']}\n"
+        f"XP **{p['xp']}/{xp_next}** • Gold **{p['gold']}** • Prestige **{p['prestige']}**\n"
+        f"HP **{p['hp']+b['hp']}/{p['max_hp']+b['hp']}** • MP **{p['mp']+b['mp']}/{p['max_mp']+b['mp']}** • Stamina **{p['stamina']}/100**\n\n"
+        f"ATK **{p['atk']+b['atk']}** • DEF **{p['defense']+b['defense']}** • SPD **{p['speed']+b['speed']}** • Crit **{p['crit']+b['crit']}%**\n"
+        f"Location: **{p['location']}**\n\n**Equipment**\n" + ("\n".join(f"{slot.title()}: {ITEMS.get(item, {'name':item})['name']}" for slot,item in gear.items()) or "No equipment")))
+
+
+@rpg_root.command(name="stats")
+async def rpg_stats(ctx):
+    await rpg_profile.callback(ctx)
+
+
+@rpg_root.command(name="adventure", aliases=["hunt"])
+async def rpg_adventure(ctx):
+    await _rpg_delete(ctx)
+    result=await bot.rpg.adventure(ctx.guild.id,ctx.author.id)
+    if "error" in result:
+        await ctx.send(result["error"], delete_after=8); return
+    enemy=result['enemy']
+    if result['win']:
+        text=f"**⚔️ Adventure Complete**\nYou defeated **{enemy['name']}**.\n\n**+{result['xp']} XP** • **+{result['gold']} gold** • **{ITEMS[result['drop']]['name']} ×1**\nHP remaining: **{result['hp']}**\n\n"+"\n".join("• "+x for x in result['log'])
+    else:
+        text=f"**💀 Defeated**\n**{enemy['name']}** overwhelmed you. You escaped with 1 HP.\n\n"+"\n".join("• "+x for x in result['log'])
+    await ctx.send(text)
+
+
+@rpg_root.command(name="rest")
+async def rpg_rest(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.rest(ctx.guild.id,ctx.author.id); await ctx.send(("⛺ " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="daily")
+async def rpg_daily(ctx):
+    await _rpg_delete(ctx); result,msg=await bot.rpg.daily(ctx.guild.id,ctx.author.id)
+    if msg: await ctx.send(msg,delete_after=8); return
+    xp,gold,level=result; await ctx.send(f"🎁 **Daily chest opened!** +**{gold} gold** +**{xp} XP** • Level **{level}**")
+
+
+@rpg_root.command(name="inventory", aliases=["inv"])
+async def rpg_inventory(ctx):
+    await _rpg_delete(ctx); ok=await _rpg_require(ctx)
+    if not ok:return
+    rows=await bot.rpg.inventory(ctx.guild.id,ctx.author.id)
+    lines=[f"• `{key}` — **{ITEMS.get(key,{'name':key})['name']} ×{qty}**" for key,qty in rows]
+    await ctx.send("**🎒 Inventory**\n"+"\n".join(lines) if lines else "**🎒 Inventory**\nEmpty.")
+
+
+@rpg_root.command(name="equip")
+async def rpg_equip(ctx,item_key: str=""):
+    await _rpg_delete(ctx)
+    if not item_key: await ctx.send("Use `!rpg equip <item_key>`.",delete_after=6); return
+    ok,msg=await bot.rpg.equip(ctx.guild.id,ctx.author.id,item_key); await ctx.send(("⚔️ " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="shop")
+async def rpg_shop(ctx):
+    await _rpg_delete(ctx); items=await bot.rpg.shop(); await ctx.send("**🛒 Horizon Shop**\n\n"+"\n".join(f"`{k}` — {v['name']} • **{v['price']} gold**" for k,v in items))
+
+
+@rpg_root.command(name="buy")
+async def rpg_buy(ctx,item_key: str="",quantity: int=1):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.buy(ctx.guild.id,ctx.author.id,item_key,quantity); await ctx.send(("🛒 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="sell")
+async def rpg_sell(ctx,item_key: str="",quantity: int=1):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.sell(ctx.guild.id,ctx.author.id,item_key,quantity); await ctx.send(("💰 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="recipes")
+async def rpg_recipes(ctx):
+    await _rpg_delete(ctx); lines=[]
+    for out,mats in RECIPES.items():
+        lines.append(f"`{out}` → "+", ".join(f"{ITEMS[m]['name']} ×{n}" for m,n in mats.items()))
+    await ctx.send("**🔨 Crafting Recipes**\n\n"+"\n".join(lines))
+
+
+@rpg_root.command(name="craft")
+async def rpg_craft(ctx,item_key: str="",quantity: int=1):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.craft(ctx.guild.id,ctx.author.id,item_key,quantity); await ctx.send(("🔨 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="gather")
+async def rpg_gather(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"gather"); await ctx.send(("🌿 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="fish")
+async def rpg_fish(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"fish"); await ctx.send(("🎣 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="mine")
+async def rpg_mine(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"mine"); await ctx.send(("⛏️ " if ok else "❌ ")+msg)
+
+
+@rpg_root.group(name="quests", invoke_without_command=True)
+async def rpg_quests(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.quests(ctx.guild.id,ctx.author.id)
+    if not rows: await ctx.send("No quests available."); return
+    lines=[]
+    for qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status in rows:
+        mark="🟢" if status=="active" else "⚪" if status=="available" else "✅"
+        lines.append(f"{mark} `#{qid}` **{title}** — {progress}/{target} • Lv {lvl} • +{xp} XP / +{gold}g\n{desc}")
+    await ctx.send("**📜 Quest Board**\n\n"+"\n".join(lines))
+
+
+@rpg_quests.command(name="accept")
+async def rpg_quest_accept(ctx,quest_id:int=0):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.accept_quest(ctx.guild.id,ctx.author.id,quest_id); await ctx.send(("📜 " if ok else "❌ ")+msg)
+
+
+@rpg_quests.command(name="claim")
+async def rpg_quest_claim(ctx,quest_id:int=0):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.claim_quest(ctx.guild.id,ctx.author.id,quest_id); await ctx.send(("🎁 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="quest")
+async def rpg_quest(ctx,quest_id:int=0):
+    await rpg_quests.callback(ctx)
+
+
+@rpg_root.command(name="claim")
+async def rpg_claim(ctx,quest_id:int=0):
+    await rpg_quest_claim.callback(ctx,quest_id)
+
+
+@rpg_root.group(name="party", invoke_without_command=True)
+async def rpg_party(ctx):
+    await _rpg_delete(ctx); info=await bot.rpg.party_info(ctx.guild.id,user_id=ctx.author.id)
+    if not info: await ctx.send("No open party. `!rpg party create <name>` to start one."); return
+    party,members=info; await ctx.send(f"**🛡️ Party {party[1]}** (`{party[0]}`)\n"+"\n".join(f"• <@{uid}> — {role}" for uid,role in members))
+
+
+@rpg_party.command(name="create")
+async def rpg_party_create(ctx,*,name:str="Adventure Party"):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.create_party(ctx.guild.id,ctx.author.id,name); await ctx.send(("🛡️ " if ok else "❌ ")+msg)
+
+
+@rpg_party.command(name="join")
+async def rpg_party_join(ctx,party_id:int=0):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.join_party(ctx.guild.id,ctx.author.id,party_id); await ctx.send(("🤝 " if ok else "❌ ")+msg)
+
+
+@rpg_party.command(name="leave")
+async def rpg_party_leave(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.leave_party(ctx.guild.id,ctx.author.id); await ctx.send(("🚪 " if ok else "❌ ")+msg)
+
+
+@rpg_party.command(name="dungeon")
+async def rpg_party_dungeon(ctx,*,name:str=""):
+    await _rpg_delete(ctx); result=await bot.rpg.party_dungeon(ctx.guild.id,ctx.author.id,name.strip() or None)
+    if "error" in result: await ctx.send(result["error"],delete_after=8); return
+    if not result["win"]:
+        await ctx.send(f"💀 **Party Dungeon Failed** — {result['name']}\n"+"\n".join("• "+x for x in result['log']))
+        return
+    lines=[f"<@{uid}>: +{xp} XP / +{gold} gold" for uid,xp,gold in result["rewards"]]
+    await ctx.send(f"🏆 **Party Dungeon Cleared: {result['name']}**\n"+"\n".join("• "+x for x in result['log'])+"\n\n"+"\n".join(lines))
+
+
+@rpg_party.command(name="info")
+async def rpg_party_info(ctx,party_id:int=0):
+    await _rpg_delete(ctx); info=await bot.rpg.party_info(ctx.guild.id,pid=party_id if party_id else None,user_id=ctx.author.id)
+    if not info: await ctx.send("Party not found.",delete_after=6); return
+    party,members=info; await ctx.send(f"**🛡️ {party[1]}** — Party `{party[0]}`\n"+"\n".join(f"• <@{uid}> — {role}" for uid,role in members))
+
+
+@rpg_root.group(name="guild", invoke_without_command=True)
+async def rpg_guild(ctx):
+    await _rpg_delete(ctx); info=await bot.rpg.guild_info(ctx.guild.id,user_id=ctx.author.id)
+    if info:
+        g,members=info; await ctx.send(f"**🏰 {g[1]}** — Lv {g[3]} • Guild XP {g[4]} • Bank {g[5]} gold\nMembers: **{len(members)}**")
+    else:
+        guilds=await bot.rpg.guilds(ctx.guild.id); await ctx.send("**🏰 Guilds**\n"+("\n".join(f"• **{n}** — Lv {lv} • {xp} XP" for n,l,lv,xp,b in guilds) or "No guilds yet."))
+
+
+@rpg_guild.command(name="list")
+async def rpg_guild_list(ctx):
+    await rpg_guild.callback(ctx)
+
+
+@rpg_guild.command(name="create")
+async def rpg_guild_create(ctx,*,name:str=""):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.create_guild(ctx.guild.id,ctx.author.id,name); await ctx.send(("🏰 " if ok else "❌ ")+msg)
+
+
+@rpg_guild.command(name="join")
+async def rpg_guild_join(ctx,*,name:str=""):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.join_guild(ctx.guild.id,ctx.author.id,name); await ctx.send(("🤝 " if ok else "❌ ")+msg)
+
+
+@rpg_guild.command(name="info")
+async def rpg_guild_info(ctx,*,name:str=""):
+    await _rpg_delete(ctx); info=await bot.rpg.guild_info(ctx.guild.id,name or None)
+    if not info: await ctx.send("Guild not found. Use `!rpg guild list`.",delete_after=7); return
+    g,members=info; await ctx.send(f"**🏰 {g[1]}** — Level {g[2]}\nGuild XP: **{g[3]}** • Bank: **{g[4]} gold**\nLeader: <@{g[2-1]}>\nMembers: "+", ".join(f"<@{uid}>" for uid,_ in members))
+
+
+@rpg_guild.command(name="members")
+async def rpg_guild_members(ctx):
+    await _rpg_delete(ctx); info=await bot.rpg.guild_info(ctx.guild.id,user_id=ctx.author.id)
+    if not info: await ctx.send("You are not in a guild.",delete_after=6); return
+    g,members=info; await ctx.send(f"**🏰 {g[1]} Members**\n"+"\n".join(f"• <@{uid}> — {rank}" for uid,rank in members))
+
+
+@rpg_guild.command(name="leave")
+async def rpg_guild_leave(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.leave_guild(ctx.guild.id,ctx.author.id); await ctx.send(("🚪 " if ok else "❌ ")+msg)
+
+
+@rpg_guild.command(name="deposit")
+async def rpg_guild_deposit(ctx,amount:int=0):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.guild_deposit(ctx.guild.id,ctx.author.id,amount); await ctx.send(("💰 " if ok else "❌ ")+msg)
+
+
+@rpg_guild.command(name="upgrade")
+async def rpg_guild_upgrade(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.guild_upgrade(ctx.guild.id,ctx.author.id); await ctx.send(("⬆️ " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="dungeon")
+async def rpg_dungeon(ctx,*,name:str=""):
+    await _rpg_delete(ctx); result=await bot.rpg.dungeon(ctx.guild.id,ctx.author.id,name.strip() or None)
+    if "error" in result: await ctx.send(result["error"],delete_after=8); return
+    text=f"**🏰 {result['name']}**\n"+"\n".join("• "+x for x in result['log'])+"\n\n"
+    if result['win']: text+=f"🏆 **Dungeon cleared!** +{result['xp']} XP • +{result['gold']} gold"
+    else: text+="💀 **Dungeon failed.** Rest and try again."
+    await ctx.send(text)
+
+
+@rpg_root.command(name="dungeons")
+async def rpg_dungeons(ctx):
+    await _rpg_delete(ctx); await ctx.send("**🏰 Dungeon Atlas**\n\n"+"\n".join(f"**{n}** — Level {req}+ • {floors} floors\n{desc}" for n,req,floors,xp,gold,desc in DUNGEONS))
+
+
+@rpg_root.command(name="skill")
+async def rpg_skill(ctx,stat:str=""):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.spend_skill(ctx.guild.id,ctx.author.id,stat); await ctx.send(("✨ " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="battle", aliases=["duel"])
+async def rpg_battle(ctx,member:discord.Member=None):
+    await _rpg_delete(ctx)
+    if not member: await ctx.send("Use `!rpg battle @player`.",delete_after=6); return
+    result=await bot.rpg.duel(ctx.guild.id,ctx.author.id,member.id)
+    if "error" in result: await ctx.send(result["error"],delete_after=7); return
+    winner=ctx.guild.get_member(result["winner"]); loser=ctx.guild.get_member(result["loser"])
+    await ctx.send(f"⚔️ **Duel Complete**\nWinner: {winner.mention if winner else result['winner']}\nDefeated: {loser.mention if loser else result['loser']}\nWinner reward: **80 XP + 120 gold**")
+
+
+@rpg_root.command(name="pet")
+async def rpg_pet(ctx,action:str="info",*,name:str="Spirit"):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.pet(ctx.guild.id,ctx.author.id,action.lower(),name); await ctx.send(("🐾 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="achievements", aliases=["achieve"])
+async def rpg_achievements(ctx):
+    await _rpg_delete(ctx); unlocked=await bot.rpg.achievement_list(ctx.guild.id,ctx.author.id); await ctx.send("**🏆 Achievements**\n\n"+"\n".join(f"🏅 **{ACHIEVEMENTS[k][0]}** — {ACHIEVEMENTS[k][1]}" for k,_ in unlocked) if unlocked else "**🏆 Achievements**\nNo achievements unlocked yet.")
+
+
+@rpg_root.command(name="leaderboard", aliases=["lb"])
+async def rpg_leaderboard(ctx):
+    await _rpg_delete(ctx)
+    async with aiosqlite.connect(bot.rpg.path) as db:
+        cur=await db.execute("SELECT user_id,level,xp,gold FROM rpg_players WHERE guild_id=? ORDER BY level DESC,xp DESC LIMIT 15",(ctx.guild.id,)); rows=await cur.fetchall()
+    await ctx.send("**🏆 RPG Leaderboard**\n\n"+"\n".join(f"**{i}.** <@{uid}> — Lv {lv} • {xp} XP • {gold}g" for i,(uid,lv,xp,gold) in enumerate(rows,1)) if rows else "No RPG heroes yet.")
+
+
+@rpg_root.command(name="list")
+async def rpg_market_list(ctx,item_key:str="",quantity:int=1,price:int=1):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.create_market(ctx.guild.id,ctx.author.id,item_key,quantity,price); await ctx.send(("🏪 " if ok else "❌ ")+msg)
+
+
+@rpg_root.command(name="market")
+async def rpg_market(ctx):
+    await _rpg_delete(ctx); rows=await bot.rpg.market(ctx.guild.id)
+    await ctx.send("**🏪 Player Market**\n\n"+"\n".join(f"`#{mid}` — <@{seller}> — `{item}` ×{qty} • {price}g each — `!rpg marketbuy {mid}`" for mid,seller,item,qty,price in rows) if rows else "**🏪 Player Market**\nNo listings yet.")
+
+
+@rpg_root.command(name="marketbuy")
+async def rpg_market_buy(ctx,listing_id:int=0):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.market_buy(ctx.guild.id,ctx.author.id,listing_id); await ctx.send(("🏪 " if ok else "❌ ")+msg)
+
+
+# Keep the older top-level RPG shortcuts working, but route them through the real RPG engine.
 @bot.command(name="profile")
 async def prefix_profile(ctx, nickname: str = None, *, preferences: str = None):
-    await _quiet_delete(ctx.message)
-    if nickname is not None or preferences is not None:
-        await bot.db.set_profile(ctx.guild.id, ctx.author.id, nickname, preferences)
-    data = await bot.db.profile(ctx.guild.id, ctx.author.id)
-    await ctx.send(f"**{ctx.author.display_name}**\nNickname: {data['nickname'] or '—'}\nPreferences: {data['preferences'] or '—'}\nLevel: {level_for(data['xp'])} | XP: {data['xp']} | Coins: {data['coins']}")
-
-
-@bot.command(name="leaderboard", aliases=["lb"])
-async def prefix_leaderboard(ctx):
-    await _quiet_delete(ctx.message)
-    rows = await bot.db.leaderboard(ctx.guild.id)
-    lines = [f"**{i}.** <@{uid}> — Lv {level_for(xp)} | {xp} XP | {coins} coins" for i,(uid,xp,coins) in enumerate(rows,1)]
-    await ctx.send("\n".join(lines) or "No XP has been earned yet.")
-
-
-@bot.command(name="inventory", aliases=["inv"])
-async def prefix_inventory(ctx):
-    await _quiet_delete(ctx.message)
-    rows = await bot.db.inventory(ctx.guild.id, ctx.author.id)
-    await ctx.send("\n".join(f"• {item} × {qty}" for item,qty in rows) or "Inventory is empty.")
-
-
-@bot.command(name="daily")
-async def prefix_daily(ctx):
-    await _quiet_delete(ctx.message)
-    if await bot.db.is_cooldown(ctx.guild.id, ctx.author.id, "daily"):
-        await ctx.send("You already claimed your daily reward.", delete_after=6); return
-    await bot.db.cooldown(ctx.guild.id, ctx.author.id, "daily", 86400)
-    data = await bot.db.add_xp(ctx.guild.id, ctx.author.id, 50, 100)
-    await ctx.send(f"🎁 **100 coins** and **50 XP** claimed. Level **{level_for(data['xp'])}**!")
-
-
-@bot.command(name="rpgroll", aliases=["rpg_roll", "roll"])
-async def prefix_rpg_roll(ctx):
-    await _quiet_delete(ctx.message)
-    await ctx.send(f"🎲 **{ctx.author.display_name}** rolled **{random.randint(1,20)}/20**.")
+    if nickname or preferences:
+        await _quiet_delete(ctx.message)
+        data=await bot.rpg.player(ctx.guild.id,ctx.author.id)
+        if data and nickname:
+            async with aiosqlite.connect(bot.rpg.path) as db:
+                await db.execute("UPDATE rpg_players SET name=? WHERE guild_id=? AND user_id=?",(nickname[:32],ctx.guild.id,ctx.author.id)); await db.commit()
+    await rpg_profile.callback(ctx)
 
 
 @bot.command(name="character")
 async def prefix_character(ctx, name: str = None, role: str = None):
-    await _quiet_delete(ctx.message)
-    data = await bot.db.profile(ctx.guild.id, ctx.author.id)
     if name or role:
-        prefs = data["preferences"] or ""
-        if role:
-            prefs = prefs.split(" | RPG class:")[0] + f" | RPG class: {role}"
-        await bot.db.set_profile(ctx.guild.id, ctx.author.id, name or data["nickname"], prefs)
-        data = await bot.db.profile(ctx.guild.id, ctx.author.id)
-    await ctx.send(f"**{data['nickname'] or ctx.author.display_name}**\nLevel {level_for(data['xp'])} | XP {data['xp']}\n{data['preferences'] or 'No class chosen.'}")
+        await _quiet_delete(ctx.message)
+        p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
+        if not p:
+            await ctx.send("Use `!rpg start <name> <race> <class>` first.",delete_after=8); return
+    await rpg_profile.callback(ctx)
 
 
-@bot.command(name="questlist", aliases=["quest_list"])
-async def prefix_quest_list(ctx):
+@bot.command(name="inventory", aliases=["inv"])
+async def prefix_inventory(ctx): await rpg_inventory.callback(ctx)
+
+@bot.command(name="daily")
+async def prefix_daily(ctx): await rpg_daily.callback(ctx)
+
+@bot.command(name="questlist", aliases=["quest_list", "quests"])
+async def prefix_quest_list(ctx): await rpg_quests.callback(ctx)
+
+@bot.command(name="rpgroll", aliases=["rpg_roll", "roll"])
+async def prefix_rpg_roll(ctx):
     await _quiet_delete(ctx.message)
-    rows = await bot.db.quests(ctx.guild.id)
-    await ctx.send("\n".join(f"`#{qid}` **{title}** — {description} ({xp} XP, {coins} coins)" for qid,title,description,xp,coins in rows) or "No quests yet.")
+    p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
+    if not p: await ctx.send("Start your hero first with `!rpg start <name> <race> <class>`.",delete_after=8); return
+    roll=random.randint(1,20); await ctx.send(f"🎲 **{ctx.author.display_name}** rolled **{roll}/20**.")
 
 
-@bot.command(name="questcreate", aliases=["quest_create"])
-@commands.has_guild_permissions(manage_guild=True)
-async def prefix_quest_create(ctx, title: str = "", *, details: str = ""):
-    await _quiet_delete(ctx.message)
-    parts = [part.strip() for part in details.split("|")]
-    if not title.strip() or not parts or not parts[0]:
-        await ctx.send("Format: `!questcreate <title> | <description> | <xp> | <coins>`", delete_after=8); return
-    description = parts[0]
-    try: reward_xp = max(0, int(parts[1])) if len(parts) > 1 and parts[1] else 100
-    except ValueError: reward_xp = 100
-    try: reward_coins = max(0, int(parts[2])) if len(parts) > 2 and parts[2] else 50
-    except ValueError: reward_coins = 50
-    quest_id = await bot.db.create_quest(ctx.guild.id, title.strip(), description, reward_xp, reward_coins, ctx.author.id)
-    await ctx.send(f"📜 Quest **{title.strip()}** created as `#{quest_id}` — {reward_xp} XP / {reward_coins} coins.")
-
-
-@bot.command(name="eventcreate", aliases=["event_create"])
-@commands.has_guild_permissions(manage_guild=True)
-async def prefix_event_create(ctx, title: str = "", *, details: str = ""):
-    await _quiet_delete(ctx.message)
-    parts = [part.strip() for part in details.split("|")]
-    if not title.strip() or len(parts) < 2:
-        await ctx.send("Format: `!eventcreate <title> | <when> | <description>`", delete_after=8); return
-    event_id = await bot.db.create_event(ctx.guild.id, ctx.channel.id, title.strip(), parts[1], parts[0], ctx.author.id)
-    embed = discord.Embed(title="📅 " + title.strip(), description=parts[1], colour=discord.Colour.blurple())
-    embed.add_field(name="When", value=parts[0])
-    embed.set_footer(text=f"Event #{event_id} • !eventjoin {event_id}")
-    await ctx.send(embed=embed)
-
-
-@bot.command(name="eventlist", aliases=["event_list"])
-async def prefix_event_list(ctx):
-    await _quiet_delete(ctx.message)
-    rows = await bot.db.events(ctx.guild.id)
-    await ctx.send("\n".join(f"`#{eid}` **{title}** — {starts}\n{desc}" for eid,title,desc,starts,_,_ in rows) or "No events yet.")
-
-
-@bot.command(name="eventjoin", aliases=["event_join"])
-async def prefix_event_join(ctx, event_id: int = 0):
-    await _quiet_delete(ctx.message)
-    await bot.db.signup(event_id, ctx.author.id)
-    await ctx.send(f"{ctx.author.mention} joined event `#{event_id}`.", delete_after=7)
-
+@bot.command(name="leaderboard", aliases=["lb"])
+async def prefix_rpg_leaderboard(ctx): await rpg_leaderboard.callback(ctx)
 
 @bot.command(name="warn")
 @commands.has_guild_permissions(manage_messages=True)

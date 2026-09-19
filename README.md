@@ -98,3 +98,64 @@ API requests require:
 `X-Horizon-API-Key: <HORIZON_API_TOKEN>`
 
 The website stores that token only in a Netlify serverless function. The Discord bot token and Gemini key never reach the browser.
+
+## Horizon RPG
+
+Horizon includes a persistent multiplayer RPG designed specifically for Log Horizon. It is intentionally deeper than the old profile/quest/dice system: players create heroes, choose races and classes, fight monsters, level up, spend skill points, collect/equip loot, craft, gather, trade on a player market, adopt companions, complete quests, clear dungeons, duel other players, form parties, and create or join guilds.
+
+### Core RPG commands
+
+```text
+!rpg
+!rpg help
+!rpg start <name> <race> <class>
+!rpg profile
+!rpg classes
+!rpg races
+!rpg adventure
+!rpg rest
+!rpg daily
+!rpg inventory
+!rpg equip <item_key>
+!rpg skill <attack|defense|speed|crit|hp|mana>
+!rpg shop
+!rpg buy <item_key> [quantity]
+!rpg sell <item_key> [quantity]
+!rpg recipes
+!rpg craft <item_key> [quantity]
+!rpg gather
+!rpg fish
+!rpg mine
+!rpg quests
+!rpg quest accept <id>
+!rpg quest claim <id>
+!rpg dungeon [name]
+!rpg dungeons
+!rpg battle @user
+!rpg party create <name>
+!rpg party join <id>
+!rpg party dungeon [name]
+!rpg party info [id]
+!rpg party leave
+!rpg guild list
+!rpg guild create <name>
+!rpg guild join <name>
+!rpg guild info [name]
+!rpg guild members
+!rpg guild deposit <gold>
+!rpg guild upgrade
+!rpg guild leave
+!rpg pet adopt <name>
+!rpg pet
+!rpg achievements
+!rpg leaderboard
+!rpg market
+!rpg list <item_key> <quantity> <price_each>
+!rpg marketbuy <listing_id>
+```
+
+The older shortcuts `!profile`, `!character`, `!inventory`, `!daily`, `!questlist`, `!rpgroll`, and `!leaderboard` remain available and route into the new RPG engine.
+
+### Game design direction
+
+The RPG is built around persistent MMO-style loops: character builds, classes/races, equipment and rarity, quest boards, PvE adventures, multi-floor dungeons, party play, guild progression, crafting/gathering, player economy, companions, achievements, daily rewards, PvP and leaderboards. This combines common patterns found across established Discord RPGs without copying their proprietary content or progression tables.
