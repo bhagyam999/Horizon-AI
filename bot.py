@@ -68,38 +68,47 @@ class Horizon(commands.Bot):
         self.history: dict[int, list[str]] = {}
 
     async def setup_hook(self):
+        # Database initialization is required for the RPG and server systems.
+        # Keep it explicit so a real storage error appears in Railway logs.
         await self.db.setup()
         await self.rpg.setup()
-        # Take an immediate snapshot and then keep rolling backups. This is a
-        # safety net; the actual database must still live on persistent storage
-        # (Railway Volume) to survive container replacement.
+
+        # Backups are safety nets; they must never prevent Discord from coming online.
         try:
             backup_database(self.db_path)
         except Exception:
-            log.exception("Initial database backup failed.")
+            log.exception("Initial database backup failed; continuing startup.")
         self._db_backup_task = asyncio.create_task(self._database_backup_loop())
-        await self.dashboard.start()
 
-        # Keep slash commands in ONE scope. Discord can show duplicates when
-        # an older Horizon version left global commands behind while a newer
-        # version also registered guild commands. Clear both remote scopes,
-        # then register exactly one guild copy.
+        try:
+            await self.dashboard.start()
+        except Exception:
+            # The web dashboard is optional. A port/configuration problem must not
+            # take the Discord bot offline.
+            log.exception("Dashboard failed to start; continuing without dashboard.")
+
+        # Slash-command synchronization is also non-fatal. Discord can rate-limit
+        # or temporarily reject a sync; prefix commands and the bot connection
+        # should still come online so the service can recover on the next restart.
+        try:
+            await self._sync_commands_safely()
+        except Exception:
+            log.exception("Slash-command synchronization failed; continuing startup.")
+
+    async def _sync_commands_safely(self):
         guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
         if guild_id.isdigit():
             guild = discord.Object(id=int(guild_id))
             global_commands = list(self.tree.get_commands())
 
-            # Remove stale guild commands.
             self.tree.clear_commands(guild=guild)
             await self.tree.sync(guild=guild)
 
-            # Remove stale global commands remotely, preserving definitions locally.
             self.tree.clear_commands(guild=None)
             await self.tree.sync()
             for command in global_commands:
                 self.tree.add_command(command)
 
-            # Register exactly one copy in the development guild.
             self.tree.clear_commands(guild=guild)
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
@@ -1272,6 +1281,31 @@ async def prefix_help(ctx, category: str = ""):
 async def prefix_ping(ctx):
     await _quiet_delete(ctx.message)
     await ctx.send(f"🏓 Pong! `{round(bot.latency * 1000)} ms`", delete_after=10)
+
+
+@bot.command(name="sync")
+@commands.is_owner()
+async def prefix_sync(ctx, scope: str = "guild"):
+    """Manually register slash commands without blocking bot startup."""
+    await _quiet_delete(ctx.message)
+    scope = scope.lower().strip()
+    if scope not in {"guild", "global"}:
+        await ctx.send("Usage: `!sync guild` or `!sync global`", delete_after=10)
+        return
+    try:
+        async with ctx.typing():
+            await bot._sync_commands_safely(global_sync=(scope == "global"))
+        target = "globally" if scope == "global" else "to the configured server"
+        await ctx.send(f"Slash commands synced {target}.", delete_after=15)
+    except discord.HTTPException as exc:
+        retry = getattr(exc, "retry_after", None)
+        if retry:
+            await ctx.send(f"Discord rate-limited command sync. Try again after about {retry:.0f}s. The bot itself is still online.", delete_after=20)
+        else:
+            await ctx.send(f"Command sync failed: `{exc}`. The bot itself is still online.", delete_after=20)
+    except Exception as exc:
+        log.exception("Manual slash-command sync failed.")
+        await ctx.send(f"Command sync failed: `{exc}`. The bot itself is still online.", delete_after=20)
 
 
 @bot.command(name="ask")

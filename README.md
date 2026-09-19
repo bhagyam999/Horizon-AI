@@ -193,3 +193,14 @@ RPG list/codex/collection commands use a persistent Discord embed panel rather t
 - Command messages are removed after execution where Discord permissions allow it, keeping RPG channels clean
 
 The interactive adventure/dungeon combat panel remains a single edited message and uses buttons for Attack, Skill, Potion/Food, Defend and Flee.
+
+## Slash-command registration and Discord rate limits
+
+Horizon deliberately does **not** synchronize slash commands during startup. Discord can rate-limit application-command registration, and waiting for a rate-limited sync inside `setup_hook()` can prevent the bot from ever reaching READY.
+
+Existing slash commands remain available. When slash-command definitions actually need to be registered or updated, the bot owner can run:
+
+- `!sync guild` — sync once to the configured `DISCORD_GUILD_ID` (recommended for Log Horizon)
+- `!sync global` — sync once globally (Discord propagation can take longer)
+
+The sync operation performs only one Discord command-registration request. A failed or rate-limited sync does not take the bot offline.
