@@ -37,6 +37,15 @@ class Database:
                 created_by INTEGER NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS ai_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                scope_id TEXT NOT NULL,
+                role TEXT NOT NULL CHECK(role IN ('user','model')),
+                content TEXT NOT NULL,
+                created_at REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_conversations_scope ON ai_conversations(guild_id, scope_id, id);
             CREATE TABLE IF NOT EXISTS cooldowns (
                 guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
@@ -152,6 +161,52 @@ class Database:
             cur = await db.execute('DELETE FROM memories WHERE id=? AND guild_id=?', (memory_id,guild_id))
             await db.commit()
             return cur.rowcount > 0
+
+    async def add_ai_message(self, guild_id, scope_id, role, content):
+        content = str(content or '').strip()[:8000]
+        if not content or role not in {'user','model'}:
+            return
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                'INSERT INTO ai_conversations(guild_id,scope_id,role,content) VALUES(?,?,?,?)',
+                (guild_id, str(scope_id), role, content),
+            )
+            # Keep a long-lived but bounded private conversation history per user.
+            await db.execute(
+                '''DELETE FROM ai_conversations
+                   WHERE guild_id=? AND scope_id=? AND id NOT IN
+                     (SELECT id FROM ai_conversations WHERE guild_id=? AND scope_id=? ORDER BY id DESC LIMIT 120)''',
+                (guild_id, str(scope_id), guild_id, str(scope_id)),
+            )
+            await db.commit()
+
+    async def ai_conversation(self, guild_id, scope_id, limit=120):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                'SELECT id,role,content,created_at FROM ai_conversations WHERE guild_id=? AND scope_id=? ORDER BY id DESC LIMIT ?',
+                (guild_id, str(scope_id), int(limit)),
+            )
+            rows = await cur.fetchall()
+        return list(reversed(rows))
+
+    async def clear_ai_conversation(self, guild_id, scope_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute('DELETE FROM ai_conversations WHERE guild_id=? AND scope_id=?', (guild_id, str(scope_id)))
+            await db.commit()
+            return cur.rowcount
+
+    async def remove_last_ai_message(self, guild_id, scope_id, role=None):
+        async with aiosqlite.connect(self.path) as db:
+            if role:
+                cur = await db.execute('SELECT id FROM ai_conversations WHERE guild_id=? AND scope_id=? AND role=? ORDER BY id DESC LIMIT 1', (guild_id, str(scope_id), role))
+            else:
+                cur = await db.execute('SELECT id FROM ai_conversations WHERE guild_id=? AND scope_id=? ORDER BY id DESC LIMIT 1', (guild_id, str(scope_id)))
+            row = await cur.fetchone()
+            if not row:
+                return False
+            await db.execute('DELETE FROM ai_conversations WHERE id=?', (row[0],))
+            await db.commit()
+            return True
 
     async def is_cooldown(self, guild_id, user_id, name):
         async with aiosqlite.connect(self.path) as db:

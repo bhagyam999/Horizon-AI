@@ -65,50 +65,7 @@ class Horizon(commands.Bot):
         self.dashboard = Dashboard(self)
         self.rpg = RPGService(self.db_path)
         self._db_backup_task = None
-        self.history: dict[tuple[int, int], list[str]] = {}
-
-    async def generate_ai_reply(self, guild_id: int, user_id: int | None, name: str, text: str, external_history=None):
-        """Generate an AI reply with strictly per-user short-term context.
-
-        Server memories are explicit/admin-managed facts. Conversation history is
-        never shared between members, and it is intentionally short-lived so an
-        old topic does not bleed into unrelated questions.
-        """
-        settings = await self.db.settings(guild_id)
-        memories = await self.db.memories(guild_id, 30)
-        profile = await self.db.profile(guild_id, user_id) if user_id else None
-        memory_text = "\n".join(f"- {row[1]}" for row in memories)
-        profile_text = (
-            f"nickname={profile['nickname'] or 'none'}; preferences={profile['preferences'] or 'none'}"
-            if profile else "No member profile is available."
-        )
-        key = (guild_id, int(user_id)) if user_id else None
-        if key is not None:
-            context = "\n".join(self.history.get(key, [])[-4:])
-        else:
-            context = "\n".join(
-                f"{('Horizon' if item.get('role') == 'model' else 'User')}: {item.get('content','')[:1200]}"
-                for item in (external_history or [])[-4:] if isinstance(item, dict) and item.get('content')
-            )
-        guild = self.get_guild(guild_id)
-        guild_name = guild.name if guild else "Log Horizon"
-        system = build_system(guild_name, name, memory_text, settings["personality"], profile_text, context)
-        answer = await self.ai.generate(system, text)
-        if key is not None:
-            history = self.history.setdefault(key, [])
-            history.append(f"{name}: {text[:1200]}")
-            history.append(f"Horizon: {answer[:1200]}")
-            self.history[key] = history[-8:]
-        return answer
-
-    def clear_ai_context(self, guild_id: int, user_id: int | None = None):
-        """Clear short-term conversation context after an explicit forget/admin action."""
-        if user_id is None:
-            for key in list(self.history):
-                if key[0] == guild_id:
-                    self.history.pop(key, None)
-        else:
-            self.history.pop((guild_id, user_id), None)
+        self.mod_history: dict[int, list[str]] = {}
 
     async def setup_hook(self):
         # Database initialization is required for the RPG and server systems.
@@ -177,6 +134,12 @@ class Horizon(commands.Bot):
         except Exception:
             log.exception("Final database backup failed.")
         await super().close()
+
+    def ai_context_from_rows(self, rows, prompt):
+        return _relevant_ai_context(rows, prompt)
+
+    def build_ai_system(self, guild_name, user_name, memories, personality, profile, context):
+        return build_system(guild_name, user_name, memories, personality, profile, context)
 
     async def on_guild_join(self, guild: discord.Guild):
         await self.db.settings(guild.id)
@@ -259,15 +222,53 @@ Server knowledge:
 Current user's saved non-sensitive profile:
 {profile or "(none)"}
 
-Recent conversation context:
+Private conversation memory for this user (use only when relevant; never expose it to another user):
 {context or "(none)"}
 
 Current user: {user_name}
 """.strip()
 
 
+def _relevant_ai_context(rows, prompt, recent_limit=8, relevant_limit=8):
+    if not rows:
+        return ""
+    prompt_words = set(re.findall(r"[a-zA-Z0-9_']{3,}", prompt.lower()))
+    scored=[]
+    for idx,row in enumerate(rows):
+        _id,role,content,_created=row
+        words=set(re.findall(r"[a-zA-Z0-9_']{3,}", content.lower()))
+        overlap=len(prompt_words & words)
+        recency=idx/max(1,len(rows)-1)
+        scored.append((overlap*5+recency,idx,role,content))
+    selected=set(range(max(0,len(rows)-recent_limit),len(rows)))
+    selected.update(x[1] for x in sorted((x for x in scored if x[1] not in selected),reverse=True)[:relevant_limit])
+    lines=[]
+    for idx in sorted(selected):
+        _id,role,content,_created=rows[idx]
+        lines.append(f"{'User' if role=='user' else 'Horizon'}: {content[:2000]}")
+    return "\n".join(lines)
+
+
 async def ai_reply(guild_id, user_id, name, text):
-    return await bot.generate_ai_reply(guild_id, user_id, name, text)
+    settings=await bot.db.settings(guild_id)
+    memories=await bot.db.memories(guild_id,30)
+    profile=await bot.db.profile(guild_id,user_id)
+    memory_text="\n".join(f"- {row[1]}" for row in memories)
+    profile_text=f"nickname={profile['nickname'] or 'none'}; preferences={profile['preferences'] or 'none'}"
+    rows=await bot.db.ai_conversation(guild_id,str(user_id),120)
+    context=_relevant_ai_context(rows,text)
+    guild=bot.get_guild(guild_id)
+    guild_name=guild.name if guild else 'Log Horizon'
+    system=build_system(guild_name,name,memory_text,settings['personality'],profile_text,context)
+    system += "\n\nMemory rule: use private conversation memory only when it clearly helps the current request. Do not bring up unrelated old topics just because you remember them. Never reveal or hint at another member's conversation."
+    await bot.db.add_ai_message(guild_id,str(user_id),'user',text)
+    try:
+        answer=await bot.ai.generate(system,text)
+    except Exception:
+        await bot.db.remove_last_ai_message(guild_id,str(user_id),'user')
+        raise
+    await bot.db.add_ai_message(guild_id,str(user_id),'model',answer)
+    return answer
 
 
 # -------------------- AI --------------------
@@ -347,8 +348,6 @@ async def remember(interaction: discord.Interaction, fact: str):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def forget(interaction: discord.Interaction, memory_id: int):
     removed = await bot.db.delete_memory(interaction.guild_id, memory_id)
-    if removed:
-        bot.clear_ai_context(interaction.guild_id)
     await interaction.response.send_message(
         "Memory removed." if removed else "Memory not found."
     )
@@ -360,6 +359,12 @@ async def memories(interaction: discord.Interaction):
     rows = await bot.db.memories(interaction.guild_id, 50)
     text = "\n".join(f"`{row[0]}` — {row[1]}" for row in rows) or "No memories saved."
     await interaction.response.send_message(text[:4000])
+
+
+@bot.tree.command(name="ai_forget", description="Clear your private Horizon conversation memory.")
+async def ai_forget(interaction: discord.Interaction):
+    removed=await bot.db.clear_ai_conversation(interaction.guild_id,str(interaction.user.id))
+    await interaction.response.send_message(f"Cleared your private Horizon conversation memory ({removed} messages).",ephemeral=True)
 
 
 # -------------------- Profiles / economy --------------------
@@ -1378,8 +1383,6 @@ async def prefix_remember(ctx, *, fact: str = ""):
 async def prefix_forget(ctx, memory_id: int = 0):
     await _quiet_delete(ctx.message)
     removed = await bot.db.delete_memory(ctx.guild.id, memory_id)
-    if removed:
-        bot.clear_ai_context(ctx.guild.id)
     await ctx.send("Memory removed." if removed else "Memory not found.", delete_after=7)
 
 
@@ -1390,6 +1393,13 @@ async def prefix_memories(ctx):
     rows = await bot.db.memories(ctx.guild.id, 50)
     text = "\n".join(f"`{row[0]}` — {row[1]}" for row in rows) or "No memories saved."
     await ctx.send(text[:4000])
+
+
+@bot.command(name="aiforget", aliases=["forgetai", "clearai"])
+async def prefix_ai_forget(ctx):
+    await _quiet_delete(ctx.message)
+    removed=await bot.db.clear_ai_conversation(ctx.guild.id,str(ctx.author.id))
+    await ctx.send(f"Cleared your private Horizon conversation memory ({removed} messages).",delete_after=8)
 
 
 # -------------------- Persistent Horizon RPG --------------------
@@ -1564,64 +1574,41 @@ def _combat_embed(state, result=None):
     return _rpg_embed(f"⚔️ {state['name']}", desc)
 
 
-class RPGConsumableView(discord.ui.View):
-    def __init__(self, ctx, *, combat=False):
-        super().__init__(timeout=90)
-        self.ctx=ctx
-        self.combat=combat
-        self._select=None
-        self.message=None
+class RPGCombatItemView(discord.ui.View):
+    def __init__(self, battle_view, choices):
+        super().__init__(timeout=45)
+        self.battle_view=battle_view
+        options=[discord.SelectOption(label=ITEMS[k].get("name",k)[:100],value=k,description=f"{ITEMS[k].get('rarity','common').title()} • {q} owned"[:100]) for k,q in choices[:25]]
+        select=discord.ui.Select(placeholder="Choose a potion or food...",min_values=1,max_values=1,options=options)
+        select.callback=self.choose
+        self.add_item(select)
 
-    async def interaction_check(self, interaction):
-        if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("This item menu belongs to another hero.", ephemeral=True)
-            return False
-        return True
-
-    async def load(self):
-        rows=await bot.rpg.inventory(self.ctx.guild.id,self.ctx.author.id)
-        choices=[]
-        for key,qty in rows:
-            data=ITEMS.get(key,{})
-            if qty>0 and data.get('slot') in {'consumable','food'}:
-                choices.append((key,data.get('name',key),f"{data.get('rarity','common').title()} • {qty} owned"))
-        if not choices:
-            return False
-        opts=[discord.SelectOption(label=label[:100],value=key[:100],description=desc[:100]) for key,label,desc in choices[:25]]
-        self._select=discord.ui.Select(placeholder="Choose a potion or food...",min_values=1,max_values=1,options=opts)
-        self._select.callback=self._selected
-        self.add_item(self._select)
-        return True
-
-    async def _selected(self, interaction):
-        key=self._select.values[0]
-        if self.combat:
-            result=await bot.rpg.combat_action(self.ctx.guild.id,self.ctx.author.id,f"use:{key}")
-            if result.get('error'):
-                await interaction.response.send_message(result['error'],ephemeral=True); return
-            self.stop()
-            await interaction.response.defer()
-            # The combat panel owns the public message; update it through its view.
-            combat_view=getattr(self,'combat_view',None)
-            if combat_view and combat_view.message:
-                combat_view.state=result.get('state',combat_view.state)
-                if result.get('finished'):
-                    for child in combat_view.children: child.disabled=True
-                    await combat_view.message.edit(embed=_combat_embed(combat_view.state,result),view=combat_view)
-                    combat_view.stop()
-                else:
-                    await combat_view.message.edit(embed=_combat_embed(combat_view.state),view=combat_view)
-            return
-        ok,msg=await bot.rpg.use_item(self.ctx.guild.id,self.ctx.author.id,key,1)
-        self.stop()
-        await interaction.response.edit_message(embed=_rpg_action_embed("Use Item",msg,ok),view=None)
-
-    @discord.ui.button(label="",emoji="🗑️",style=discord.ButtonStyle.danger,row=1)
-    async def delete(self,interaction,button):
+    async def choose(self,interaction):
+        if interaction.user.id!=self.battle_view.ctx.author.id:
+            await interaction.response.send_message("This battle belongs to another hero.",ephemeral=True); return
+        item=self.children[0].values[0]
+        result=await bot.rpg.combat_action(self.battle_view.ctx.guild.id,self.battle_view.ctx.author.id,f"potion:{item}")
+        if result.get("error"):
+            await interaction.response.send_message(result["error"],ephemeral=True); return
         await interaction.response.defer()
-        try: await interaction.message.delete()
-        except (discord.NotFound,discord.Forbidden): pass
         self.stop()
+        self.battle_view.state=result.get("state",self.battle_view.state)
+        if result.get("finished"):
+            for child in self.battle_view.children: child.disabled=True
+            try:
+                await self.battle_view.message.edit(embed=_combat_embed(self.battle_view.state,result),view=self.battle_view)
+            except discord.HTTPException: pass
+            self.battle_view.stop()
+        else:
+            try:
+                await self.battle_view.message.edit(embed=_combat_embed(self.battle_view.state),view=self.battle_view)
+            except discord.HTTPException: pass
+
+    async def on_timeout(self):
+        for child in self.children: child.disabled=True
+        try:
+            if self.children: await self.children[0].edit(disabled=True)
+        except Exception: pass
 
 
 class RPGCombatView(discord.ui.View):
@@ -1642,6 +1629,10 @@ class RPGCombatView(discord.ui.View):
         if result.get("error"):
             await interaction.response.send_message(result["error"], ephemeral=True)
             return
+        if result.get("choose_item"):
+            choices=result.get("items",[])
+            await interaction.response.send_message("🧪 **Choose exactly which item to use:**",ephemeral=True,view=RPGCombatItemView(self,choices))
+            return
         self.state=result.get("state",self.state)
         if result.get("finished"):
             for child in self.children: child.disabled=True
@@ -1657,12 +1648,7 @@ class RPGCombatView(discord.ui.View):
     async def skill(self,interaction,button): await self._act(interaction,"skill")
 
     @discord.ui.button(label="Potion/Food",emoji="🧪",style=discord.ButtonStyle.secondary)
-    async def potion(self,interaction,button):
-        menu=RPGConsumableView(self.ctx,combat=True)
-        if not await menu.load():
-            await interaction.response.send_message("You have no usable potion or food.",ephemeral=True); return
-        menu.combat_view=self
-        await interaction.response.send_message("Choose the item to use:",view=menu,ephemeral=True)
+    async def potion(self,interaction,button): await self._act(interaction,"potion")
 
     @discord.ui.button(label="Defend",emoji="🛡️",style=discord.ButtonStyle.secondary)
     async def defend(self,interaction,button): await self._act(interaction,"defend")
@@ -1875,35 +1861,34 @@ async def rpg_inventory(ctx):
         e=_rpg_embed(f"📦 {d.get('name',value)}", f"**Rarity:** {d.get('rarity','common').title()}\n**Type:** {d.get('slot','item').title()}\n**Owned:** {owned}\n\n"+" • ".join(stats) if stats else f"**Owned:** {owned}")
         await interaction.response.send_message(embed=e,ephemeral=True)
     await _rpg_panel(ctx,pages,select_options=options_by_page[0],select_callback=item_info,select_options_by_page=options_by_page)
-@rpg_root.command(name="items", aliases=["item","codex"])
+@rpg_root.command(name="items", aliases=["item", "codex"])
 async def rpg_items(ctx, category: str = "all", page: int = 1):
     await _rpg_delete(ctx)
-    category=category.lower(); page=max(1,page)
-    category_aliases={"weapons":"weapon","armour":"armor","armors":"armor","offhands":"offhand","potions":"consumable","consumables":"consumable","materials":"material","eggs":"egg","relics":"relic","items":"all"}
-    category=category_aliases.get(category,category)
+    category=category.lower().strip(); page=max(1,page)
     allowed={"all","weapon","armor","offhand","consumable","food","material","egg","relic"}
     if category not in allowed:
-        await _rpg_action_panel(ctx,"Item Codex","Categories: `weapon`, `armor`, `offhand`, `consumable`, `food`, `material`, `egg`, `relic`.",False); return
+        await _rpg_action_panel(ctx,"Item Codex","Categories: `all`, `weapon`, `armor`, `offhand`, `consumable`, `food`, `material`, `egg`, `relic`.",False); return
     rows=[(k,v) for k,v in ITEMS.items() if category=="all" or v.get("slot")==category]
     rarity_order={r:i for i,r in enumerate(RARITIES)}
-    rows.sort(key=lambda x:(rarity_order.get(x[1].get('rarity','common'),0),x[1]['name']))
+    rows.sort(key=lambda x:(rarity_order.get(x[1].get('rarity','common'),0),x[1].get('name',x[0])))
     per_page=8; total=max(1,(len(rows)+per_page-1)//per_page); page=min(page,total)
     pages=[]
     for n in range(total):
         chunk=rows[n*per_page:(n+1)*per_page]
-        text="\n\n".join(f"**{v['name']}**\n`{k}` • {v.get('rarity','common').title()} • {v.get('slot','item').title()} • **{v.get('price',0)}g**" for k,v in chunk)
-        e=_rpg_embed(f"📚 Item Codex — {category.title()}",text)
-        e.set_footer(text=f"Page {n+1} / {total} • {len(rows)} items")
+        text="\n\n".join(f"**{v.get('name',k)}**\n`{k}` • {v.get('rarity','common').title()} • {v.get('slot','item').title()} • **{v.get('price',0)}g**" for k,v in chunk)
+        e=_rpg_embed(f"📚 Item Codex — {category.title()}",text or "No items in this category.")
+        e.set_footer(text=f"Page {n+1} / {total} • {len(rows)} items • Select an item below for details")
         pages.append(e)
-    options_by_page=[[(k,v['name'],f"{v.get('rarity','common').title()} • {v.get('slot','item').title()}") for k,v in rows[start:start+per_page]] for start in range(0,len(rows),per_page)] or [[]]
+    options_by_page=[[(k,v.get('name',k),f"{v.get('rarity','common').title()} • {v.get('slot','item').title()}") for k,v in rows[start:start+per_page]] for start in range(0,len(rows),per_page)] or [[]]
     async def info(interaction,value):
         d=ITEMS.get(value,{})
-        stats=[f"**{label}:** {d[k]}" + ("%" if k=="crit" else "") for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit"),("heal","Heal"),("mana","Mana"),("price","Value")) if k in d]
-        await interaction.response.send_message(embed=_rpg_embed(f"📦 {d.get('name',value)}",f"**Rarity:** {d.get('rarity','common').title()}\n**Type:** {d.get('slot','item').title()}\n\n"+" • ".join(stats) if stats else "No extra stats."),ephemeral=True)
-    view=await _rpg_panel(ctx,pages,select_options=options_by_page[0],select_callback=info,select_options_by_page=options_by_page)
+        stats=[f"**{label}:** {d[k]}" + ("%" if k=="crit" else "") for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit"),("heal","Heal"),("mana","Mana"),("stamina","Stamina"),("price","Value")) if k in d]
+        desc=f"**Rarity:** {d.get('rarity','common').title()}\n**Type:** {d.get('slot','item').title()}\n\n"+(" • ".join(stats) if stats else "No extra stats.")
+        await interaction.response.send_message(embed=_rpg_embed(f"📦 {d.get('name',value)}",desc),ephemeral=True)
+    view=RPGPaginationView(ctx,pages,select_options=options_by_page[page-1],select_callback=info,select_options_by_page=options_by_page)
     view.index=page-1; view._sync()
-    if view.message:
-        await view.message.edit(embed=view.pages[view.index],view=view)
+    view.message=await ctx.send(embed=view.pages[view.index],view=view)
+
 @rpg_root.command(name="eggs")
 async def rpg_eggs(ctx):
     await _rpg_delete(ctx)
@@ -1914,18 +1899,23 @@ async def rpg_eggs(ctx):
         d=ITEMS.get(value,{})
         await interaction.response.send_message(embed=_rpg_embed(f"🥚 {d.get('name',value)}",f"**Rarity:** {d.get('rarity','common').title()}\nFound from adventure and dungeon loot.\n\nUse `!rpg pet hatch {value} <name>` to hatch it."),ephemeral=True)
     await _rpg_panel(ctx,pages,select_options=options_by_page[0],select_callback=info,select_options_by_page=options_by_page)
-@rpg_root.command(name="use", aliases=["useitem"])
+@rpg_root.command(name="use")
 async def rpg_use(ctx, item_key: str = "", quantity: int = 1):
     await _rpg_delete(ctx)
+    if not await _rpg_require(ctx): return
+    rows=await bot.rpg.inventory(ctx.guild.id,ctx.author.id)
+    usable=[(k,q) for k,q in rows if q>0 and ITEMS.get(k,{}).get("slot") in {"consumable","food"}]
     if not item_key:
-        menu=RPGConsumableView(ctx)
-        if not await menu.load():
-            await _rpg_action_panel(ctx,"Use Item","You have no usable potions or food.",False); return
-        menu.message=await ctx.send(embed=_rpg_embed("🧪 Use an Item","Choose exactly which potion or food you want to use."),view=menu)
-        return
+        if not usable:
+            await _rpg_action_panel(ctx,"Use Item","You don't have any usable potions or food.",False); return
+        options=[(k,ITEMS[k]["name"],f"{ITEMS[k].get('rarity','common').title()} • {q} owned") for k,q in usable[:25]]
+        async def choose(interaction,value):
+            ok,msg=await bot.rpg.use_item(ctx.guild.id,ctx.author.id,value,1)
+            await interaction.response.edit_message(embed=_rpg_action_embed("Use Item",msg,ok),view=None)
+        view=RPGPaginationView(ctx,[_rpg_embed("🧪 Use an Item","Choose the potion or food you want to consume from the menu below.")],select_options=options,select_callback=choose)
+        view.message=await ctx.send(embed=view.pages[0],view=view); return
     ok,msg=await bot.rpg.use_item(ctx.guild.id,ctx.author.id,item_key,quantity)
-    await _rpg_action_panel(ctx, "Use Item", msg, ok)
-
+    await _rpg_action_panel(ctx,"Use Item",msg,ok)
 
 @rpg_root.command(name="equip")
 async def rpg_equip(ctx,item_key: str=""):
@@ -2008,7 +1998,17 @@ async def rpg_quest_claim(ctx,quest_id:int=0):
 
 @rpg_root.command(name="quest")
 async def rpg_quest(ctx,quest_id:int=0):
-    await rpg_quests.callback(ctx)
+    if not quest_id:
+        await rpg_quests.callback(ctx); return
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.quests(ctx.guild.id,ctx.author.id)
+    q=next((x for x in rows if x[0]==quest_id),None)
+    if not q:
+        await _rpg_action_panel(ctx,"Quest","Quest not found.",False); return
+    qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status=q
+    reward=f"+{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{"name":item})['name']} ×{qty}" if item else "")
+    e=_rpg_embed(f"📜 Quest #{qid} — {title}",f"{desc}\n\n**Required:** Level {lvl}+\n**Progress:** {min(progress,target)}/{target}\n**Status:** {status.title()}\n**Reward:** {reward}\n\nAccept: `!rpg quest accept {qid}`\nClaim: `!rpg quest claim {qid}`")
+    await _rpg_panel(ctx,[e])
 
 
 @rpg_root.command(name="claim")
@@ -2667,7 +2667,7 @@ async def on_message(message: discord.Message):
         await bot.xp_message(message)
 
         settings = await bot.db.settings(message.guild.id)
-        history = bot.history.get((message.guild.id, message.author.id), [])
+        history = bot.mod_history.get(message.guild.id, [])
         decision = bot.mod.inspect(message.content, history)
 
         if settings["mod_enabled"] and decision.alert:
@@ -2713,6 +2713,11 @@ async def on_message(message: discord.Message):
                     )
                 except discord.HTTPException:
                     log.exception("Could not timeout member.")
+
+    if message.guild:
+        mod_history=bot.mod_history.setdefault(message.guild.id,[])
+        mod_history.append(f"{message.author.display_name}: {message.content[:500]}")
+        bot.mod_history[message.guild.id]=mod_history[-20:]
 
     # Keep command processing alive when on_message is overridden.
     await bot.process_commands(message)

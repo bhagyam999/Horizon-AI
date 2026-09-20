@@ -514,7 +514,6 @@ class RPGService:
         drop=random.choice(enemy["drops"])
         await self.add_item(guild_id,user_id,drop,1)
         await self.progress_quests(guild_id,user_id,"hunt",1)
-        await self.progress_quests(guild_id,user_id,"adventure",1)
         await self.check_achievements(guild_id,user_id)
         return {"win":True,"enemy":enemy,"log":log[-8:],"xp":xp,"gold":gold,"drop":drop,"hp":max(1,player_hp)}
 
@@ -737,7 +736,7 @@ class RPGService:
 
     async def quest_seed(self,guild_id):
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT COUNT(*) FROM rpg_quests WHERE guild_id=?",(guild_id,)); count=(await cur.fetchone())[0]
+            cur=await db.execute("SELECT COUNT(*) FROM rpg_quests WHERE guild_id=? AND expires_at>?",(guild_id,time.time())); count=(await cur.fetchone())[0]
             if count>=8:return
             templates=[
                 ("daily","Wolf Hunt","Defeat 3 enemies.",1,3,"hunt",180,260,"wolf_pelt",2),
@@ -755,27 +754,30 @@ class RPGService:
             cur=await db.execute("SELECT q.id,q.title,q.description,q.level_req,q.target,q.progress_type,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty,COALESCE(p.progress,0),COALESCE(p.status,'available') FROM rpg_quests q LEFT JOIN rpg_player_quests p ON q.id=p.quest_id AND p.guild_id=? AND p.user_id=? WHERE q.guild_id=? AND q.expires_at>? ORDER BY q.kind,q.id",(guild_id,user_id,guild_id,time.time())); return await cur.fetchall()
 
     async def accept_quest(self,guild_id,user_id,qid):
-        p=await self.player(guild_id,user_id); 
+        p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT id,level_req FROM rpg_quests WHERE guild_id=? AND id=?",(guild_id,qid)); q=await cur.fetchone()
             if not q:return False,"Quest not found."
             if p["level"]<q[1]:return False,f"You need level {q[1]}."
-            await db.execute("INSERT OR REPLACE INTO rpg_player_quests(guild_id,user_id,quest_id,progress,status) VALUES(?,?,?,?,?)",(guild_id,user_id,qid,0,"active")); await db.commit()
+            cur=await db.execute("SELECT status FROM rpg_player_quests WHERE guild_id=? AND user_id=? AND quest_id=?",(guild_id,user_id,qid)); existing=await cur.fetchone()
+            if existing:
+                if existing[0]=="claimed":return False,"You already claimed this quest."
+                if existing[0]=="active":return False,"Quest is already active."
+                if existing[0]=="complete":return False,"Quest is complete. Claim your reward."
+            await db.execute("INSERT INTO rpg_player_quests(guild_id,user_id,quest_id,progress,status) VALUES(?,?,?,?,?)",(guild_id,user_id,qid,0,"active")); await db.commit()
         return True,"Quest accepted."
 
     async def progress_quests(self,guild_id,user_id,ptype,amount=1):
-        # Progress is server-side and capped at the quest target so repeated actions
-        # never create confusing values like 14/3. Aliases keep older quest rows valid.
-        aliases={"adventure":"hunt","battle":"hunt","fight":"hunt","collect":"gather","material":"gather","clear":"dungeon"}
-        ptype=aliases.get(ptype,ptype)
-        amount=max(0,int(amount))
-        if not amount:return
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("""UPDATE rpg_player_quests
-                SET progress=MIN(progress+?, (SELECT target FROM rpg_quests WHERE id=rpg_player_quests.quest_id))
-                WHERE guild_id=? AND user_id=? AND status='active'
-                  AND quest_id IN (SELECT id FROM rpg_quests WHERE progress_type=?)""",(amount,guild_id,user_id,ptype))
+            await db.execute(
+                """UPDATE rpg_player_quests
+                   SET progress=MIN(progress+?, (SELECT target FROM rpg_quests WHERE id=quest_id)),
+                       status=CASE WHEN progress+? >= (SELECT target FROM rpg_quests WHERE id=quest_id) THEN 'complete' ELSE 'active' END
+                   WHERE guild_id=? AND user_id=? AND status='active'
+                     AND quest_id IN (SELECT id FROM rpg_quests WHERE progress_type=?)""",
+                (amount,amount,guild_id,user_id,ptype),
+            )
             await db.commit()
 
     async def claim_quest(self,guild_id,user_id,qid):
@@ -783,7 +785,7 @@ class RPGService:
             cur=await db.execute("SELECT q.target,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty,p.progress,p.status FROM rpg_quests q JOIN rpg_player_quests p ON q.id=p.quest_id WHERE q.guild_id=? AND q.id=? AND p.user_id=?",(guild_id,qid,user_id)); row=await cur.fetchone()
             if not row:return False,"Quest not active."
             target,xp,gold,item,qty,progress,status=row
-            if status!="active":return False,"Quest is not active."
+            if status not in {"active","complete"}:return False,"Quest has already been claimed."
             if progress<target:return False,f"Progress: {progress}/{target}."
             await db.execute("UPDATE rpg_player_quests SET status='claimed' WHERE guild_id=? AND user_id=? AND quest_id=?",(guild_id,user_id,qid)); await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(gold,guild_id,user_id)); await db.commit()
         await self.add_rewards(guild_id,user_id,xp,0)
@@ -858,7 +860,7 @@ class RPGService:
         qty=random.randint(1,2)
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE rpg_players SET stamina=stamina-10 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
-        await self.add_item(guild_id,user_id,item,qty); await self.progress_quests(guild_id,user_id,kind if kind in {"gather","fish","mine"} else "gather",1)
+        await self.add_item(guild_id,user_id,item,qty); await self.progress_quests(guild_id,user_id,"gather",1)
         return True,f"You gathered **{ITEMS[item]['name']} ×{qty}**. Stamina remaining: **{max(0,p['stamina']-10)}**."
 
     async def rest(self,guild_id,user_id):
@@ -1082,25 +1084,22 @@ class RPGService:
             async with aiosqlite.connect(self.path) as db:
                 await db.execute("UPDATE rpg_players SET mp=max(0,mp-?) WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id)); await db.commit()
             log.append(f"✨ **{p['class_name'].title()} skill** dealt **{dmg}** damage.")
-        elif action in {"potion","food"} or action.startswith("use:"):
+        elif action == "potion" or action.startswith("potion:") or action.startswith("food:"):
             inv=dict(await self.inventory(guild_id,user_id))
             choices=[(k,q) for k,q in inv.items() if q>0 and ITEMS.get(k,{}).get("slot") in {"consumable","food"}]
             if not choices:return {"error":"You have no usable potion or food."}
-            requested=action.split(":",1)[1] if action.startswith("use:") else ""
+            requested=action.split(":",1)[1].strip() if ":" in action else ""
             if requested:
                 if requested not in dict(choices): return {"error":"You no longer own that item."}
                 item=requested
             else:
-                item=max((k for k,_ in choices), key=lambda k: ITEMS[k].get("heal",0)+ITEMS[k].get("stamina",0)*2+ITEMS[k].get("mana",0))
+                return {"choose_item":True,"items":choices,"state":state}
             data=ITEMS[item]
             if not await self.remove_item(guild_id,user_id,item,1):return {"error":"That item is no longer available."}
-            heal=data.get("heal",0); mana=data.get("mana",0); stamina=data.get("stamina",0)
+            heal=data.get("heal",0); mana=data.get("mana",0)
             await self._apply_recovery(guild_id,user_id,heal,mana)
-            if stamina:
-                async with aiosqlite.connect(self.path) as db:
-                    await db.execute("UPDATE rpg_players SET stamina=min(100,stamina+?) WHERE guild_id=? AND user_id=?",(stamina,guild_id,user_id)); await db.commit()
             state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
-            log.append(f"🧪 You used **{data['name']}** and recovered **{heal} HP**{' and '+str(mana)+' MP' if mana else ''}{' and '+str(stamina)+' stamina' if stamina else ''}.")
+            log.append(f"🍖 You used **{data['name']}** and recovered **{heal} HP**{' and '+str(mana)+' MP' if mana else ''}.")
         elif action=="defend":
             defending=True; log.append("🛡️ You brace for the next hit, reducing incoming damage.")
         elif action=="flee":
@@ -1120,6 +1119,7 @@ class RPGService:
                 state["enemy_hp"]=state["enemy"]["hp"]+state["floor"]*18
                 state["player_hp"]=min(stats["max_hp"],state["player_hp"]+max(5,stats["max_hp"]//8))
                 state["log"].append(f"🏰 **Floor {state['floor']}/{state['floors']}** — **{state['enemy']['name']}** appears. You recover a little HP between floors.")
+                await self.progress_quests(guild_id,user_id,"dungeon",1)
                 await self._set_hp(guild_id,user_id,state["player_hp"])
                 return {"finished":False,"state":state,"stats":stats}
             xp=(state.get("enemy",{}).get("xp",40)+random.randint(0,25)) if state["mode"]=="adventure" else state["reward_xp"]+state["floors"]*55
@@ -1131,7 +1131,6 @@ class RPGService:
             await self._set_hp(guild_id,user_id,max(1,state["player_hp"]))
             old_level,new_level=await self.add_rewards(guild_id,user_id,xp,gold); await self.add_item(guild_id,user_id,drop,1)
             await self.progress_quests(guild_id,user_id,"hunt",1)
-            await self.progress_quests(guild_id,user_id,"adventure",1)
             if state["mode"]=="dungeon":
                 await self.progress_quests(guild_id,user_id,"dungeon",1)
                 if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
