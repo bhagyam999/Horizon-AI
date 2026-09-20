@@ -43,3 +43,16 @@ The required callback format is:
 `https://YOUR-RAILWAY-DOMAIN/api/site/auth-callback`
 
 If the Railway domain changes, update both Railway `SITE_URL`/`DISCORD_REDIRECT_URI` and the Discord OAuth redirect URL, then redeploy. Do not paste API keys, client secrets, bot tokens, or session secrets into chat.
+
+## v10.3 AI context and OAuth notes
+
+Optional AI history settings:
+- `AI_HISTORY_BACKFILL_CHANNELS` — maximum public text channels to read on first startup (default `30`).
+- `AI_HISTORY_BACKFILL_MESSAGES` — messages read per public channel during the one-time backfill (default `120`).
+
+Horizon keeps the active AI dialogue to the latest 13 messages. Older dialogue remains stored but is not automatically fed back into the model. A separate bounded public-server history index supplies relevant older context without merging different speakers into one identity.
+
+For Railway Discord OAuth, use exactly:
+`https://YOUR-RAILWAY-DOMAIN/api/site/auth-callback`
+
+The service also accepts compatible callback aliases to prevent stale redirects from becoming a 404, but the Discord Developer Portal and `DISCORD_REDIRECT_URI` should be updated to the canonical Railway callback above.

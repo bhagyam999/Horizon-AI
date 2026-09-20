@@ -36,6 +36,13 @@ class Dashboard:
             web.post("/api/ai", self.api_ai),
             web.get("/api/site/auth-login", self.site_auth_login),
             web.get("/api/site/auth-callback", self.site_auth_callback),
+            web.get("/api/site/auth-callback/", self.site_auth_callback),
+            web.get("/api/site/auth/callback", self.site_auth_callback),
+            # Compatibility with the old Netlify callback path, so a stale Discord
+            # OAuth redirect does not dead-end in a 404 after moving to Railway.
+            web.get("/.netlify/functions/auth-callback", self.site_auth_callback),
+            web.get("/.netlify/functions/auth-callback/", self.site_auth_callback),
+            web.get("/auth/callback", self.site_auth_callback),
             web.get("/api/site/auth-me", self.site_auth_me),
             web.get("/api/site/auth-logout", self.site_auth_logout),
             web.route("*", "/api/site/horizon-ai", self.site_horizon_ai),
@@ -327,8 +334,11 @@ class Dashboard:
                 self._set_cookie(response,"lh_session",self._make_token(payload),60*60*24*7,http_only=True)
             self._set_cookie(response,"lh_oauth_state","",0,http_only=True)
             return response
-        except Exception:
+        except Exception as exc:
             log.exception("Discord OAuth callback failed")
+            # Never expose Discord tokens or client secrets in the browser. The user
+            # gets a stable redirect back to the SPA while the detailed exception
+            # remains in Railway logs for diagnosis.
             return web.HTTPFound(f"{site}/?discord=error")
 
     async def site_auth_me(self, request):

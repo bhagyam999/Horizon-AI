@@ -46,6 +46,17 @@ class Database:
                 created_at REAL DEFAULT (strftime('%s','now'))
             );
             CREATE INDEX IF NOT EXISTS idx_ai_conversations_scope ON ai_conversations(guild_id, scope_id, id);
+            CREATE TABLE IF NOT EXISTS ai_server_messages (
+                message_id INTEGER PRIMARY KEY,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                author_id INTEGER NOT NULL,
+                author_name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_server_messages_guild ON ai_server_messages(guild_id, id);
+            CREATE INDEX IF NOT EXISTS idx_ai_server_messages_channel ON ai_server_messages(guild_id, channel_id, id);
             CREATE TABLE IF NOT EXISTS cooldowns (
                 guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
@@ -186,6 +197,42 @@ class Database:
                 'SELECT id,role,content,created_at FROM ai_conversations WHERE guild_id=? AND scope_id=? ORDER BY id DESC LIMIT ?',
                 (guild_id, str(scope_id), int(limit)),
             )
+            rows = await cur.fetchall()
+        return list(reversed(rows))
+
+
+    async def add_ai_server_message(self, message_id, guild_id, channel_id, author_id, author_name, content):
+        content = str(content or '').strip()[:4000]
+        if not content:
+            return
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                '''INSERT OR REPLACE INTO ai_server_messages
+                   (message_id,guild_id,channel_id,author_id,author_name,content,created_at)
+                   VALUES(?,?,?,?,?,?,?)''',
+                (int(message_id), int(guild_id), int(channel_id), int(author_id), str(author_name)[:100], content, time.time()),
+            )
+            # Keep a bounded server history so the AI can learn from old chats without
+            # turning the database into an unbounded transcript archive.
+            await db.execute(
+                '''DELETE FROM ai_server_messages WHERE guild_id=? AND message_id NOT IN
+                   (SELECT message_id FROM ai_server_messages WHERE guild_id=? ORDER BY message_id DESC LIMIT 8000)''',
+                (int(guild_id), int(guild_id)),
+            )
+            await db.commit()
+
+    async def ai_server_messages(self, guild_id, limit=2000, channel_id=None):
+        async with aiosqlite.connect(self.path) as db:
+            if channel_id is None:
+                cur = await db.execute(
+                    'SELECT message_id,channel_id,author_id,author_name,content,created_at FROM ai_server_messages WHERE guild_id=? ORDER BY id DESC LIMIT ?',
+                    (int(guild_id), int(limit)),
+                )
+            else:
+                cur = await db.execute(
+                    'SELECT message_id,channel_id,author_id,author_name,content,created_at FROM ai_server_messages WHERE guild_id=? AND channel_id=? ORDER BY id DESC LIMIT ?',
+                    (int(guild_id), int(channel_id), int(limit)),
+                )
             rows = await cur.fetchall()
         return list(reversed(rows))
 

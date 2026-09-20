@@ -230,3 +230,15 @@ Horizon now keeps private conversational context per Discord member (and per web
 - Quest progress now caps at the target and changes to `complete` automatically.
 - Dungeon floor victories count toward dungeon quests as each floor is cleared.
 - Quest claiming/acceptance now prevents duplicate rewards.
+
+## v10.5 RPG Combat & Collection Upgrade
+- Turn-based PvE combat now shows HP, MP, stamina, ATK, DEF, SPD and Crit for the hero, plus enemy HP/ATK/DEF.
+- Adventure and dungeon combat now have four class skills with MP costs, cooldowns and different effects instead of a single repeatable skill.
+- Added `!rpg skills` to inspect the current class skill kit.
+- Pets now grant real passive combat bonuses (HP/ATK/DEF/SPD/Crit) and a usable battle ability with a cooldown.
+- Pet/egg storage was migrated safely with new passive-stat and ability columns.
+- `!rpg pet`, `!rpg eggs`, `!rpg adopt`, `!rpg hatch`, `!rpg rename` and `!rpg release` remain simple.
+- PvP is now turn-based: both players can Attack, choose individual Skills, use Pet Assist, Defend, or Surrender. PvP displays both heroes' bars/stats and character artwork.
+- Character artwork is deterministic and changes when race, subrace, class, subclass or evolution changes. Equipment/name changes do not change the character artwork.
+- Mob and pet artwork is deterministic by enemy/species.
+- Existing RPG, AI, website, economy, quests, guilds, kingdoms, parties and other systems are preserved.
