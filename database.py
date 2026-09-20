@@ -227,12 +227,12 @@ class Database:
         async with aiosqlite.connect(self.path) as db:
             if channel_id is None:
                 cur = await db.execute(
-                    'SELECT message_id,channel_id,author_id,author_name,content,created_at FROM ai_server_messages WHERE guild_id=? ORDER BY id DESC LIMIT ?',
+                    'SELECT message_id,channel_id,author_id,author_name,content,created_at FROM ai_server_messages WHERE guild_id=? ORDER BY message_id DESC LIMIT ?',
                     (int(guild_id), int(limit)),
                 )
             else:
                 cur = await db.execute(
-                    'SELECT message_id,channel_id,author_id,author_name,content,created_at FROM ai_server_messages WHERE guild_id=? AND channel_id=? ORDER BY id DESC LIMIT ?',
+                    'SELECT message_id,channel_id,author_id,author_name,content,created_at FROM ai_server_messages WHERE guild_id=? AND channel_id=? ORDER BY message_id DESC LIMIT ?',
                     (int(guild_id), int(channel_id), int(limit)),
                 )
             rows = await cur.fetchall()

@@ -56,3 +56,19 @@ For Railway Discord OAuth, use exactly:
 `https://YOUR-RAILWAY-DOMAIN/api/site/auth-callback`
 
 The service also accepts compatible callback aliases to prevent stale redirects from becoming a 404, but the Discord Developer Portal and `DISCORD_REDIRECT_URI` should be updated to the canonical Railway callback above.
+
+
+## v10.8 RPG / AI notes
+
+The v10.8 bot keeps the combined Railway website deployment unchanged while expanding the persistent RPG and repairing the AI server-history query. The AI continues to use a 13-message rolling Discord dialogue plus separately retrieved public server history.
+
+Optional AI history variables now default to:
+
+```text
+AI_HISTORY_BACKFILL_CHANNELS=50
+AI_HISTORY_BACKFILL_MESSAGES=250
+```
+
+Private/staff channels are deliberately excluded from the public-history index.
+
+For Gemini quality, `GEMINI_MODEL=gemini-2.5-flash` is the default when no model is explicitly configured. If Railway already has `GEMINI_MODEL` set, that value remains authoritative.

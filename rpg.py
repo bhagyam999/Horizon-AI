@@ -112,6 +112,52 @@ CLASSES.update({
     "spellblade": {"hp": 20, "mp": 30, "atk": 9, "def": 4, "spd": 4, "crit": 5, "resource": "Arcana", "desc": "Hybrid fighter weaving weapon and magic together."},
 })
 
+# Matchups are intentionally mild (+/- 10%) so counters matter without making
+# a build unwinnable. These are shown before selection and applied only in PvP.
+RACE_MATCHUPS = {
+    "human": {"vampire": 1.08, "golem": 0.96},
+    "elf": {"orc": 1.08, "golem": 0.94},
+    "dwarf": {"golem": 1.08, "dragonkin": 0.96},
+    "orc": {"dwarf": 1.06, "elf": 0.96},
+    "kitsune": {"golem": 0.94, "vampire": 1.05},
+    "fae": {"golem": 0.94, "orc": 1.07},
+    "vampire": {"fae": 1.06, "human": 0.92},
+    "golem": {"orc": 1.06, "elf": 1.06},
+    "dragonkin": {"golem": 1.04, "dwarf": 1.04},
+}
+RACE_ABILITIES = {
+    "human": ("Adaptability", "Gain a small balanced bonus to all core combat stats."),
+    "elf": ("Keen Sight", "Higher critical chance and precision."),
+    "dwarf": ("Stonebody", "Defense percentage is increased."),
+    "orc": ("Bloodrage", "Attack rises when below half HP."),
+    "kitsune": ("Trickster Step", "Improved evasion and speed."),
+    "halfling": ("Lucky", "Higher critical chance and lucky outcomes."),
+    "tiefling": ("Infernal Blood", "Attack is stronger against holy builds, but holy counters it slightly."),
+    "dragonkin": ("Dragonhide", "Extra defense and HP resilience."),
+    "beastfolk": ("Predator Instinct", "Speed and critical chance are improved."),
+    "fae": ("Feystep", "Improved evasion and magic mobility."),
+    "vampire": ("Blood Hunger", "A small life-steal effect in combat; holy matchups counter it."),
+    "golem": ("Stoneform", "Large HP/defense resilience at the cost of speed."),
+}
+
+CLASS_MATCHUPS = {
+    "paladin": {"necromancer": 1.10, "warlock": 1.08},
+    "cleric": {"necromancer": 1.10, "vampire": 1.06},
+    "necromancer": {"druid": 1.08, "paladin": 0.92},
+    "warlock": {"cleric": 1.08, "paladin": 0.94},
+    "mage": {"knight": 1.06, "berserker": 0.96},
+    "assassin": {"mage": 1.08, "knight": 0.94},
+    "ranger": {"summoner": 1.06, "berserker": 0.96},
+    "monk": {"mage": 1.05, "ranger": 0.97},
+    "duelist": {"mage": 1.05, "knight": 0.97},
+    "spellblade": {"warlock": 1.05, "berserker": 0.97},
+}
+
+def matchup_multiplier(attacker_race, attacker_class, defender_race, defender_class):
+    value=float(RACE_MATCHUPS.get(attacker_race,{}).get(defender_race,1.0))
+    value*=float(CLASS_MATCHUPS.get(attacker_class,{}).get(defender_class,1.0))
+    return max(.90,min(1.10,value))
+
 SUBCLASSES = {
     "vanguard": ("warrior", "Durable frontline specialist", {"hp": 20, "def": 3}),
     "blade_master": ("warrior", "Weapon mastery specialist", {"atk": 4, "spd": 2}),
@@ -206,36 +252,139 @@ ADVANCED_SKILLS = {
 MAGIC_CLASSES = {"mage", "summoner", "cleric", "druid", "bard", "necromancer", "warlock", "alchemist"}
 HEAL_CLASSES = {"paladin", "cleric", "druid", "bard", "alchemist", "engineer", "warlock", "summoner"}
 
-SKILL_UNLOCK_LEVELS = (1, 5, 10, 15, 20, 25, 30, 40, 55, 70)
-SKILL_COSTS = (5, 8, 12, 17, 24, 32, 42, 54, 68, 85)
-SKILL_MULTIPLIERS = (0.90, 1.00, 1.12, 1.22, 1.35, 1.50, 1.65, 1.82, 2.00, 2.18)
-SKILL_COOLDOWNS = (0, 0, 0, 2, 3, 2, 3, 4, 3, 5)
+# ---------------------------------------------------------------------------
+# Deep skill system
+# Every class now has 50 genuinely different skills.  The first ten preserve
+# the original stable skill names/keys so existing characters and saved combat
+# state remain compatible.  The remaining skills are generated from distinct
+# mechanics rather than being simple renamed damage buttons.
+# ---------------------------------------------------------------------------
+SKILL_UNLOCK_LEVELS = (
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+    12, 14, 16, 18, 20, 22, 24, 26, 28, 30,
+    32, 34, 36, 38, 40, 42, 44, 46, 48, 50,
+    52, 54, 56, 58, 60, 62, 64, 66, 68, 70,
+    72, 74, 76, 78, 80, 84, 88, 92, 96, 100,
+)
+SKILL_COSTS = tuple(min(150, 8 + int(i * 3.0 + (i ** 1.18) * 0.8)) for i in range(50))
+SKILL_COOLDOWNS = tuple(0 if i < 4 else (1 + i // 12) for i in range(50))
+
+SKILL_MECHANICS = [
+    ("damage", "Direct strike", "Deals reliable weapon or spell damage."),
+    ("heavy", "Heavy strike", "Deals slower, heavier damage with stronger scaling."),
+    ("bleed", "Bleeding wound", "Deals damage and applies a bleed for the next two turns."),
+    ("multi", "Multi-hit", "Strikes twice with reduced damage per hit."),
+    ("heal", "Restoration", "Restores a meaningful amount of HP."),
+    ("defend", "Guard stance", "Cuts the next incoming hit and grants a short guard state."),
+    ("attack_buff", "Attack stance", "Raises attack for the next few turns."),
+    ("def_buff", "Defense stance", "Raises defense for the next few turns."),
+    ("lifesteal", "Life drain", "Deals damage and converts part of it into HP."),
+    ("armor_break", "Armor break", "Deals damage and temporarily reduces enemy defense."),
+    ("mark", "Mark target", "Marks the enemy, increasing the next few hits against it."),
+    ("poison", "Poison", "Applies a stacking damage-over-time poison."),
+    ("burn", "Burn", "Applies a burning damage-over-time effect."),
+    ("freeze", "Freeze", "Deals damage and has a chance to slow the enemy's next turn."),
+    ("crit", "Precision burst", "Temporarily raises critical chance before striking."),
+    ("dodge", "Evasion", "Grants a short window of improved evasion."),
+    ("mana_drain", "Mana siphon", "Damages the enemy while restoring some MP."),
+    ("stamina", "Adrenaline", "Restores stamina and deals a quick attack."),
+    ("counter", "Counter stance", "Reduces the next hit and retaliates when struck."),
+    ("reflect", "Reflect barrier", "Reduces the next incoming hit and reflects part of it."),
+    ("cleanse", "Cleanse", "Removes negative combat effects and restores a little HP."),
+    ("barrier", "Arcane barrier", "Creates a temporary damage shield."),
+    ("haste", "Haste", "Improves speed and evasion for several turns."),
+    ("focus", "Focus", "Improves critical chance and skill efficiency briefly."),
+    ("vulnerability", "Expose weakness", "Makes the enemy take increased damage briefly."),
+    ("silence", "Disruption", "Suppresses the enemy's special behavior briefly."),
+    ("execute", "Execution", "Deals bonus damage when the enemy is already weakened."),
+    ("true_damage", "True damage", "Ignores most defense, but has a controlled multiplier."),
+    ("percent_damage", "Vital strike", "Deals a small percentage of enemy maximum HP."),
+    ("aoe", "Area burst", "Wide attack designed for packs and dungeon waves."),
+    ("chain", "Chain reaction", "A hit that grows stronger after successful attacks."),
+    ("summon", "Summoning", "Calls a temporary combat spirit for a bonus strike."),
+    ("pet_boost", "Companion bond", "Empowers the equipped pet and triggers its ability."),
+    ("resource", "Resource surge", "Restores MP and stamina while dealing light damage."),
+    ("team_heal", "Battlefield recovery", "Strong self-heal designed for group/PvP support."),
+    ("team_buff", "Rally", "Grants a broad temporary combat-stat boost."),
+    ("dispel", "Dispel", "Removes enemy buffs and then strikes."),
+    ("terrain", "Terrain control", "Creates a short-lived field effect that alters combat."),
+    ("delayed", "Delayed strike", "Plants a powerful hit that lands after one turn."),
+    ("random", "Wild technique", "Chooses one of several controlled effects at random."),
+    ("sacrifice", "Sacrificial power", "Consumes a small amount of HP for a powerful attack."),
+    ("emergency", "Last stand", "Becomes stronger when the hero is below half HP."),
+    ("stance", "Adaptive stance", "Switches between offense and defense based on current HP."),
+    ("combo", "Combo finisher", "Gets stronger after consecutive successful actions."),
+    ("recovery", "Second wind", "Restores HP and MP with a long cooldown."),
+    ("mana_burst", "Mana burst", "Converts stored magical power into a controlled burst."),
+    ("curse", "Curse", "Marks the enemy with a stacking weakening curse."),
+    ("ultimate", "Ultimate", "High-impact signature attack with a strict cooldown."),
+    ("mythic", "Mythic technique", "Late-game class-defining ability with multiple effects."),
+    ("signature", "Signature", "A unique capstone that combines the class identity."),
+]
+
+_SKILL_NAME_SUFFIXES = [
+    "Edge", "Surge", "Break", "Pulse", "Ward", "Rush", "Nova", "Veil", "Crescent", "Drive",
+    "Fang", "Brand", "Tempest", "Prism", "Aegis", "Howl", "Burst", "Requiem", "Spear", "Crown",
+    "Cascade", "Rift", "Oath", "Mirage", "Torrent", "Vortex", "Halo", "Ruin", "Bloom", "Roar",
+    "Chain", "Ascension", "Overture", "Dominion", "Fury", "Sanctum", "Execution", "Apocalypse", "Genesis", "Eclipse",
+]
+
+# Class identities change how the same mechanical family is presented.  The
+# actual effect is still distinct per skill so players can choose builds.
+_CLASS_FLAVOUR = {
+    "warrior":"martial", "berserker":"rage", "knight":"guardian", "mage":"arcane",
+    "rogue":"shadow", "assassin":"lethal", "ranger":"precision", "paladin":"holy",
+    "summoner":"spirit", "cleric":"sacred", "druid":"nature", "monk":"chi",
+    "bard":"resonance", "necromancer":"death", "warlock":"abyssal", "alchemist":"alchemy",
+    "engineer":"magitech", "duelist":"dueling", "lancer":"dragon", "spellblade":"rune",
+}
+
 
 def _build_class_skills():
     result = {}
     for class_name, base_names in CLASS_SKILL_NAMES.items():
         names = list(base_names) + list(ADVANCED_SKILLS.get(class_name, ()))
-        skills=[]
-        for i, name in enumerate(names[:10]):
-            effect = "damage"
-            if i == 4:
-                effect = "heal" if class_name in HEAL_CLASSES else "defend"
-            elif i in {7, 9}:
-                effect = "ultimate"
+        # Preserve the original ten names first.
+        generated_names = list(names)
+        flavour = _CLASS_FLAVOUR.get(class_name, class_name)
+        for suffix in _SKILL_NAME_SUFFIXES:
+            generated_names.append(f"{flavour.title()} {suffix}")
+        skills = []
+        for i in range(50):
+            name = generated_names[i] if i < len(generated_names) else f"{flavour.title()} Technique {i+1}"
+            effect, mechanic_name, mechanic_desc = SKILL_MECHANICS[i]
+            # Keep class identity visible in the first core skills as well as in
+            # the later specialized techniques.
+            if class_name in HEAL_CLASSES and i in {2,4,8}:
+                effect, mechanic_name, mechanic_desc = ("heal", "Restoration", "Restores HP and is especially effective for support-oriented classes.")
+            elif class_name in {"knight","warrior","paladin"} and i in {5,6}:
+                effect, mechanic_name, mechanic_desc = ("def_buff", "Guarding stance", "Raises defense and reduces incoming damage for several turns.")
+            elif class_name in {"assassin","rogue","duelist"} and i in {2,8}:
+                effect, mechanic_name, mechanic_desc = ("crit", "Precision burst", "Temporarily raises critical chance before striking.")
+            elif class_name in {"necromancer","warlock"} and i in {4,8}:
+                effect, mechanic_name, mechanic_desc = ("lifesteal", "Soul drain", "Deals damage and converts part of it into HP.")
+            # Scale carefully: damage growth is bounded by combat caps below.
+            mult = round(0.82 + min(1.58, i * 0.035), 3)
+            if effect in {"heal", "recovery", "team_heal"}:
+                mult = round(0.20 + min(0.35, i * 0.006), 3)
+            desc = mechanic_desc
             skills.append({
-                "key": f"skill_{i+1}", "name": name,
-                "cost": SKILL_COSTS[i], "mult": SKILL_MULTIPLIERS[i],
-                "effect": effect, "cooldown": SKILL_COOLDOWNS[i],
+                "key": f"skill_{i+1}",
+                "name": name,
+                "cost": SKILL_COSTS[i],
+                "mult": mult,
+                "effect": effect,
+                "cooldown": SKILL_COOLDOWNS[i],
                 "unlock": SKILL_UNLOCK_LEVELS[i],
-                "desc": ("Utility skill: restore HP." if effect == "heal" else
-                         "Utility skill: reduce the next hit." if effect == "defend" else
-                         "High-impact signature skill." if effect == "ultimate" else
-                         "Controlled damage with an MP cost."),
+                "mechanic": mechanic_name,
+                "desc": desc,
             })
         result[class_name] = skills
     return result
 
+
 SKILLS = _build_class_skills()
+
 
 # Combat constants: damage is deliberately slower than character growth so
 # enemies cannot be deleted by a single basic hit or low-level skill.
@@ -290,6 +439,47 @@ AREAS = {
     "world_tree": {"name": "World Tree", "level": 50, "type": "mythic", "desc": "The legendary final region of the known world."},
 }
 
+# A much larger world map.  Areas are deliberately tiered so travel, enemy
+# scaling and loot progression have clear identities rather than being cosmetic.
+AREAS.update({
+    "sunmeadow": {"name":"Sunmeadow", "level":3, "type":"plains", "desc":"Warm grasslands where young adventurers learn to hunt."},
+    "mossy_grotto": {"name":"Mossy Grotto", "level":4, "type":"cave", "desc":"A damp cave rich in ore, fungi and lurking beasts."},
+    "redleaf_forest": {"name":"Redleaf Forest", "level":6, "type":"forest", "desc":"A crimson woodland with territorial spirits."},
+    "pirate_isles": {"name":"Pirate Isles", "level":8, "type":"islands", "desc":"Lawless islands packed with treasure and sea raiders."},
+    "starlit_grove": {"name":"Starlit Grove", "level":9, "type":"forest", "desc":"A magical grove where night never fully fades."},
+    "blackfen": {"name":"Blackfen", "level":11, "type":"swamp", "desc":"Toxic wetlands haunted by alchemical creatures."},
+    "frostwood": {"name":"Frostwood", "level":12, "type":"forest", "desc":"A frozen forest where ancient wolves roam."},
+    "thunder_cliffs": {"name":"Thunder Cliffs", "level":14, "type":"cliffs", "desc":"Storm-lashed cliffs charged with elemental energy."},
+    "crimson_canyon": {"name":"Crimson Canyon", "level":15, "type":"canyon", "desc":"A deep red canyon filled with ambush predators."},
+    "coral_depths": {"name":"Coral Depths", "level":17, "type":"undersea", "desc":"An underwater realm of ruins and giant sea life."},
+    "forgotten_catacombs": {"name":"Forgotten Catacombs", "level":18, "type":"underground", "desc":"Burial halls where restless spirits gather."},
+    "mist_valley": {"name":"Mist Valley", "level":19, "type":"valley", "desc":"A fog-covered valley that distorts distance and sound."},
+    "floating_gardens": {"name":"Floating Gardens", "level":21, "type":"sky", "desc":"Aerial gardens protected by celestial beasts."},
+    "storm_islands": {"name":"Storm Islands", "level":22, "type":"sky", "desc":"Islands trapped inside an endless magical storm."},
+    "obsidian_fortress": {"name":"Obsidian Fortress", "level":23, "type":"fortress", "desc":"A black citadel occupied by elite warbands."},
+    "ash_valley": {"name":"Ash Valley", "level":24, "type":"volcanic", "desc":"A volcanic valley where heat itself becomes a weapon."},
+    "inferno_gate": {"name":"Inferno Gate", "level":27, "type":"hell", "desc":"The first stable gate into the lower infernal realms."},
+    "blood_moon_fields": {"name":"Blood Moon Fields", "level":28, "type":"cursed", "desc":"A battlefield permanently illuminated by a red moon."},
+    "glass_dunes": {"name":"Glass Dunes", "level":32, "type":"desert", "desc":"Sand fused into razor-sharp crystal by ancient magic."},
+    "mirage_city": {"name":"Mirage City", "level":34, "type":"city", "desc":"A shifting desert city that appears in different places."},
+    "ancient_colosseum": {"name":"Ancient Colosseum", "level":36, "type":"arena", "desc":"An abandoned arena where magical echoes still fight."},
+    "thunder_sanctum": {"name":"Thunder Sanctum", "level":38, "type":"temple", "desc":"A storm temple guarded by lightning spirits."},
+    "void_border": {"name":"Void Border", "level":42, "type":"void", "desc":"Reality begins to fracture at the edge of the world."},
+    "dreaming_sea": {"name":"Dreaming Sea", "level":44, "type":"astral", "desc":"A surreal ocean that reacts to thought and emotion."},
+    "starfall_ruins": {"name":"Starfall Ruins", "level":46, "type":"ruins", "desc":"Ancient ruins built around fallen celestial stones."},
+    "celestial_spire": {"name":"Celestial Spire", "level":48, "type":"sky", "desc":"A tower reaching beyond the clouds and into the stars."},
+    "worldroot_caves": {"name":"Worldroot Caves", "level":52, "type":"mythic", "desc":"Caverns beneath the roots of the World Tree."},
+    "eternal_library": {"name":"Eternal Library", "level":55, "type":"arcane", "desc":"A forbidden library containing living spells."},
+    "dragon_graveyard": {"name":"Dragon Graveyard", "level":58, "type":"graveyard", "desc":"The bones of ancient dragons form a deadly landscape."},
+    "chaos_realm": {"name":"Chaos Realm", "level":62, "type":"chaos", "desc":"A realm where physical laws change between battles."},
+    "time_ruins": {"name":"Time Ruins", "level":66, "type":"temporal", "desc":"A shattered civilization trapped across multiple moments."},
+    "godfall": {"name":"Godfall", "level":70, "type":"divine", "desc":"A fallen divine domain filled with remnants of old powers."},
+    "endless_night": {"name":"Endless Night", "level":75, "type":"void", "desc":"A lightless region where shadow creatures hunt by sound."},
+    "reality_edge": {"name":"Reality's Edge", "level":82, "type":"endgame", "desc":"The boundary where worlds overlap and collapse."},
+    "origin_sanctum": {"name":"Origin Sanctum", "level":90, "type":"endgame", "desc":"A legendary sanctum said to predate the world itself."},
+    "horizon_core": {"name":"Horizon Core", "level":100, "type":"mythic", "desc":"The ultimate endgame region at the heart of Horizon."},
+})
+
 KINGDOM_ROLES = {"king": "Sovereign of the kingdom", "duke": "High noble and regional governor", "count": "Noble governing a county", "knight": "Sworn military noble", "citizen": "Recognized resident", "outlaw": "Outside the kingdom's law"}
 
 PET_EGGS = {
@@ -299,6 +489,40 @@ PET_EGGS = {
     "void_egg": ("Void Egg", "Mythic", 9000), "royal_egg": ("Royal Egg", "Epic", 2000),
 }
 
+
+# Gacha uses transparent published rates and a pity counter.  It is a game
+# reward system using earned in-game Gems, not real-money purchases.
+GACHA_RATES = [
+    ("common", 0.56), ("uncommon", 0.28), ("rare", 0.105),
+    ("epic", 0.04), ("legendary", 0.014), ("mythic", 0.001),
+]
+GACHA_COST_SINGLE = 100
+GACHA_COST_TEN = 900
+GACHA_EPIC_PITY = 50
+GACHA_MYTHIC_PITY = 100
+GACHA_CHEST_ITEMS = {
+    "chest_common": ("Common Horizon Chest", "common", 50),
+    "chest_uncommon": ("Uncommon Horizon Chest", "uncommon", 100),
+    "chest_rare": ("Rare Horizon Chest", "rare", 250),
+    "chest_epic": ("Epic Horizon Chest", "epic", 600),
+    "chest_legendary": ("Legendary Horizon Chest", "legendary", 1500),
+    "chest_mythic": ("Mythic Horizon Chest", "mythic", 5000),
+}
+
+ENCHANTMENTS = {
+    "sharpness": {"name":"Sharpness","desc":"Increases attack by 3% per level.","stat":"atk","pct":3,"max_level":3},
+    "fortitude": {"name":"Fortitude","desc":"Increases maximum HP by 3% per level.","stat":"hp","pct":3,"max_level":3},
+    "bulwark": {"name":"Bulwark","desc":"Increases defense by 3% per level.","stat":"def","pct":3,"max_level":3},
+    "swiftness": {"name":"Swiftness","desc":"Increases speed by 3% per level.","stat":"speed","pct":3,"max_level":3},
+    "precision": {"name":"Precision","desc":"Increases critical chance by 2% per level.","stat":"crit","pct":2,"max_level":4},
+    "manaweave": {"name":"Manaweave","desc":"Increases maximum MP by 3% per level.","stat":"mp","pct":3,"max_level":3},
+    "vampiric": {"name":"Vampiric","desc":"Adds a small life-steal effect to attacks.","stat":"lifesteal","pct":2,"max_level":3},
+    "flamebrand": {"name":"Flamebrand","desc":"Adds a burn effect to damaging attacks.","stat":"burn","pct":2,"max_level":3},
+    "frostbind": {"name":"Frostbind","desc":"Adds a chance to slow enemies.","stat":"freeze","pct":2,"max_level":3},
+    "warding": {"name":"Warding","desc":"Improves resistance to incoming skill damage.","stat":"def","pct":2,"max_level":4},
+    "soulbound": {"name":"Soulbound","desc":"Improves resource recovery during long fights.","stat":"mp","pct":2,"max_level":4},
+    "hunter": {"name":"Hunter's Mark","desc":"Improves damage against marked targets.","stat":"atk","pct":2,"max_level":4},
+}
 
 PET_SPECIES = {
     "Wolf Pup": {"rarity": "common", "atk": 2, "def": 2, "hp": 5, "spd": 2, "crit": 1, "ability": "Howl", "role": "damage"},
@@ -326,6 +550,32 @@ PET_SPECIES = {
     "World Tree Sprite": {"rarity": "mythic", "atk": 12, "def": 18, "hp": 65, "spd": 4, "crit": 8, "ability": "World's Blessing", "role": "heal"},
 }
 
+PET_ABILITY_DESCRIPTIONS = {
+    "Howl":"Deals a small follow-up strike and improves offensive momentum.",
+    "Lucky Hop":"Raises the chance of a critical hit when the companion assists.",
+    "Foxfire":"Deals magic damage and can ignite the enemy.",
+    "Spirit Flame":"Deals magic damage with increased effectiveness against cursed targets.",
+    "Pounce":"Deals a quick physical hit with improved crit scaling.",
+    "Pack Howl":"Deals damage and briefly improves allied attack.",
+    "Moonfire":"Deals lunar magic damage and restores a small amount of HP.",
+    "Dive":"A fast strike with extra critical-hit scaling.",
+    "Savage Bite":"Heavy physical damage that is stronger against weakened enemies.",
+    "Moon Veil":"Restores HP and grants a short defensive veil.",
+    "Gust":"Deals ranged damage and improves evasion for one turn.",
+    "Frost Bite":"Deals cold damage and can slow the next enemy action.",
+    "Dragon Breath":"Heavy elemental damage with a burn chance.",
+    "Rebirth":"Restores HP and can prevent one lethal hit per battle.",
+    "Royal Dive":"High-damage aerial strike with bonus crit scaling.",
+    "Shadow Flame":"Dark elemental damage that ignores part of defense.",
+    "Phoenix Rebirth":"Large heal with a long internal cooldown.",
+    "Elder Breath":"Heavy elemental damage against a single target.",
+    "Celestial Roar":"Damages the enemy and grants a temporary defensive buff.",
+    "Void Breath":"Very high damage with a small life-steal effect.",
+    "Starfall":"Astral damage with a chance to mark the enemy.",
+    "World's Blessing":"Strong recovery plus a temporary defensive blessing.",
+}
+for _pet in PET_SPECIES.values():
+    _pet["ability_desc"] = PET_ABILITY_DESCRIPTIONS.get(_pet.get("ability",""), "A passive companion ability that helps during battle.")
 
 
 def _build_expanded_items():
@@ -376,6 +626,49 @@ def _build_expanded_items():
     relics=["Explorer's Compass","Adventurer's Lantern","Guild Crest","Royal Signet","Thief's Coin","Scholar's Lens","Hunter's Charm","Duke's Seal","King's Crown Fragment","Void Compass","Dragon Heart Shard","World Tree Seed"]
     for i,name in enumerate(relics):
         key="relic_"+name.lower().replace(" ","_").replace("'",""); generated[key]={"name":name,"slot":"relic","rarity":["uncommon","rare","epic","legendary","mythic"][min(4,i//3)],"atk":i//4,"def":i//5,"spd":i//3,"crit":i//2,"price":300+i*250}
+    # Elemental / celestial variants push the catalogue beyond 1,000 real
+    # entries while keeping every generated item mechanically distinct.
+    elements=[
+        ("flame","Flame","burn","atk_pct"),("frost","Frost","freeze","def_pct"),
+        ("storm","Storm","haste","spd_pct"),("holy","Holy","radiance","crit_pct"),
+        ("void","Void","lifesteal","hp_pct"),
+    ]
+    rarity_level={"common":1,"uncommon":10,"rare":20,"epic":35,"legendary":55,"mythic":75}
+    for mat_key, mat_name, rarity, mult in metals:
+        for element_key, element_name, ability, pct_field in elements:
+            for key,label,base in weapon_bases:
+                k=f"{mat_key}_{element_key}_{key}"
+                pct=min(10, 2 + (list(rarity_level).index(rarity) * 2) + (base % 2))
+                generated[k]={"name":f"{element_name} {mat_name} {label}","slot":"weapon","rarity":rarity,
+                              "atk":int(base*mult)+4,"crit":2 if key in {"rapier","dagger","katana","bow"} else 0,
+                              "price":int(140*base*mult),"level_req":rarity_level[rarity],"ability":ability,
+                              "pct_atk":pct if pct_field=="atk_pct" else 0,"pct_def":pct if pct_field=="def_pct" else 0,
+                              "pct_hp":pct if pct_field=="hp_pct" else 0,"pct_speed":pct if pct_field=="spd_pct" else 0,
+                              "pct_crit":pct if pct_field=="crit_pct" else 0,"enchant_slots":1+min(4,list(rarity_level).index(rarity))}
+            for key,label,base in armor_sets:
+                k=f"{mat_key}_{element_key}_{key}_armor"
+                pct=min(10, 2 + list(rarity_level).index(rarity)*2)
+                generated[k]={"name":f"{element_name} {mat_name} {label}","slot":"armor","rarity":rarity,
+                              "def":int(base*mult)+2,"hp":int(base*mult*1.5)+5,"price":int(170*base*mult),
+                              "level_req":rarity_level[rarity],"ability":ability,"pct_hp":pct if pct_field=="hp_pct" else 0,
+                              "pct_def":pct if pct_field=="def_pct" else 0,"pct_speed":pct if pct_field=="spd_pct" else 0,
+                              "pct_crit":pct if pct_field=="crit_pct" else 0,"enchant_slots":1+min(4,list(rarity_level).index(rarity))}
+    accessory_bases=[
+        ("ring","Ring",4),("amulet","Amulet",5),("belt","War Belt",6),("cloak","Mystic Cloak",5),
+        ("boots","Traveler Boots",4),("gloves","Combat Gloves",5),("crown","Battle Crown",7),("earring","Arcane Earring",3),
+        ("charm","Spirit Charm",4),("brooch","Royal Brooch",3),
+    ]
+    for mat_key, mat_name, rarity, mult in metals:
+        for element_key, element_name, ability, pct_field in elements[:3]:
+            for key,label,base in accessory_bases:
+                k=f"{mat_key}_{element_key}_{key}"
+                pct=min(10,2+list(rarity_level).index(rarity)*2+(base%2))
+                generated[k]={"name":f"{element_name} {mat_name} {label}","slot":"accessory" if key not in {"ring","amulet","earring"} else key,
+                              "rarity":rarity,"atk":int(base*mult/2),"def":int(base*mult/2),"hp":int(base*mult),
+                              "spd":int(base*mult/3),"crit":int(base/3),"price":int(250*base*mult),
+                              "level_req":rarity_level[rarity],"ability":ability,"pct_atk":pct if pct_field=="atk_pct" else 0,
+                              "pct_def":pct if pct_field=="def_pct" else 0,"pct_hp":pct if pct_field=="hp_pct" else 0,
+                              "pct_speed":pct if pct_field=="spd_pct" else 0,"enchant_slots":1+min(4,list(rarity_level).index(rarity))}
     ITEMS.update(generated)
     ITEMS.setdefault("dragon_trophy", {"name":"Dragon Trophy","slot":"material","rarity":"legendary","price":1000})
 
@@ -387,6 +680,8 @@ for _egg_key, _egg_name, _rarity, _price in [
     ("beast_egg","Beast Egg","uncommon",400),("spirit_egg","Spirit Egg","rare",900),("shadow_egg","Shadow Egg","epic",1800),
 ]:
     ITEMS[_egg_key]={"name":_egg_name,"slot":"egg","rarity":_rarity,"price":_price,"pet_egg":True}
+for _key, (_name, _rarity, _price) in GACHA_CHEST_ITEMS.items():
+    ITEMS[_key]={"name":_name,"slot":"chest","rarity":_rarity,"price":_price,"gacha_chest":True,"level_req":rarity_level.get(_rarity,1) if "rarity_level" in globals() else 1}
 SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price") and v.get("slot") in {"weapon","armor","offhand","consumable","food"}]
 
 RECIPES = {
@@ -409,6 +704,27 @@ DUNGEONS = [
     ("Moonlit Ruins", 5, 4, 360, 240, "Ancient ruins filled with arcane enemies."),
     ("Dragonspire", 10, 5, 800, 550, "A dangerous tower ending in a dragon boss."),
 ]
+
+# Distinct enemy families for every world region. Their base values scale from
+# the region tier, while combat caps keep any one enemy from one-shotting a hero.
+_AREA_ENEMY_FLAVOURS = {
+    "town":"Bandit", "plains":"Marauder", "cave":"Cave Stalker", "forest":"Wild Spirit",
+    "coast":"Sea Raider", "islands":"Pirate Beast", "swamp":"Bog Horror", "mountain":"Frost Giant",
+    "cliffs":"Storm Harpy", "canyon":"Ravine Hunter", "undersea":"Abyssal Eel", "underground":"Grave Warden",
+    "valley":"Mist Phantom", "sky":"Sky Seraph", "fortress":"Obsidian Knight", "volcanic":"Magma Beast",
+    "hell":"Infernal Hound", "cursed":"Blood Wraith", "desert":"Crystal Scorpion", "city":"Mirage Assassin",
+    "arena":"Colosseum Champion", "temple":"Thunder Priest", "void":"Void Stalker", "astral":"Astral Leviathan",
+    "ruins":"Starbound Guardian", "mythic":"Worldroot Colossus", "arcane":"Living Grimoire", "graveyard":"Dragon Revenant",
+    "chaos":"Chaos Spawn", "temporal":"Time Eater", "divine":"Fallen Seraph", "endgame":"Reality Hunter",
+}
+for _area_key,_area in AREAS.items():
+    _lvl=int(_area["level"]); _flavour=_AREA_ENEMY_FLAVOURS.get(_area["type"],"Horizon Monster")
+    for _variant,_suffix in enumerate(("Scout","Champion"),1):
+        _hp=int(48 + _lvl*18 + _variant*20); _atk=int(7 + _lvl*2.1 + _variant*3); _def=int(2 + _lvl*1.15 + _variant*2)
+        _drops=["herb","iron_ore","arcane_shard"]
+        if _lvl>=10:
+            _drops += [k for k,v in ITEMS.items() if v.get("slot") in {"material","egg"} and v.get("rarity") in {"rare","epic"}][:2]
+        ENEMIES.append({"name":f"{_flavour} {_suffix}","level":_lvl,"hp":_hp,"atk":_atk,"def":_def,"xp":int(35+_lvl*24+_variant*18),"gold":int(20+_lvl*15+_variant*10),"drops":list(dict.fromkeys([d for d in _drops if d in ITEMS]))})
 
 ACHIEVEMENTS = {
     "first_blood": ("First Blood", "Defeat your first enemy.", 100),
@@ -434,7 +750,7 @@ class RPGService:
             CREATE TABLE IF NOT EXISTS rpg_players (
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
                 name TEXT NOT NULL DEFAULT '', race TEXT NOT NULL DEFAULT 'human', class_name TEXT NOT NULL DEFAULT 'warrior',
-                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0, gold INTEGER NOT NULL DEFAULT 250,
+                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0, gold INTEGER NOT NULL DEFAULT 250, gems INTEGER NOT NULL DEFAULT 500,
                 hp INTEGER NOT NULL DEFAULT 100, max_hp INTEGER NOT NULL DEFAULT 100,
                 mp INTEGER NOT NULL DEFAULT 40, max_mp INTEGER NOT NULL DEFAULT 40,
                 atk INTEGER NOT NULL DEFAULT 10, defense INTEGER NOT NULL DEFAULT 5, speed INTEGER NOT NULL DEFAULT 5,
@@ -456,6 +772,27 @@ class RPGService:
             CREATE TABLE IF NOT EXISTS rpg_equipment (
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot TEXT NOT NULL, item_key TEXT NOT NULL,
                 PRIMARY KEY (guild_id, user_id, slot)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_skill_loadout (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot INTEGER NOT NULL, skill_key TEXT NOT NULL,
+                PRIMARY KEY (guild_id, user_id, slot)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_pet_inventory (
+                pet_id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                name TEXT NOT NULL, species TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
+                bonus_atk INTEGER NOT NULL DEFAULT 0, bonus_def INTEGER NOT NULL DEFAULT 0, bonus_hp INTEGER NOT NULL DEFAULT 0,
+                bonus_mp INTEGER NOT NULL DEFAULT 0, bonus_speed INTEGER NOT NULL DEFAULT 0, bonus_crit INTEGER NOT NULL DEFAULT 0,
+                ability TEXT NOT NULL DEFAULT 'Pounce', equipped INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL DEFAULT (strftime('%s','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_pet_inventory_owner ON rpg_pet_inventory(guild_id,user_id,equipped,pet_id);
+            CREATE TABLE IF NOT EXISTS rpg_gacha_state (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, banner TEXT NOT NULL DEFAULT 'horizon',
+                pulls INTEGER NOT NULL DEFAULT 0, pity INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id,user_id,banner)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_equipment_enchants (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot TEXT NOT NULL, enchant_key TEXT NOT NULL,
+                level INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (guild_id,user_id,slot,enchant_key)
             );
             CREATE TABLE IF NOT EXISTS rpg_quests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL,
@@ -521,6 +858,7 @@ class RPGService:
             """)
             # Lightweight migrations for existing Horizon RPG databases.
             migrations = {
+                "gems": "INTEGER NOT NULL DEFAULT 500",
                 "subclass": "TEXT NOT NULL DEFAULT ''", "subrace": "TEXT NOT NULL DEFAULT ''",
                 "evolution": "TEXT NOT NULL DEFAULT ''", "life_path": "TEXT NOT NULL DEFAULT 'adventurer'",
                 "renown": "INTEGER NOT NULL DEFAULT 0", "fame": "INTEGER NOT NULL DEFAULT 0",
@@ -547,10 +885,29 @@ class RPGService:
             for column, definition in pet_migrations.items():
                 if column not in pet_existing:
                     await db.execute(f"ALTER TABLE rpg_pets ADD COLUMN {column} {definition}")
+            # Preserve an existing single-pet character while upgrading to a true
+            # pet inventory. The old rpg_pets table remains as a compatibility cache.
+            cur = await db.execute("SELECT guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability FROM rpg_pets")
+            old_pets = await cur.fetchall()
+            for row in old_pets:
+                exists = await db.execute("SELECT 1 FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? AND name=? AND species=? LIMIT 1", (row[0],row[1],row[2],row[3]))
+                if not await exists.fetchone():
+                    await db.execute("INSERT INTO rpg_pet_inventory(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability,equipped) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)", row)
+            cur = await db.execute("SELECT guild_id,user_id,class_name FROM rpg_players")
+            players = await cur.fetchall()
+            for guild_id,user_id,class_name in players:
+                count_cur = await db.execute("SELECT COUNT(*) FROM rpg_skill_loadout WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+                count = (await count_cur.fetchone())[0]
+                if count == 0:
+                    for slot, skill_key in enumerate(("skill_1","skill_2","skill_3","skill_4"),1):
+                        await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)", (guild_id,user_id,slot,skill_key))
             await db.commit()
 
     def _level_xp(self, level: int) -> int:
-        return 100 * level * level
+        # Cumulative XP curve becomes increasingly demanding so high-level
+        # progression is earned rather than rushed. Existing XP is preserved.
+        level=max(1,int(level))
+        return 150 * level * level + 100 * level
 
     def _class_stats(self, race: str, class_name: str):
         race = RACES.get(race, RACES["human"])
@@ -583,6 +940,8 @@ class RPGService:
                              (guild_id,user_id,name[:32],race,class_name,s["max_hp"],s["max_hp"],s["max_mp"],s["max_mp"],s["atk"],s["defense"],s["speed"],s["crit"]))
             for item, qty in (("life_potion",3),("mana_potion",2),("iron_sword",1),("iron_armor",1)):
                 await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?)", (guild_id,user_id,item,qty))
+            for slot,skill_key in enumerate(("skill_1","skill_2","skill_3","skill_4"),1):
+                await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)",(guild_id,user_id,slot,skill_key))
             await db.commit()
         return True, f"Hero **{name}** created as a **{race.title()} {class_name.title()}**."
 
@@ -598,11 +957,87 @@ class RPGService:
             return await cur.fetchall()
 
     async def pet_record(self, guild_id, user_id):
+        # The new pet inventory keeps multiple companions. rpg_pets is retained
+        # as a compatibility cache for older code/databases.
         async with aiosqlite.connect(self.path) as db:
             db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? AND equipped=1 ORDER BY pet_id LIMIT 1", (guild_id, user_id))
+            row = await cur.fetchone()
+            if row:
+                return dict(row)
             cur = await db.execute("SELECT * FROM rpg_pets WHERE guild_id=? AND user_id=?", (guild_id, user_id))
             row = await cur.fetchone()
             return dict(row) if row else None
+
+    async def pet_inventory(self, guild_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            cur=await db.execute("SELECT * FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? ORDER BY equipped DESC, level DESC, pet_id", (guild_id,user_id))
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def _sync_legacy_pet_cache(self, db, guild_id, user_id):
+        await db.execute("DELETE FROM rpg_pets WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+        cur=await db.execute("SELECT name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? AND equipped=1 ORDER BY pet_id LIMIT 1", (guild_id,user_id))
+        row=await cur.fetchone()
+        if row:
+            await db.execute("INSERT INTO rpg_pets(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (guild_id,user_id,*row))
+
+    async def equip_pet(self, guild_id, user_id, pet_id):
+        pets=await self.pet_inventory(guild_id,user_id)
+        chosen=next((p for p in pets if int(p["pet_id"])==int(pet_id)),None)
+        if not chosen:return False,"That pet is not in your pet inventory."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_pet_inventory SET equipped=0 WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+            await db.execute("UPDATE rpg_pet_inventory SET equipped=1 WHERE guild_id=? AND user_id=? AND pet_id=?", (guild_id,user_id,int(pet_id)))
+            await self._sync_legacy_pet_cache(db,guild_id,user_id)
+            await db.commit()
+        return True,f"Equipped **{chosen['name']}** ({chosen['species']})."
+
+    async def unequip_pet(self, guild_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_pet_inventory SET equipped=0 WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+            await self._sync_legacy_pet_cache(db,guild_id,user_id)
+            await db.commit()
+        return True,"Your active pet was placed back into the pet inventory."
+
+    async def unlocked_skills(self, guild_id, user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        return [s for s in SKILLS.get(p["class_name"],[]) if int(s["unlock"])<=int(p["level"])]
+
+    async def equipped_skills(self, guild_id, user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot,skill_key FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? ORDER BY slot", (guild_id,user_id))
+            rows=await cur.fetchall()
+        available={s["key"]:s for s in SKILLS.get(p["class_name"],[]) if int(s["unlock"])<=int(p["level"])}
+        return [available[key] for _,key in rows if key in available][:4]
+
+    async def equip_skill(self, guild_id, user_id, skill_key, slot=1):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        slot=max(1,min(4,int(slot)))
+        skill=self._skill(p["class_name"],skill_key.lower())
+        if not skill:return False,"That skill does not belong to your current class."
+        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND skill_key=?", (guild_id,user_id,skill["key"]))
+            existing=await cur.fetchone()
+            if existing and int(existing[0])!=slot:
+                await db.execute("DELETE FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,int(existing[0])))
+            await db.execute("INSERT INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET skill_key=excluded.skill_key", (guild_id,user_id,slot,skill["key"]))
+            await db.commit()
+        return True,f"Equipped **{skill['name']}** in skill slot **{slot}**."
+
+    async def skill_loadout(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot,skill_key FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? ORDER BY slot", (guild_id,user_id))
+            rows=await cur.fetchall()
+        all_skills={s["key"]:s for s in SKILLS.get(p["class_name"],[])}
+        return [(slot,all_skills.get(key)) for slot,key in rows if all_skills.get(key)]
 
     async def _pet_bonus(self, guild_id, user_id):
         pet = await self.pet_record(guild_id, user_id)
@@ -695,12 +1130,12 @@ class RPGService:
         if not p: return None,"Start your hero first with `!rpg start`."
         remaining=await self._cooldown(p,"last_daily",86400)
         if remaining>0: return None,f"Daily reward ready in **{int(remaining//3600)}h {int((remaining%3600)//60)}m**."
-        streak_bonus=random.randint(0,100); xp=150; gold=300+streak_bonus
+        streak_bonus=random.randint(0,100); xp=150; gold=300+streak_bonus; gems=random.randint(80,140)
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET last_daily=?,gold=gold+? WHERE guild_id=? AND user_id=?",(time.time(),gold,guild_id,user_id)); await db.commit()
+            await db.execute("UPDATE rpg_players SET last_daily=?,gold=gold+?,gems=gems+? WHERE guild_id=? AND user_id=?",(time.time(),gold,gems,guild_id,user_id)); await db.commit()
         old,new=await self.add_rewards(guild_id,user_id,xp,0)
         await self.add_item(guild_id,user_id,"life_potion",1)
-        return (xp,gold,new),None
+        return (xp,gold,gems,new),None
 
     async def use_item(self,guild_id,user_id,item_key,quantity=1):
         p=await self.player(guild_id,user_id)
@@ -717,14 +1152,17 @@ class RPGService:
     async def equip(self,guild_id,user_id,item_key):
         p=await self.player(guild_id,user_id)
         if not p: return False,"Start a hero first."
-        item=ITEMS.get(item_key.lower())
-        if not item or item["slot"] not in {"weapon","armor","offhand"}: return False,"That item cannot be equipped."
+        item_key=item_key.lower().strip(); item=ITEMS.get(item_key)
+        allowed={"weapon","armor","offhand","accessory","ring","amulet","relic"}
+        if not item or item.get("slot") not in allowed: return False,"That item cannot be equipped. Check `!rpg items <category>`."
         inv=dict(await self.inventory(guild_id,user_id))
-        if inv.get(item_key.lower(),0)<1: return False,"You don't own that item."
+        if inv.get(item_key,0)<1: return False,"You don't own that item."
+        req=int(item.get("level_req",1))
+        if int(p["level"])<req:return False,f"**{item['name']}** requires level **{req}**. You are level **{p['level']}**."
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key",(guild_id,user_id,item["slot"],item_key.lower()))
+            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key",(guild_id,user_id,item["slot"],item_key))
             await db.commit()
-        return True,f"Equipped **{item['name']}**."
+        return True,f"Equipped **{item['name']}** in **{item['slot']}**."
 
     def _progression_bonus(self, p):
         bonus={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
@@ -747,12 +1185,29 @@ class RPGService:
         p=await self.player(guild_id,user_id)
         if not p:return None
         gear={}
+        enchants=[]
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=dict(await cur.fetchall())
+            cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=?",(guild_id,user_id)); enchants=await cur.fetchall()
         bonus=self._progression_bonus(p)
+        pct={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
         for key in gear.values():
             item=ITEMS.get(key,{})
             bonus["atk"]+=item.get("atk",0); bonus["defense"]+=item.get("def",0); bonus["hp"]+=item.get("hp",0); bonus["mp"]+=item.get("mp",0); bonus["speed"]+=item.get("spd",0); bonus["crit"]+=item.get("crit",0)
+            pct["atk"]+=min(10,int(item.get("pct_atk",0))); pct["defense"]+=min(10,int(item.get("pct_def",0))); pct["hp"]+=min(10,int(item.get("pct_hp",0))); pct["mp"]+=min(10,int(item.get("pct_mp",0))); pct["speed"]+=min(10,int(item.get("pct_speed",0))); pct["crit"]+=min(10,int(item.get("pct_crit",0)))
+        for slot,enchant_key,level in enchants:
+            e=ENCHANTMENTS.get(enchant_key,{})
+            stat=e.get("stat"); value=int(e.get("pct",0))*int(level)
+            if stat=="atk":pct["atk"]+=value
+            elif stat=="def":pct["defense"]+=value
+            elif stat=="hp":pct["hp"]+=value
+            elif stat=="mp":pct["mp"]+=value
+            elif stat=="speed":pct["speed"]+=value
+            elif stat=="crit":pct["crit"]+=value
+        # Percentage bonuses are capped per source at 10%, while the aggregate
+        # cap remains controlled enough to avoid gear invalidating class choice.
+        pct={k:min(10,v) for k,v in pct.items()}
+        bonus["pct"] = pct
         pet_bonus=await self._pet_bonus(guild_id,user_id)
         bonus["atk"]+=pet_bonus["atk"]; bonus["defense"]+=pet_bonus["defense"]; bonus["hp"]+=pet_bonus["hp"]; bonus["mp"]+=pet_bonus["mp"]; bonus["speed"]+=pet_bonus["speed"]; bonus["crit"]+=pet_bonus["crit"]
         return p,gear,bonus
@@ -1090,31 +1545,166 @@ class RPGService:
         await self.progress_quests(guild_id,user_id,"dungeon",1); await self.check_achievements(guild_id,user_id)
         return {"win":True,"name":d[0],"log":log,"xp":reward_xp,"gold":reward_gold,"hp":hp}
 
+    async def _add_pet_to_inventory(self, guild_id, user_id, name, species, equipped=False):
+        data=PET_SPECIES.get(species,{"atk":2,"def":2,"hp":5,"spd":2,"crit":1,"ability":"Pounce"})
+        async with aiosqlite.connect(self.path) as db:
+            if equipped:
+                await db.execute("UPDATE rpg_pet_inventory SET equipped=0 WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            cur=await db.execute("INSERT INTO rpg_pet_inventory(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability,equipped) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (guild_id,user_id,name[:24],species,1,0,data.get("atk",2),data.get("def",2),data.get("hp",5),0,data.get("spd",2),data.get("crit",1),data.get("ability","Pounce"),1 if equipped else 0))
+            pet_id=cur.lastrowid
+            if equipped:
+                await self._sync_legacy_pet_cache(db,guild_id,user_id)
+            await db.commit()
+        return pet_id
+
     async def pet(self, guild_id, user_id, action="info", name="Spirit"):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
+        action=(action or "info").lower().strip()
+        if action=="adopt":
+            species=random.choice(["Wolf Pup","Fox Spirit","Moon Cat","Rabbit"])
+            pet_id=await self._add_pet_to_inventory(guild_id,user_id,name or "Spirit",species,equipped=not bool(await self.pet_inventory(guild_id,user_id)))
+            data=PET_SPECIES[species]
+            return True,f"You adopted **{name or 'Spirit'}**, a **{species}** companion (Pet #{pet_id}).\n🐾 **Ability:** {data['ability']} — {data.get('ability_desc','A passive combat companion effect.')}\n⚔️ +{data['atk']} ATK • 🛡️ +{data['def']} DEF • ❤️ +{data['hp']} HP • 💨 +{data['spd']} SPD • 🎯 +{data['crit']}% Crit\nUse `!rpg pets` to manage your collection."
+        pets=await self.pet_inventory(guild_id,user_id)
+        current=next((x for x in pets if x.get("equipped")),None)
+        if action=="equip":
+            try: return await self.equip_pet(guild_id,user_id,int(name))
+            except ValueError:return False,"Use `!rpg pet equip <pet_id>`."
+        if action=="unequip": return await self.unequip_pet(guild_id,user_id)
+        if action=="rename":
+            if not current:return False,"You have no equipped pet. Use `!rpg pets` and equip one first."
+            new_name=(name or "Spirit").strip()[:24]
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_pet_inventory SET name=? WHERE guild_id=? AND user_id=? AND pet_id=?",(new_name,guild_id,user_id,current["pet_id"]))
+                await self._sync_legacy_pet_cache(db,guild_id,user_id); await db.commit()
+            return True,f"Your equipped pet is now called **{new_name}**."
+        if action=="release":
+            if not current:return False,"You have no equipped pet."
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("DELETE FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? AND pet_id=?",(guild_id,user_id,current["pet_id"]))
+                await self._sync_legacy_pet_cache(db,guild_id,user_id); await db.commit()
+            return True,f"You released **{current['name']}** from your pet inventory."
+        if not current:
+            return False,"You have no equipped pet. Use `!rpg pets` to choose one from your collection or `!rpg adopt <name>`."
+        data=PET_SPECIES.get(current["species"],{})
+        return True,f"**{current['name']}** · **{current['species']}** · Pet #{current['pet_id']} · Lv {current['level']}\n⚔️ +{current['bonus_atk']} ATK • 🛡️ +{current['bonus_def']} DEF • ❤️ +{current.get('bonus_hp',0)} HP • 💨 +{current.get('bonus_speed',0)} SPD • 🎯 +{current.get('bonus_crit',0)}% Crit\n🐾 **{current.get('ability') or data.get('ability','Pounce')}** — {data.get('ability_desc','A passive combat companion effect.')}\n\nYour other pets remain safely stored in `!rpg pets`."
+
+    async def _gacha_state(self,guild_id,user_id,banner="horizon"):
         async with aiosqlite.connect(self.path) as db:
-            db.row_factory=aiosqlite.Row
-            cur=await db.execute("SELECT * FROM rpg_pets WHERE guild_id=? AND user_id=?",(guild_id,user_id)); pet=await cur.fetchone()
-            if action=="adopt":
-                if pet:return False,"You already have a pet. Use `!rpg pet` to view it or `!rpg release` first."
-                species=random.choice(["Wolf Pup","Fox Spirit","Moon Cat","Rabbit"])
-                # Keep the simple adopt command useful even without an egg, but
-                # make the companion immediately meaningful in combat.
-                data=PET_SPECIES.get(species,{"atk":2,"def":2,"hp":5,"spd":2,"crit":1,"ability":"Pounce"})
-                await db.execute("INSERT INTO rpg_pets(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                 (guild_id,user_id,name[:24],species,1,0,data["atk"],data["def"],data["hp"],0,data["spd"],data["crit"],data["ability"]))
-                await db.commit()
-                return True,f"You adopted **{name}**, a **{species}** companion.\nBattle bonus: +{data['atk']} ATK • +{data['def']} DEF • +{data['hp']} HP • +{data['spd']} SPD • +{data['crit']}% Crit\n🐾 Ability: **{data['ability']}**"
-            if action=="rename":
-                if not pet:return False,"You have no pet. Use `!rpg adopt <name>` or `!rpg hatch <egg> <name>`."
-                await db.execute("UPDATE rpg_pets SET name=? WHERE guild_id=? AND user_id=?",(name[:24],guild_id,user_id)); await db.commit(); return True,f"Your pet is now called **{name[:24]}**."
-            if action=="release":
-                if not pet:return False,"You have no pet."
-                await db.execute("DELETE FROM rpg_pets WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit(); return True,f"You released **{pet['name']}**."
-            if not pet:return False,"You have no pet. Use `!rpg adopt <name>` or `!rpg hatch <egg> <name>`."
-            data=PET_SPECIES.get(pet["species"],{})
-            return True,f"**{pet['name']}** — {pet['species']} • Lv {pet['level']} • XP {pet['xp']}\n⚔️ +{pet['bonus_atk']} ATK • 🛡️ +{pet['bonus_def']} DEF • ❤️ +{pet.get('bonus_hp',0)} HP • 💨 +{pet.get('bonus_speed',0)} SPD • 🎯 +{pet.get('bonus_crit',0)}% Crit\n🐾 Ability: **{pet.get('ability') or data.get('ability','Pounce')}** — helps during battles."
+            cur=await db.execute("SELECT pulls,pity FROM rpg_gacha_state WHERE guild_id=? AND user_id=? AND banner=?",(guild_id,user_id,banner))
+            row=await cur.fetchone()
+            if not row:
+                await db.execute("INSERT INTO rpg_gacha_state(guild_id,user_id,banner,pulls,pity) VALUES(?,?,?,0,0)",(guild_id,user_id,banner)); await db.commit()
+                return {"pulls":0,"pity":0}
+            return {"pulls":row[0],"pity":row[1]}
+
+    def _roll_gacha_rarity(self,pity,guarantee_rare=False):
+        if pity + 1 >= GACHA_MYTHIC_PITY:
+            return "mythic"
+        if pity + 1 >= GACHA_EPIC_PITY:
+            return random.choice(["epic","legendary","mythic"])
+        if guarantee_rare:
+            return random.choice(["rare","epic","legendary"])
+        roll=random.random(); total=0.0
+        for rarity,rate in GACHA_RATES:
+            total+=rate
+            if roll<=total:return rarity
+        return "common"
+
+    async def _gacha_one(self,guild_id,user_id,rarity):
+        # Rare+ pulls can award companions; equipment dominates the common pool.
+        pet_species=[name for name,data in PET_SPECIES.items() if data.get("rarity")==rarity]
+        if rarity in {"rare","epic","legendary","mythic"} and pet_species and random.random()<0.22:
+            species=random.choice(pet_species); data=PET_SPECIES[species]
+            existing=await self.pet_inventory(guild_id,user_id)
+            duplicate=any(p["species"]==species for p in existing)
+            pet_name=f"{species} #{random.randint(100,999)}"
+            await self._add_pet_to_inventory(guild_id,user_id,pet_name,species,equipped=not existing)
+            if duplicate:
+                refund={"rare":35,"epic":75,"legendary":150,"mythic":300}.get(rarity,25)
+                async with aiosqlite.connect(self.path) as db:
+                    await db.execute("UPDATE rpg_players SET gems=gems+? WHERE guild_id=? AND user_id=?",(refund,guild_id,user_id)); await db.commit()
+                return {"type":"pet_duplicate","name":pet_name,"species":species,"rarity":rarity,"refund":refund}
+            return {"type":"pet","name":pet_name,"species":species,"rarity":rarity,"ability":data.get("ability"),"ability_desc":data.get("ability_desc")}
+        candidates=[(k,v) for k,v in ITEMS.items() if v.get("rarity")==rarity and v.get("slot") in {"weapon","armor","offhand","accessory","ring","amulet","relic","chest","consumable"}]
+        if not candidates:
+            candidates=[(k,v) for k,v in ITEMS.items() if v.get("slot") in {"weapon","armor","offhand","accessory","ring","amulet","relic"}]
+        key,item=random.choice(candidates)
+        qty=1
+        await self.add_item(guild_id,user_id,key,qty)
+        return {"type":"item","key":key,"name":item.get("name",key),"rarity":item.get("rarity",rarity),"slot":item.get("slot","item"),"ability":item.get("ability",""),"level_req":item.get("level_req",1)}
+
+    async def gacha_pull(self,guild_id,user_id,count=1,banner="horizon"):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,{"error":"Create a hero first."}
+        count=max(1,min(int(count),10))
+        cost=GACHA_COST_TEN if count==10 else GACHA_COST_SINGLE*count
+        if int(p.get("gems",0))<cost:return False,{"error":f"You need **{cost} Gems**. You have **{p.get('gems',0)}**."}
+        state=await self._gacha_state(guild_id,user_id,banner)
+        rewards=[]; pity=state["pity"]; pulls=state["pulls"]
+        for i in range(count):
+            rarity=self._roll_gacha_rarity(pity,guarantee_rare=(count==10 and i==9))
+            reward=await self._gacha_one(guild_id,user_id,rarity)
+            rewards.append(reward); pulls+=1
+            pity=0 if rarity in {"epic","legendary","mythic"} else pity+1
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET gems=gems-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id))
+            await db.execute("INSERT INTO rpg_gacha_state(guild_id,user_id,banner,pulls,pity) VALUES(?,?,?,?,?) ON CONFLICT(guild_id,user_id,banner) DO UPDATE SET pulls=excluded.pulls,pity=excluded.pity",(guild_id,user_id,banner,pulls,pity))
+            await db.commit()
+        return True,{"cost":cost,"gems_left":int(p.get("gems",0))-cost,"rewards":rewards,"pity":pity,"pulls":pulls}
+
+    async def gacha_info(self,guild_id,user_id,banner="horizon"):
+        state=await self._gacha_state(guild_id,user_id,banner)
+        p=await self.player(guild_id,user_id)
+        return {"gems":int(p.get("gems",0)) if p else 0,"pity":state["pity"],"pulls":state["pulls"],"rates":GACHA_RATES}
+
+    async def open_chest(self,guild_id,user_id,item_key):
+        data=ITEMS.get(item_key.lower())
+        if not data or data.get("slot")!="chest":return False,"That item is not a Horizon chest."
+        inv=dict(await self.inventory(guild_id,user_id))
+        if inv.get(item_key.lower(),0)<1:return False,"You don't own that chest."
+        await self.remove_item(guild_id,user_id,item_key,1)
+        rarity=data.get("rarity","common")
+        reward=await self._gacha_one(guild_id,user_id,rarity)
+        return True,f"Opened **{data['name']}** → **{reward.get('name',reward.get('species','Reward'))}** ({rarity.title()})."
+
+    async def enchantments(self):
+        return list(ENCHANTMENTS.items())
+
+    async def enchant_item(self,guild_id,user_id,slot,item_key,enchant_key):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        item=ITEMS.get(item_key.lower()); ench=ENCHANTMENTS.get(enchant_key.lower())
+        if not item or not ench:return False,"Unknown item or enchantment. Use `!rpg enchantments`."
+        if item.get("slot") not in {"weapon","armor","offhand","accessory","ring","amulet","relic"}:return False,"Only equipment can be enchanted."
+        if int(item.get("level_req",1))>int(p["level"]):return False,f"That gear requires level **{item['level_req']}**."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT item_key FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+            row=await cur.fetchone()
+            if not row or row[0]!=item_key.lower():return False,f"Equip **{item['name']}** in the `{slot}` slot first."
+            cur=await db.execute("SELECT level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=? AND enchant_key=?",(guild_id,user_id,slot,enchant_key.lower()))
+            row=await cur.fetchone(); level=int(row[0]) if row else 0
+            if not row:
+                cur=await db.execute("SELECT COUNT(*) FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+                used=(await cur.fetchone())[0]
+                if used>=int(item.get("enchant_slots",0)):
+                    return False,f"**{item['name']}** has no free enchantment slots."
+            max_level=int(ench.get("max_level",3))
+            if level>=max_level:return False,f"**{ench['name']}** is already maxed on this gear."
+            cost=750*max(1,level+1)*int(item.get("rarity","common") in {"rare","epic","legendary","mythic"} and 2 or 1)
+            if p["gold"]<cost:return False,f"Enchanting costs **{cost} gold**. You have {p['gold']}."
+            if row:
+                await db.execute("UPDATE rpg_equipment_enchants SET level=level+1 WHERE guild_id=? AND user_id=? AND slot=? AND enchant_key=?",(guild_id,user_id,slot,enchant_key.lower()))
+            else:
+                await db.execute("INSERT INTO rpg_equipment_enchants(guild_id,user_id,slot,enchant_key,level) VALUES(?,?,?,?,1)",(guild_id,user_id,slot,enchant_key.lower()))
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id)); await db.commit()
+        return True,f"Applied **{ench['name']}** Lv **{level+1}** to **{item['name']}** for **{cost} gold**."
+
+    async def equipped_enchants(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? ORDER BY slot,enchant_key",(guild_id,user_id)); return await cur.fetchall()
 
     async def party_dungeon(self,guild_id,user_id,name=None):
         info=await self.party_info(guild_id,user_id=user_id)
@@ -1200,12 +1790,49 @@ class RPGService:
     async def _combat_full_stats(self, guild_id, user_id, p, pet_bonus=None):
         stats=self._combat_stats(p,pet_bonus)
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=[row[0] for row in await cur.fetchall()]
-        for key in gear:
+            cur=await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=await cur.fetchall()
+            cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=?",(guild_id,user_id)); enchants=await cur.fetchall()
+        pct={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
+        for _slot,key in gear:
             item=ITEMS.get(key,{})
             stats["max_hp"]+=item.get("hp",0); stats["hp"]+=item.get("hp",0)
             stats["max_mp"]+=item.get("mp",0); stats["mp"]+=item.get("mp",0)
             stats["atk"]+=item.get("atk",0); stats["defense"]+=item.get("def",0); stats["speed"]+=item.get("spd",0); stats["crit"]+=item.get("crit",0)
+            pct["atk"]+=min(10,int(item.get("pct_atk",0))); pct["defense"]+=min(10,int(item.get("pct_def",0))); pct["hp"]+=min(10,int(item.get("pct_hp",0))); pct["mp"]+=min(10,int(item.get("pct_mp",0))); pct["speed"]+=min(10,int(item.get("pct_speed",0))); pct["crit"]+=min(10,int(item.get("pct_crit",0)))
+        for _slot,enchant_key,level in enchants:
+            e=ENCHANTMENTS.get(enchant_key,{})
+            stat=e.get("stat"); val=int(e.get("pct",0))*int(level)
+            if stat=="atk":pct["atk"]+=val
+            elif stat=="def":pct["defense"]+=val
+            elif stat=="hp":pct["hp"]+=val
+            elif stat=="mp":pct["mp"]+=val
+            elif stat=="speed":pct["speed"]+=val
+            elif stat=="crit":pct["crit"]+=val
+        for stat,percent in pct.items():
+            percent=min(10,percent)
+            if stat=="atk":stats["atk"]+=round(stats["atk"]*percent/100)
+            elif stat=="defense":stats["defense"]+=round(stats["defense"]*percent/100)
+            elif stat=="hp":
+                bonus=round(stats["max_hp"]*percent/100); stats["max_hp"]+=bonus; stats["hp"]+=bonus
+            elif stat=="mp":
+                bonus=round(stats["max_mp"]*percent/100); stats["max_mp"]+=bonus; stats["mp"]+=bonus
+            elif stat=="speed":stats["speed"]+=round(stats["speed"]*percent/100)
+            elif stat=="crit":stats["crit"]+=percent
+        race=p.get("race","human")
+        ability=RACE_ABILITIES.get(race,("Unknown",""))[0]
+        stats["race_ability"]=ability
+        if race=="human":
+            for key in ("atk","defense","speed"): stats[key]+=max(0,round(stats[key]*.02))
+        elif race=="elf": stats["crit"]+=3
+        elif race=="dwarf": stats["defense"]+=max(0,round(stats["defense"]*.05))
+        elif race=="orc" and p.get("hp",0)<=p.get("max_hp",1)*.5: stats["atk"]+=max(1,round(stats["atk"]*.08))
+        elif race in {"kitsune","fae"}: stats["speed"]+=2
+        elif race=="halfling": stats["crit"]+=2
+        elif race=="dragonkin": stats["max_hp"]+=max(1,round(stats["max_hp"]*.04)); stats["hp"]+=max(1,round(stats["hp"]*.04)); stats["defense"]+=2
+        elif race=="beastfolk": stats["speed"]+=3; stats["crit"]+=2
+        elif race=="vampire": stats["atk"]+=3; stats["lifesteal_pct"]=.08
+        elif race=="golem": stats["max_hp"]+=max(1,round(stats["max_hp"]*.06)); stats["hp"]+=max(1,round(stats["hp"]*.06)); stats["defense"]+=3; stats["speed"]=max(1,stats["speed"]-2)
+        stats["crit"]=min(35,stats["crit"])
         return stats
 
     def _enemy_for_level(self, level, area_key="horizon_village"):
@@ -1254,7 +1881,8 @@ class RPGService:
         pet_bonus=await self._pet_bonus(guild_id,user_id)
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus)
         pet=await self.pet_record(guild_id,user_id)
-        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"]}
+        loadout=await self.skill_loadout(guild_id,user_id)
+        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"],"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill],"buffs":{},"enemy_debuffs":{},"enemy_dot":0,"enemy_dot_turns":0,"combo":0,"delayed_damage":0}
         if mode=="adventure":
             remaining=await self._cooldown(p,"last_adventure",20)
             if remaining>0:return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
@@ -1297,6 +1925,129 @@ class RPGService:
             return max(2, int(round(damage * CRIT_DAMAGE_MULT))), True
         return damage, False
 
+    def _equipped_skill_keys(self, p, loadout_rows):
+        return {key for _slot,key in loadout_rows if key in {s["key"] for s in SKILLS.get(p["class_name"],[])}}
+
+    def _skill_damage(self, stats, enemy, skill, state, multiplier=None, ignore_def=False):
+        enemy_def=float(enemy.get("def",0))
+        debuff=state.get("enemy_debuffs",{})
+        enemy_def=max(0,enemy_def*(1-float(debuff.get("def_down",0))))
+        mult=float(multiplier if multiplier is not None else skill.get("mult",1.0))
+        if state.get("buffs",{}).get("atk_up"):
+            mult*=1+float(state["buffs"]["atk_up"])
+        if debuff.get("vulnerable"):
+            mult*=1+float(debuff["vulnerable"])
+        if debuff.get("marked"):
+            mult*=1+float(debuff["marked"])
+        if ignore_def:
+            raw=max(2,int(stats["atk"]*mult*random.uniform(0.92,1.08)))
+            return raw
+        return self._damage(stats["atk"],enemy_def,mult)
+
+    def _apply_skill_effect(self, skill, stats, state):
+        """Apply one of the 50 skill mechanics. Values are intentionally bounded."""
+        effect=skill.get("effect","damage"); enemy=state["enemy"]; log=[]; defending=False; start_enemy_hp=state["enemy_hp"]
+        state.setdefault("buffs",{}); state.setdefault("enemy_debuffs",{})
+        dmg=self._skill_damage(stats,enemy,skill,state)
+        if effect=="damage":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*0.28))); log.append(f"✨ **{skill['name']}** dealt **{dmg}** damage.")
+        elif effect=="heavy":
+            dmg=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.18); state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*0.32))); log.append(f"💥 **{skill['name']}** crushed the target for **{dmg}** damage.")
+        elif effect=="bleed":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*0.22))); state["enemy_dot"]+=max(3,int(stats["atk"]*0.08)); state["enemy_dot_turns"]=2; log.append(f"🩸 **{skill['name']}** dealt **{dmg}** and applied Bleed.")
+        elif effect=="multi":
+            hits=[]
+            for _ in range(2):
+                hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*0.58); hit=min(hit,max(2,int(enemy["hp"]*0.16))); state["enemy_hp"]-=hit; hits.append(hit)
+            log.append(f"⚔️ **{skill['name']}** struck twice for **{sum(hits)}** total.")
+        elif effect in {"heal","team_heal","recovery"}:
+            ratio={"heal":0.22,"team_heal":0.30,"recovery":0.34}[effect]
+            heal=max(12,int(stats["max_hp"]*ratio)); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
+            if effect=="recovery": state["player_mp"]=min(stats["max_mp"],state["player_mp"]+max(8,int(stats["max_mp"]*.22)))
+            log.append(f"💚 **{skill['name']}** restored **{heal} HP**.")
+        elif effect=="defend":
+            defending=True; state["shield_turns"]=1; state["shield_pct"]=0.55; log.append(f"🛡️ **{skill['name']}** braces against the next hit.")
+        elif effect=="attack_buff":
+            state["buffs"]["atk_up"]=0.18; state["buffs"]["atk_turns"]=3; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.16))); log.append(f"⚔️ **{skill['name']}** struck for **{dmg}** and raised attack for 3 turns.")
+        elif effect=="def_buff":
+            state["buffs"]["def_up"]=0.22; state["buffs"]["def_turns"]=3; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.14))); log.append(f"🛡️ **{skill['name']}** raised defense for 3 turns.")
+        elif effect=="lifesteal":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.24))); heal=max(5,int(dmg*.28)); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 **{skill['name']}** dealt **{dmg}** and stole **{heal} HP**.")
+        elif effect=="armor_break":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.22))); state["enemy_debuffs"]["def_down"]=.18; state["enemy_debuffs"]["def_turns"]=3; log.append(f"🗡️ **{skill['name']}** dealt **{dmg}** and reduced defense.")
+        elif effect=="mark":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.18))); state["enemy_debuffs"]["marked"]=.16; state["enemy_debuffs"]["mark_turns"]=3; log.append(f"🎯 **{skill['name']}** marked the enemy; follow-up damage is increased.")
+        elif effect in {"poison","burn"}:
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.18))); state["enemy_dot"]+=max(4,int(stats["atk"]*.07)); state["enemy_dot_turns"]=3; log.append(f"☠️ **{skill['name']}** dealt **{dmg}** and applied {effect.title()}.")
+        elif effect=="freeze":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.20))); state["enemy_debuffs"]["slow_turns"]=2; log.append(f"❄️ **{skill['name']}** dealt **{dmg}** and slowed the enemy.")
+        elif effect=="crit":
+            state["buffs"]["crit_up"]=12; state["buffs"]["crit_turns"]=2; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.18))); log.append(f"🎯 **{skill['name']}** sharpened your critical chance.")
+        elif effect in {"dodge","haste"}:
+            state["buffs"]["evasion"]=0.18 if effect=="dodge" else .24; state["buffs"]["evasion_turns"]=3; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.14))); log.append(f"💨 **{skill['name']}** increased your evasion.")
+        elif effect=="mana_drain":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.20))); gain=max(5,int(stats["max_mp"]*.12)); state["player_mp"]=min(stats["max_mp"],state["player_mp"]+gain); log.append(f"💧 **{skill['name']}** dealt **{dmg}** and restored **{gain} MP**.")
+        elif effect=="stamina":
+            state["player_stamina"]=min(100,state.get("player_stamina",0)+25); state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.15))); log.append(f"⚡ **{skill['name']}** restored stamina and struck for **{dmg}**.")
+        elif effect in {"counter","reflect","barrier"}:
+            state["shield_turns"]=2 if effect=="barrier" else 1; state["shield_pct"]=0.55 if effect=="counter" else .65; state["buffs"]["reflect"]=.25 if effect=="reflect" else 0; log.append(f"🛡️ **{skill['name']}** created a protective combat state.")
+        elif effect=="cleanse":
+            state["buffs"].pop("negative",None); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+max(8,int(stats["max_hp"]*.12))); log.append(f"✨ **{skill['name']}** cleansed negative effects and restored HP.")
+        elif effect=="vulnerability":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.15))); state["enemy_debuffs"]["vulnerable"]=.20; state["enemy_debuffs"]["vuln_turns"]=2; log.append(f"🔻 **{skill['name']}** exposed a weakness.")
+        elif effect=="silence":
+            state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.16))); state["enemy_debuffs"]["silence_turns"]=2; log.append(f"🔇 **{skill['name']}** disrupted the enemy.")
+        elif effect=="execute":
+            ratio=1.45 if state["enemy_hp"]<=enemy["hp"]*.30 else .92; hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*ratio); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.34))); log.append(f"☠️ **{skill['name']}** executed for **{hit}** damage.")
+        elif effect=="true_damage":
+            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"],ignore_def=True); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.24))); log.append(f"🌟 **{skill['name']}** pierced defenses for **{hit}** true damage.")
+        elif effect=="percent_damage":
+            hit=max(8,int(enemy["hp"]*.06)); state["enemy_hp"]-=hit; log.append(f"💠 **{skill['name']}** removed **{hit} HP** based on enemy vitality.")
+        elif effect in {"aoe","chain","summon"}:
+            mult=1.05 if effect=="aoe" else (1.0+min(.35,state.get("combo",0)*.08) if effect=="chain" else .90)
+            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*mult); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.30))); state["combo"]=min(5,state.get("combo",0)+1); log.append(f"🌪️ **{skill['name']}** dealt **{hit}** damage.")
+        elif effect=="pet_boost":
+            state["buffs"]["pet_up"]=.25; state["pet_cooldown"]=0; hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*.8); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.18))); log.append(f"🐾 **{skill['name']}** empowered your companion for the next assist.")
+        elif effect=="resource":
+            state["player_mp"]=min(stats["max_mp"],state["player_mp"]+max(8,int(stats["max_mp"]*.16))); state["player_stamina"]=min(100,state.get("player_stamina",0)+15); state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.12))); log.append(f"🔋 **{skill['name']}** restored resources and dealt **{dmg}**.")
+        elif effect=="team_buff":
+            state["buffs"]["atk_up"]=.12; state["buffs"]["def_up"]=.12; state["buffs"]["atk_turns"]=3; state["buffs"]["def_turns"]=3; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.12))); log.append(f"📣 **{skill['name']}** rallied your combat stats.")
+        elif effect=="dispel":
+            state["enemy_debuffs"].pop("vulnerable",None); state["enemy_debuffs"].pop("marked",None); state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.22))); log.append(f"🧿 **{skill['name']}** disrupted the target for **{dmg}**.")
+        elif effect=="terrain":
+            state["enemy_debuffs"]["vulnerable"]=.12; state["enemy_debuffs"]["vuln_turns"]=3; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.18))); log.append(f"🌍 **{skill['name']}** reshaped the battlefield.")
+        elif effect=="delayed":
+            state["delayed_damage"]=max(state.get("delayed_damage",0),int(dmg*1.35)); log.append(f"⏳ **{skill['name']}** planted a delayed strike of **{state['delayed_damage']}**.")
+        elif effect=="random":
+            choice=random.choice(["damage","heal","defend"]); clone=dict(skill); clone["effect"]=choice; clone["name"]=f"{skill['name']} ({choice.title()})"; return self._apply_skill_effect(clone,stats,state)
+        elif effect=="sacrifice":
+            hp_cost=max(5,int(stats["max_hp"]*.08)); state["player_hp"]=max(1,state["player_hp"]-hp_cost); hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.28); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.34))); log.append(f"🩸 **{skill['name']}** sacrificed {hp_cost} HP for **{hit}** damage.")
+        elif effect=="emergency":
+            mult=1.32 if state["player_hp"]<stats["max_hp"]*.5 else .95; hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*mult); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.30))); log.append(f"🔥 **{skill['name']}** dealt **{hit}** damage.")
+        elif effect=="stance":
+            if state["player_hp"]<stats["max_hp"]*.5:
+                state["buffs"]["def_up"]=.24; state["buffs"]["def_turns"]=3; log.append(f"🛡️ **{skill['name']}** entered a defensive stance.")
+            else:
+                state["buffs"]["atk_up"]=.20; state["buffs"]["atk_turns"]=3; log.append(f"⚔️ **{skill['name']}** entered an offensive stance.")
+        elif effect=="combo":
+            state["combo"]=min(6,state.get("combo",0)+1); hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*(1+.06*state["combo"])); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.30))); log.append(f"🔗 **{skill['name']}** chained for **{hit}** damage (combo {state['combo']}).")
+        elif effect=="mana_burst":
+            dmg=hit(skill["mult"]*1.08,.30); gain=max(3,int(stats["max_mp"]*.06)); state["player_mp"]=min(stats["max_mp"],state["player_mp"]+gain); log.append(f"💧 **{skill['name']}** released **{dmg}** damage and restored {gain} MP.")
+        elif effect=="curse":
+            dmg=hit(None,.18); state["enemy_debuffs"].update(vulnerable=.14,vuln_turns=3); state["enemy_dot"]+=max(3,int(stats["atk"]*.06)); state["enemy_dot_turns"]=3; log.append(f"🕯️ **{skill['name']}** cursed the target after dealing **{dmg}** damage.")
+        elif effect=="focus":
+            state["buffs"].update(crit_up=10,crit_turns=3); log.append(f"🎯 **{skill['name']}** focused your next attacks.")
+        elif effect=="ultimate":
+            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.18); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.38))); heal=max(4,int(stats["max_hp"]*.08)); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🌠 **{skill['name']}** unleashed **{hit}** damage and restored **{heal} HP**.")
+        elif effect=="mythic":
+            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.15); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.38))); state["enemy_debuffs"]["vulnerable"]=.12; state["enemy_debuffs"]["vuln_turns"]=2; log.append(f"👑 **{skill['name']}** combined damage and exposure for **{hit}**.")
+        elif effect=="signature":
+            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.2); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.40))); state["buffs"]["atk_up"]=.18; state["buffs"]["atk_turns"]=2; log.append(f"✨ **{skill['name']}** unleashed your class signature for **{hit}** damage.")
+        dealt=max(0,start_enemy_hp-state["enemy_hp"])
+        if stats.get("lifesteal_pct") and dealt:
+            heal=max(1,int(dealt*float(stats["lifesteal_pct"]))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
+        return log,defending
+
     async def combat_action(self,guild_id,user_id,action):
         key=(guild_id,user_id)
         lock=self.combat_locks.setdefault(key, asyncio.Lock())
@@ -1314,38 +2065,33 @@ class RPGService:
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus); state["combat_stats"]=stats; state["player_max_hp"]=stats["max_hp"]; state["player_max_mp"]=stats["max_mp"]
         state["player_hp"]=max(0,min(state["player_hp"],stats["max_hp"]))
         state["player_mp"]=max(0,min(state.get("player_mp",stats["mp"]),stats["max_mp"]))
+        stats["crit"]=min(35,stats.get("crit",0)+int(state.get("buffs",{}).get("crit_up",0)))
         action=action.lower().strip(); log=[]; defending=False
         if action=="attack":
             dmg, crit = self._crit_damage(self._damage(stats["atk"], state["enemy"].get("def",0), 0.85), stats["crit"])
             dmg=min(dmg, max(2,int(state["enemy"].get("hp",1)*0.28)))
             state["enemy_hp"]-=dmg; log.append(f"⚔️ You hit **{state['enemy']['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
+            if stats.get("lifesteal_pct"):
+                heal=max(1,int(dmg*float(stats["lifesteal_pct"]))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
         elif action.startswith("skill:") or action=="skill":
+            loadout=await self.skill_loadout(guild_id,user_id)
+            equipped={skill["key"] for _slot,skill in loadout if skill}
             if action=="skill":
-                return {"choose_skill":True,"skills":SKILLS.get(p["class_name"],[]),"state":state}
+                skills=[skill for _slot,skill in loadout if skill and self._skill_available(p,skill)]
+                return {"choose_skill":True,"skills":skills,"state":state}
             skill_key=action.split(":",1)[1].strip(); skill=self._skill(p["class_name"],skill_key)
             if not skill:return {"error":"That skill is not available to your class."}
-            if not self._skill_available(p, skill):
+            if skill_key not in equipped:return {"error":"That skill is not equipped. You can equip up to **4 skills** with `!rpg equip-skill <skill> <slot>`."}
+            if not self._skill_available(p,skill):
                 return {"error":f"**{skill['name']}** unlocks at level **{skill.get('unlock',1)}**. You are level **{p['level']}**."}
             cooldown=int(state.get("skill_cooldowns",{}).get(skill_key,0))
             if cooldown>0:return {"error":f"**{skill['name']}** is on cooldown for **{cooldown}** more turn(s)."}
             cost=skill["cost"]
-            if state["player_mp"]<cost:return {"error":f"You need **{cost} MP** for **{skill['name']}**."}
+            if state["player_mp"]<cost:return {"error":f"You need **{cost} MP** for **{skill['name']}**. Current MP: {state['player_mp']}."}
             state["player_mp"]-=cost
             async with aiosqlite.connect(self.path) as db:
                 await db.execute("UPDATE rpg_players SET mp=max(0,mp-?) WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id)); await db.commit()
-            if skill["effect"] in {"damage","ultimate"}:
-                dmg=self._damage(stats["atk"], state["enemy"].get("def",0), skill["mult"])
-                if skill["effect"]=="ultimate":
-                    dmg=min(int(stats["max_hp"]*MAX_NORMAL_DAMAGE_FRACTION*1.25), dmg)
-                else:
-                    dmg=min(dmg, max(2,int(state["enemy"].get("hp",1)*0.28)))
-                state["enemy_hp"]-=dmg; log.append(f"✨ **{skill['name']}** dealt **{dmg}** damage.")
-                if skill["effect"]=="ultimate":
-                    heal=max(2,int(stats["max_hp"]*0.08)); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"💚 The ultimate restored **{heal} HP**.")
-            elif skill["effect"]=="heal":
-                heal=max(10,int(stats["max_hp"]*0.24)+stats["atk"]//2); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"💚 **{skill['name']}** restored **{heal} HP**.")
-            elif skill["effect"]=="defend":
-                defending=True; state["shield_turns"]=1; log.append(f"🛡️ **{skill['name']}** braces you against the next attack.")
+            log,defending=self._apply_skill_effect(skill,stats,state)
             if skill.get("cooldown"):state.setdefault("skill_cooldowns",{})[skill_key]=skill["cooldown"]
         elif action=="pet":
             if not pet_bonus.get("name"):return {"error":"You don't have a pet. Adopt or hatch one first."}
@@ -1400,14 +2146,34 @@ class RPGService:
                 if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
             await self.check_achievements(guild_id,user_id); self.active_combats.pop(key,None)
             return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"state":state,"level_before":old_level,"level_after":new_level}
-        # Enemy turn.
-        if not defending and random.random()<min(.18,stats["speed"]/220):
+        # Enemy turn. Defensive/slow/evasion effects are bounded so no skill can
+        # create a permanent lock or make damage disappear.
+        dot=int(state.get("enemy_dot",0))
+        if dot and state.get("enemy_dot_turns",0)>0:
+            state["enemy_hp"]=max(1,state["enemy_hp"]-dot); state["enemy_dot_turns"]-=1; state["log"].append(f"☠️ Damage-over-time effects dealt **{dot}**.")
+        if state.get("delayed_damage",0)>0:
+            delayed=state["delayed_damage"]; state["enemy_hp"]=max(1,state["enemy_hp"]-min(delayed,max(2,int(state["enemy"]["hp"]*.35)))); state["delayed_damage"]=0; state["log"].append(f"⏳ The delayed strike detonated for **{delayed}** damage.")
+        if not defending and random.random()<min(.30,stats["speed"]/220 + float(state.get("buffs",{}).get("evasion",0))):
             state["log"].append(f"💨 You dodged **{state['enemy']['name']}**.")
         else:
-            dmg=self._damage(state["enemy"]["atk"], stats["defense"], 0.90, ENEMY_DAMAGE_VARIANCE)
+            def_up=float(state.get("buffs",{}).get("def_up",0)); effective_def=stats["defense"]*(1+def_up)
+            dmg=self._damage(state["enemy"]["atk"], effective_def, 0.90, ENEMY_DAMAGE_VARIANCE)
             dmg=min(dmg, max(2, int(stats["max_hp"]*MAX_NORMAL_DAMAGE_FRACTION)))
-            if defending or state.get("shield_turns",0)>0:dmg=max(1,dmg//2)
+            shield=state.get("shield_pct",.5) if (defending or state.get("shield_turns",0)>0) else 0
+            if shield:dmg=max(1,int(dmg*(1-shield)))
             state["player_hp"]-=dmg; state["log"].append(f"🩸 **{state['enemy']['name']}** hit you for **{dmg}**.")
+            if state.get("buffs",{}).get("reflect"):
+                reflected=max(1,int(dmg*state["buffs"]["reflect"])); state["enemy_hp"]=max(1,state["enemy_hp"]-reflected); state["log"].append(f"↩️ Your barrier reflected **{reflected}** damage.")
+        for buff_key in ("atk_turns","def_turns","crit_turns","evasion_turns"):
+            if buff_key in state.get("buffs",{}):
+                state["buffs"][buff_key]-=1
+                if state["buffs"][buff_key]<=0:
+                    base=buff_key.replace("_turns",""); state["buffs"].pop(base,None); state["buffs"].pop(buff_key,None)
+        for debuff_key in ("def_turns","mark_turns","vuln_turns","slow_turns","silence_turns"):
+            if debuff_key in state.get("enemy_debuffs",{}):
+                state["enemy_debuffs"][debuff_key]-=1
+                if state["enemy_debuffs"][debuff_key]<=0:
+                    base=debuff_key.replace("_turns",""); state["enemy_debuffs"].pop(base,None); state["enemy_debuffs"].pop(debuff_key,None)
         for key2 in list(state.get("skill_cooldowns",{})):
             state["skill_cooldowns"][key2]=max(0,state["skill_cooldowns"][key2]-1)
         state["pet_cooldown"]=max(0,state.get("pet_cooldown",0)-1)
@@ -1416,7 +2182,7 @@ class RPGService:
         state["player_mp"]=min(stats["max_mp"], state["player_mp"]+mp_regen)
         if state["player_mp"]>old_mp:
             state["log"].append(f"💧 You recovered **{state['player_mp']-old_mp} MP**.")
-        state["shield_turns"]=0
+        state["shield_turns"]=max(0,int(state.get("shield_turns",0))-1)
         state["turn"]+=1
         if state["player_hp"]<=0:
             state["player_hp"]=1; await self._set_hp(guild_id,user_id,1); self.active_combats.pop(key,None)
@@ -1455,26 +2221,23 @@ class RPGService:
         if not p:return False,"Create a hero first."
         egg_key=egg_key.lower().strip(); data=ITEMS.get(egg_key)
         if not data or data.get("slot")!="egg":return False,"That isn't a pet egg. Use `!rpg eggs` to see your eggs."
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT 1 FROM rpg_pets WHERE guild_id=? AND user_id=?",(guild_id,user_id))
-            if await cur.fetchone():
-                return False,"You already have a pet. Use `!rpg pet` or `!rpg release` first."
-            cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,egg_key))
-            owned=await cur.fetchone()
-            if not owned or owned[0] < 1:
-                return False,f"You don't own **{data['name']}**. Use `!rpg eggs` to see the eggs you own."
         species_by={"common":["Wolf Pup","Rabbit","Fox","Cat"],"uncommon":["Forest Wolf","Moon Fox","Hawk","Dire Hound"],"rare":["Moon Cat","Spirit Fox","Griffin Chick","Frost Wolf"],"epic":["Dragon Whelp","Phoenix Chick","Royal Griffin","Shadow Drake"],"legendary":["Phoenix","Elder Dragon","Celestial Lion"],"mythic":["Void Dragon","Star Serpent","World Tree Sprite"]}
         rarity=data.get("rarity","common").lower(); species=random.choice(species_by.get(rarity,species_by["common"]))
         pet_data=PET_SPECIES.get(species,{"atk":2,"def":2,"hp":5,"spd":2,"crit":1,"ability":"Pounce"})
         pet_name=(name or "Spirit").strip()[:24] or "Spirit"
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,egg_key)); owned=await cur.fetchone()
-            if not owned or owned[0] < 1:return False,f"You don't own **{data['name']}**."
+            if not owned or owned[0]<1:return False,f"You don't own **{data['name']}**. Use `!rpg eggs` to see the eggs you own."
             await db.execute("UPDATE rpg_inventory SET quantity=quantity-1 WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,egg_key))
-            await db.execute("INSERT INTO rpg_pets(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                             (guild_id,user_id,pet_name,species,1,0,pet_data["atk"],pet_data["def"],pet_data["hp"],0,pet_data["spd"],pet_data["crit"],pet_data["ability"]))
-            await db.commit()
-        return True,f"🥚 **{data['name']}** hatched! You got **{pet_name}**, a **{species}**.\n⚔️ +{pet_data['atk']} ATK • 🛡️ +{pet_data['def']} DEF • ❤️ +{pet_data['hp']} HP • 💨 +{pet_data['spd']} SPD • 🎯 +{pet_data['crit']}% Crit\n🐾 Ability: **{pet_data['ability']}**"
+            cur=await db.execute("SELECT COUNT(*) FROM rpg_pet_inventory WHERE guild_id=? AND user_id=?",(guild_id,user_id)); has_pets=(await cur.fetchone())[0]>0
+            if not has_pets:
+                await db.execute("INSERT INTO rpg_pet_inventory(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability,equipped) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)",
+                    (guild_id,user_id,pet_name,species,1,0,pet_data["atk"],pet_data["def"],pet_data["hp"],0,pet_data["spd"],pet_data["crit"],pet_data["ability"]))
+            else:
+                await db.execute("INSERT INTO rpg_pet_inventory(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability,equipped) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,0)",
+                    (guild_id,user_id,pet_name,species,1,0,pet_data["atk"],pet_data["def"],pet_data["hp"],0,pet_data["spd"],pet_data["crit"],pet_data["ability"]))
+            await self._sync_legacy_pet_cache(db,guild_id,user_id); await db.commit()
+        return True,f"🥚 **{data['name']}** hatched! You got **{pet_name}**, a **{species}**.\n🐾 **Ability:** {pet_data['ability']} — {pet_data.get('ability_desc','A passive combat companion effect.')}\n⚔️ +{pet_data['atk']} ATK • 🛡️ +{pet_data['def']} DEF • ❤️ +{pet_data['hp']} HP • 💨 +{pet_data['spd']} SPD • 🎯 +{pet_data['crit']}% Crit\nUse `!rpg pets` to equip it whenever you want."
 
     async def kingdom_list(self,guild_id):
         async with aiosqlite.connect(self.path) as db:
@@ -1560,8 +2323,8 @@ class RPGService:
         if a["hp"]<=0 or b["hp"]<=0:return {"error":"Both heroes must be standing to duel. Use `!rpg rest` first."}
         players={}
         for uid,p in ((user_id,a),(target_id,b)):
-            pet=await self._pet_bonus(guild_id,uid); stats=await self._combat_full_stats(guild_id,uid,p,pet)
-            players[uid]={"name":p["name"],"level":p["level"],"race":p["race"],"subrace":p.get("subrace") or "", "class":p["class_name"],"subclass":p.get("subclass") or "", "evolution":p.get("evolution") or "", "hp":stats["hp"],"max_hp":stats["max_hp"],"mp":stats["mp"],"max_mp":stats["max_mp"],"stats":stats,"pet":pet,"skill_cooldowns":{},"pet_cooldown":0,"defending":False}
+            pet=await self._pet_bonus(guild_id,uid); stats=await self._combat_full_stats(guild_id,uid,p,pet); loadout=await self.skill_loadout(guild_id,uid)
+            players[uid]={"name":p["name"],"level":p["level"],"race":p["race"],"subrace":p.get("subrace") or "", "class":p["class_name"],"subclass":p.get("subclass") or "", "evolution":p.get("evolution") or "", "hp":stats["hp"],"max_hp":stats["max_hp"],"mp":stats["mp"],"max_mp":stats["max_mp"],"stats":stats,"pet":pet,"skill_cooldowns":{},"pet_cooldown":0,"defending":False,"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill]}
         first=user_id if players[user_id]["stats"]["speed"]>=players[target_id]["stats"]["speed"] else target_id
         state={"guild_id":guild_id,"players":players,"turn":first,"round":1,"log":[f"⚔️ <@{first}> has the initiative."],"started":time.time()}
         self.active_duels[key]=state
@@ -1582,31 +2345,40 @@ class RPGService:
         me=state["players"][user_id]; foe_id=target_id; foe=state["players"][foe_id]
         action=action.lower().strip(); log=[]
         if action=="attack":
-            dmg, crit = self._crit_damage(self._damage(me["stats"]["atk"], foe["stats"]["defense"], 0.85), me["stats"]["crit"])
+            matchup=matchup_multiplier(me["race"],me["class"],foe["race"],foe["class"])
+            dmg, crit = self._crit_damage(self._damage(me["stats"]["atk"], foe["stats"]["defense"], 0.85*matchup), me["stats"]["crit"])
             dmg=min(dmg,max(2,int(foe["max_hp"]*0.25)))
             if foe.get("defending"): dmg=max(1,dmg//2); foe["defending"]=False; log.append(f"🛡️ **{foe['name']}** blocked part of the hit.")
             foe["hp"]-=dmg; log.append(f"⚔️ **{me['name']}** hit **{foe['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
         elif action.startswith("skill:"):
-            skill=self._skill(me["class"],action.split(":",1)[1])
+            skill_key=action.split(":",1)[1].strip(); skill=self._skill(me["class"],skill_key)
+            if skill_key not in set(me.get("equipped_skill_keys",[])):
+                return {"error":"That skill is not in your active 4-skill loadout."}
             if not skill:return {"error":"That skill is not available."}
-            if not self._skill_available({"level":me["level"]}, skill):
-                return {"error":f"**{skill['name']}** unlocks at level **{skill.get('unlock',1)}**."}
+            if not self._skill_available({"level":me["level"]},skill):return {"error":f"**{skill['name']}** unlocks at level **{skill.get('unlock',1)}**."}
             cd=int(me["skill_cooldowns"].get(skill["key"],0))
             if cd:return {"error":f"**{skill['name']}** is on cooldown for {cd} turn(s)."}
             if me["mp"]<skill["cost"]:return {"error":f"You need {skill['cost']} MP."}
             me["mp"]-=skill["cost"]
-            if skill["effect"] in {"damage","ultimate"}:
-                dmg=self._damage(me["stats"]["atk"], foe["stats"]["defense"], skill["mult"])
-                if skill["effect"]=="ultimate": dmg=min(int(foe["max_hp"]*0.35),dmg)
-                else: dmg=min(dmg,max(2,int(foe["max_hp"]*0.25)))
-                if foe.get("defending"): dmg=max(1,dmg//2); foe["defending"]=False; log.append(f"🛡️ **{foe['name']}** blocked part of the skill.")
-                foe["hp"]-=dmg; log.append(f"✨ **{me['name']}** used **{skill['name']}** for **{dmg}** damage.")
-                if skill["effect"]=="ultimate":
-                    heal=max(2,int(me["max_hp"]*0.06)); me["hp"]=min(me["max_hp"],me["hp"]+heal); log.append(f"💚 **{me['name']}** recovered {heal} HP.")
-            elif skill["effect"]=="heal":
-                heal=max(10,int(me["max_hp"]*.24)); me["hp"]=min(me["max_hp"],me["hp"]+heal); log.append(f"💚 **{me['name']}** restored {heal} HP.")
+            matchup=matchup_multiplier(me["race"],me["class"],foe["race"],foe["class"])
+            effect=skill.get("effect","damage")
+            if effect in {"heal","team_heal","recovery"}:
+                heal=max(10,int(me["max_hp"]*(.22 if effect=="heal" else .30))); me["hp"]=min(me["max_hp"],me["hp"]+heal); log.append(f"💚 **{me['name']}** used **{skill['name']}** and restored {heal} HP.")
+            elif effect in {"defend","counter","barrier","reflect","def_buff"}:
+                me["defending"]=True; me["shield_pct"]=.55 if effect!="barrier" else .65; log.append(f"🛡️ **{me['name']}** entered **{skill['name']}** defensive state.")
             else:
-                me["defending"]=True; log.append(f"🛡️ **{me['name']}** raised a defensive stance.")
+                if effect=="percent_damage": dmg=max(8,int(foe["max_hp"]*.06))
+                elif effect=="true_damage": dmg=max(2,int(me["stats"]["atk"]*skill["mult"]*matchup))
+                else:
+                    mult=skill["mult"]
+                    if effect in {"heavy","ultimate","execute","mythic","signature"}: mult*=1.15
+                    if effect=="lifesteal": mult*=1.05
+                    dmg=self._damage(me["stats"]["atk"],foe["stats"]["defense"],mult*matchup)
+                    dmg=min(dmg,max(2,int(foe["max_hp"]*(.34 if effect in {"ultimate","mythic","signature"} else .25))))
+                if foe.get("defending"): dmg=max(1,int(dmg*(1-foe.get("shield_pct",.5)))); foe["defending"]=False; log.append(f"🛡️ **{foe['name']}** blocked part of the skill.")
+                foe["hp"]-=dmg; log.append(f"✨ **{me['name']}** used **{skill['name']}** for **{dmg}** damage.")
+                if effect=="lifesteal": me["hp"]=min(me["max_hp"],me["hp"]+max(4,int(dmg*.25)))
+                if effect in {"attack_buff","team_buff"}: me["stats"]["atk"]+=max(1,int(me["stats"]["atk"]*.12))
             if skill.get("cooldown"):me["skill_cooldowns"][skill["key"]]=skill["cooldown"]
         elif action=="pet":
             if not me["pet"].get("name"):return {"error":"You don't have a pet."}

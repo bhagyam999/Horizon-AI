@@ -221,7 +221,7 @@ The bot never clears commands or performs multiple startup sync requests.
 This release bundles the complete Log Horizon React/Vite website under `website/` with the Horizon Discord bot and serves the built site from the same Railway service. Railway uses `nixpacks.toml` to install Python/Node dependencies and build the website before starting `python bot.py`.
 
 ### Persistent AI memory
-Horizon now keeps private conversational context per Discord member (and per website visitor/session). The old guild-wide transient AI history is no longer used for AI replies, preventing one member's conversation from leaking into another member's answers. Use `!aiforget` or `/ai_forget` to clear your own private AI conversation memory.
+Horizon keeps a short rolling dialogue per Discord channel so members speaking together share the actual conversation context, while each message retains its speaker identity. Older public server history is indexed separately and retrieved only when relevant. Website conversations remain session-scoped. Use `!aiforget` or `/ai_forget` to clear the active AI dialogue for the current scope.
 
 ### RPG fixes
 - `!rpg items` / `!rpg item` / `!rpg codex` opens a paginated item codex with an item-details menu.
@@ -233,7 +233,7 @@ Horizon now keeps private conversational context per Discord member (and per web
 
 ## v10.5 RPG Combat & Collection Upgrade
 - Turn-based PvE combat now shows HP, MP, stamina, ATK, DEF, SPD and Crit for the hero, plus enemy HP/ATK/DEF.
-- Adventure and dungeon combat now have four class skills with MP costs, cooldowns and different effects instead of a single repeatable skill.
+- Adventure and dungeon combat now use a four-skill active loadout selected from a much larger class skill library.
 - Added `!rpg skills` to inspect the current class skill kit.
 - Pets now grant real passive combat bonuses (HP/ATK/DEF/SPD/Crit) and a usable battle ability with a cooldown.
 - Pet/egg storage was migrated safely with new passive-stat and ability columns.
@@ -249,10 +249,36 @@ Horizon now keeps private conversational context per Discord member (and per web
 - Adventure and dungeon encounters use a level-aware enemy tier with HP/ATK/DEF/XP/gold scaling.
 - Combat damage uses a defense mitigation curve and damage caps to prevent one-hit kills.
 - Critical hits are capped at 35% chance and use a 1.5x multiplier instead of doubling damage.
-- Skills now have 10 class-specific abilities with level unlocks, MP costs, cooldowns and controlled multipliers.
+- Skills now have 50 class-specific abilities with level unlocks, MP costs, cooldowns and controlled mechanics; only four can be active at once.
 - Higher-level skills unlock at levels 5, 10, 15, 20, 25, 30, 40, 55 and 70.
 - MP regenerates slowly each completed combat round; potions and dungeon-floor recovery remain available.
 - Adventure/dungeon entries consume stamina so exploration cannot be spammed indefinitely.
 - Combat actions are serialized per player and PvP actions per duel to prevent double-click/race-condition exploits.
 - PvP uses the same damage philosophy and per-hit damage caps.
 - Existing RPG systems, pets, eggs, AI, website, economy, quests, guilds, kingdoms, parties and other functionality are preserved.
+
+## v10.8 Legendary RPG + AI Reliability Upgrade
+
+This release builds on the complete v10.7 project; it is not a reduced rewrite.
+
+### RPG systems
+- 48 explorable areas with tiered level requirements and 100+ distinct enemy templates.
+- 1,400+ classified RPG items generated from weapon, armor, offhand, accessory, ring, amulet, relic, consumable, food, material, egg and chest families.
+- High-tier gear has level requirements, item abilities, enchantment slots and small percentage bonuses. Percentage bonuses are deliberately capped at 10% per stat aggregate.
+- 12 equipment enchantments with persistent per-slot levels.
+- Every class now has exactly 50 skills with distinct mechanics, level unlocks, MP costs, cooldowns and descriptions.
+- Players can have many unlocked skills but only 4 active skills at once using `!rpg equip-skill <skill_key> <1-4>`.
+- Race abilities and class/race matchup modifiers are shown before selection and are intentionally mild so counters do not hard-lock builds.
+- Race/class/subrace/subclass/path/evolution changes now require an explicit Confirm/Cancel interaction before gold is spent.
+- Level XP now scales much more aggressively at higher levels.
+- Gacha system uses earned in-game Gems, published rates, Epic/Mythic pity, single/ten-pulls, equipment, chests and pets.
+- Pets are now a true collection: pets can be stored, equipped, unequipped and swapped without releasing the others.
+- `!rpg items` and top-level `!items` / `!item` use a robust classified codex with detailed inspection.
+- `!rpg help` now explains the systems, commands, loadouts and examples in detail.
+
+### AI reliability and context
+- Fixed the public server-history query so Horizon can actually retrieve indexed history instead of failing on a nonexistent database column.
+- Discord AI keeps the strict latest 13-message rolling dialogue while using older public-server history separately when it is relevant.
+- Speaker names and IDs remain attached to indexed messages so Horizon can distinguish members discussing one another.
+- AI history backfill defaults are now 50 public channels × 250 messages per channel, still excluding private/staff channels and bot messages.
+- Gemini's default model is now `gemini-2.5-flash`; an explicitly configured `GEMINI_MODEL` remains respected and the provider still performs model discovery/failover.
