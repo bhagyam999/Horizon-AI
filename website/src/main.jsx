@@ -71,10 +71,16 @@ function App(){
   const navigate=useCallback((next,preferred)=>{setMenu(false);setView(next);setScene(randomScene(preferred));setLoading(true);window.history.replaceState({},'',next==='home'?'/':`/#${next}`)},[]);
 
   useEffect(()=>{
-    fetch('/api/auth/me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user || null)).catch(()=>{});
+    fetch('/api/site/auth-me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user || null)).catch(()=>{});
+    const params=new URLSearchParams(window.location.search);
+    const authResult=params.get('discord');
+    if(authResult==='success') notify('Discord connected successfully.');
+    else if(authResult==='not-member') notify('Your Discord account is not a member of Log Horizon.');
+    else if(authResult==='error') notify('Discord login could not be completed. Check the OAuth settings.');
+    if(authResult){ window.history.replaceState({},'',window.location.pathname+window.location.hash); }
     const h=()=>{const id=window.location.hash.replace('#',''); if(id && ['home','community','events','games','hall'].includes(id)) setView(id)};
     window.addEventListener('hashchange',h);h();return()=>window.removeEventListener('hashchange',h);
-  },[]);
+  },[notify]);
 
   const eventFilters=['ALL','GAMING','TOURNAMENTS','ANIME','CREATIVE','SOCIAL','COMMUNITY'];
   const gameFilters=['ALL','COMPETITIVE','CASUAL','ANIME','CARD','QUIZ','CREATIVE'];
@@ -90,13 +96,13 @@ function App(){
       <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}</nav>
       <div className="header-actions">
         <button className="horizon-ai-trigger" onClick={()=>setAiOpen(true)} aria-label="Open Horizon AI"><Bot size={15}/><span>HORIZON AI</span></button>
-        {session ? <button className="profile-chip" onClick={()=>notify(`Connected as ${session.username}`)}><span className="profile-dot"/>{session.username}</button> : <button className="discord-login" onClick={()=>window.location.href='/api/auth/login'}><MessageCircle size={16}/> Continue with Discord</button>}
+        {session ? <button className="profile-chip" onClick={()=>notify(`Connected as ${session.username}`)}><span className="profile-dot"/>{session.username}</button> : <button className="discord-login" onClick={()=>window.location.href='/api/site/auth-login'}><MessageCircle size={16}/> Continue with Discord</button>}
         <button className="menu-btn" onClick={()=>setMenu(!menu)} aria-label="Menu">{menu?<X/>:<Menu/>}</button>
       </div>
     </header>
 
     <main>
-      {view==='home' && <Home navigate={navigate} openModal={setModal}/>} 
+      {view==='home' && <Home navigate={navigate} openModal={setModal} openAI={()=>setAiOpen(true)}/>} 
       {view==='community' && <Community navigate={navigate} session={session}/>} 
       {view==='events' && <Events filters={eventFilters} filter={eventFilter} setFilter={setEventFilter} events={visibleEvents} search={query} setSearch={setQuery} searchResults={searchEvents} openModal={setModal} navigate={navigate}/>} 
       {view==='games' && <Games filters={gameFilters} filter={gameFilter} setFilter={setGameFilter} games={visibleGames} openModal={setModal}/>} 
@@ -125,7 +131,7 @@ function HorizonAI({onClose,notify}){
 
   useEffect(()=>{
     let alive=true;
-    fetch('/api/ai',{credentials:'include'})
+    fetch('/api/site/horizon-ai',{credentials:'include'})
       .then(async r=>{const data=await r.json().catch(()=>({})); if(!alive)return; if(r.ok&&data.online){setStatus('online');setStatusText(`Online • ${data.model||'Horizon AI'}`);}else{setStatus('offline');setStatusText(data.error||'Horizon is not reachable right now.');}})
       .catch(()=>{if(alive){setStatus('offline');setStatusText('Horizon is not reachable right now.');}});
     return()=>{alive=false};
@@ -139,7 +145,7 @@ function HorizonAI({onClose,notify}){
     setMessages(next);
     setBusy(true);
     try{
-      const response=await fetch('/api/ai',{
+      const response=await fetch('/api/site/horizon-ai',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
         credentials:'include',
@@ -150,7 +156,7 @@ function HorizonAI({onClose,notify}){
       });
       const data=await response.json().catch(()=>({}));
       if(!response.ok) throw new Error(data.error || 'Horizon AI is unavailable.');
-      setMessages([...next,{role:'model',content:data.answer}]);
+      setMessages([...next,{role:'model',content:data.reply || data.answer || 'Horizon returned an empty response.'}]);
     }catch(error){
       setMessages([...next,{role:'model',content:`I couldn't reach Horizon AI right now. ${error.message}`}]);
       notify?.('Horizon AI request failed');
@@ -184,23 +190,37 @@ function HorizonAI({onClose,notify}){
   </div>
 }
 
-function Home({navigate,openModal}){return <>
+function Home({navigate,openModal,openAI}){return <>
   <section className="hero"><div className="hero-horizon"><div className="horizon-ring"/><div className="horizon-ring inner"/><div className="horizon-floor"/></div>
     <div className="hero-copy"><div className="eyebrow"><span className="pulse-dot"/> COMMUNITY SERVER • ANIGAME ROOTS • MANY WORLDS</div><h1>LOG<br/><span>HORIZON</span></h1><p className="hero-sub">A community beyond the game.</p><p className="hero-text">Born around Anigame. Growing into a home for gamers, anime fans, creators, events, and people who simply want somewhere fun to hang out.</p>
       <div className="hero-actions"><a className="btn primary" href="https://discord.gg/D5aNgKg7Kx" target="_blank" rel="noreferrer">Join the Community <ArrowRight size={18}/></a><button className="btn secondary" onClick={()=>navigate('community')}>Explore Log Horizon</button></div>
     </div><div className="scroll-cue"><ChevronDown size={16}/> SCROLL TO ENTER</div>
   </section>
-  <section className="section intro"><div><span className="eyebrow">01 / THE COMMUNITY</span><h2>One community.<br/><em>Many worlds.</em></h2></div><div className="intro-copy"><p>Log Horizon started with Anigame, but the destination is bigger than one game. Different games, anime interests, events, creativity, and conversations can share the same home.</p><div className="stat-row"><Stat n="200+" t="Members & bots"/><Stat n="20–30" t="Typical active window"/><Stat n="∞" t="Things to build"/></div></div></section>
-  <section className="section ai-spotlight" id="horizon-ai"><div className="ai-spotlight-art"><div className="ai-spotlight-ring"/><div className="ai-spotlight-core"><Bot size={34}/><span>HORIZON</span></div><span className="ai-signal">SERVER SIGNAL • ONLINE WHEN CONNECTED</span></div><div className="ai-spotlight-copy"><span className="eyebrow">02 / HORIZON AI</span><h2>Talk to the guide<br/><em>behind the horizon.</em></h2><p>The website uses the Railway-hosted Horizon service instead of keeping a separate Gemini connection in the browser. Your conversation travels through the secure server bridge, then Horizon responds using its existing AI system.</p><div className="ai-spotlight-actions"><button className="btn primary" onClick={()=>setAiOpen(true)}><Bot size={17}/> Talk to Horizon <ArrowRight size={17}/></button><span className="ai-security-note">Gemini key stays on Railway • browser never receives it</span></div></div></section>
+  <section className="section intro"><div><span className="eyebrow">01 / THE COMMUNITY</span><h2>One community.<br/><em>Many worlds.</em></h2></div><div className="intro-copy"><p>Log Horizon started with Anigame, but the destination is bigger than one game. Different games, anime interests, events, creativity, and conversations can share the same home.</p><LiveCommunityStats/><div className="stat-row"><Stat n="∞" t="Things to build"/><Stat n="1" t="Shared community world"/><Stat n="24/7" t="Horizon can be present"/></div></div></section>
+  <section className="section ai-spotlight" id="horizon-ai"><div className="ai-spotlight-art"><div className="ai-spotlight-ring"/><div className="ai-spotlight-core"><Bot size={34}/><span>HORIZON</span></div><span className="ai-signal">SERVER SIGNAL • ONLINE WHEN CONNECTED</span></div><div className="ai-spotlight-copy"><span className="eyebrow">02 / HORIZON AI</span><h2>Talk to the guide<br/><em>behind the horizon.</em></h2><p>The website uses the Railway-hosted Horizon service instead of keeping a separate Gemini connection in the browser. Your conversation travels through the secure server bridge, then Horizon responds using its existing AI system.</p><div className="ai-spotlight-actions"><button className="btn primary" onClick={openAI}><Bot size={17}/> Talk to Horizon <ArrowRight size={17}/></button><span className="ai-security-note">Gemini key stays on Railway • browser never receives it</span></div></div></section>
   <section className="section section-dark"><div className="section-heading"><div><span className="eyebrow">03 / THE WORLD</span><h2>Find your world.</h2></div><p>Four doors into the community. More can be added without changing the foundation.</p></div><div className="feature-grid">
     <Feature icon={<Gamepad2/>} tag="GAMES" title="Play together" text="Competitive battles, casual sessions and community challenges." onClick={()=>navigate('games')}/>
     <Feature icon={<Trophy/>} tag="EVENTS" title="Make it an event" text="Tournaments, creative competitions, game nights and more." onClick={()=>navigate('events','portal')}/>
     <Feature icon={<Sparkles/>} tag="ANIME" title="For the anime people" text="A working archive with search, genres, details and a personal watchlist." onClick={()=>{window.location.href='/anime'}}/>
-    <Feature icon={<Bot/>} tag="HORIZON AI" title="Meet the guide" text="Horizon AI runs through the Log Horizon server. Ask the same Horizon intelligence that powers the community bot." special onClick={()=>setAiOpen(true)}/>
+    <Feature icon={<Bot/>} tag="HORIZON AI" title="Meet the guide" text="Horizon AI runs through the Log Horizon server. Ask the same Horizon intelligence that powers the community bot." special onClick={openAI}/>
   </div></section>
   <section className="section showcase"><div className="portal-large"><div className="portal-ring"/><span>WORLD GATE</span><b>HORIZON</b><i>ANIGAME → MANY WORLDS</i></div><div><span className="eyebrow">03 / ALWAYS MOVING</span><h2>Something is always <em>on the horizon.</em></h2><p>Events give the community reasons to come back. Games give people something to do. The Hall of Fame makes the history worth keeping.</p><div className="quick-links"><button onClick={()=>navigate('events')}><CalendarDays/> Upcoming events <ArrowRight/></button><button onClick={()=>navigate('hall')}><Crown/> Hall of Fame <ArrowRight/></button></div></div></section>
   <section className="section cta"><span className="eyebrow">04 / YOUR INVITATION</span><h2>There's more beyond<br/><em>the horizon.</em></h2><p>Come for Anigame. Stay for the community.</p><a className="btn primary" href="https://discord.gg/D5aNgKg7Kx" target="_blank" rel="noreferrer">Join Log Horizon <ArrowRight size={18}/></a></section>
 </>}
+
+function LiveCommunityStats(){
+  const [data,setData]=useState(null);
+  useEffect(()=>{
+    let live=true;
+    fetch('/api/site/horizon-server?view=overview',{credentials:'include',cache:'no-store'})
+      .then(r=>r.ok?r.json():null)
+      .then(x=>{if(live&&x?.online!==false)setData(x)})
+      .catch(()=>{});
+    return()=>{live=false};
+  },[]);
+  const online=Boolean(data);
+  return <div className="live-stats"><div className="live-status"><span className={`live-dot ${online?'':'idle'}`}/><div><strong>{online?'COMMUNITY SIGNAL ONLINE':'COMMUNITY DATA AWAITING'}</strong><span>{online?'Live data from the Horizon server bridge':'The site will show live server data when the bridge is connected.'}</span></div></div><div className="live-metrics"><div><strong>{data?.member_count ?? '—'}</strong><span>MEMBERS</span></div><div><strong>{data?.tracked_players ?? '—'}</strong><span>TRACKED</span></div><div><strong>{data?.event_count ?? '—'}</strong><span>EVENTS</span></div></div></div>;
+}
 
 function Community({navigate,session}){return <section className="page-shell"><PageHero eyebrow="COMMUNITY" title={<>One server.<br/><em>Many worlds.</em></>} text="Log Horizon is being built as a place to play, talk, create, compete and discover people with shared interests."/>
   <div className="community-grid"><InfoCard icon={<Users/>} title="Meet people" text="Find conversations and activities beyond a single game."/><InfoCard icon={<Trophy/>} title="Compete" text="Join tournaments and leave a record in the community archive."/><InfoCard icon={<Sparkles/>} title="Create" text="Character contests, creative challenges and community projects."/><InfoCard icon={<ShieldCheck/>} title="Connected" text={session?`Discord connected as ${session.username}.`:'Connect Discord when you are ready for member-only features.'}/></div>
@@ -390,7 +410,7 @@ function AnimePage() {
       <nav className="nav open" aria-label="Main navigation">
         <a href="/">Home</a><a href="/#community">Community</a><a className="active" href="/anime">Anime</a><a href="/#events">Events</a><a href="/#games">Games</a><a href="/#horizon-ai">Horizon AI</a>
       </nav>
-      <a className="discord-login" href="/api/auth/login"><MessageCircle size={17} /> Continue with Discord</a>
+      <a className="discord-login" href="/api/site/auth-login"><MessageCircle size={17} /> Continue with Discord</a>
     </header>
     <main>
       <section className="section anime-section anime-page-section" id="anime">
