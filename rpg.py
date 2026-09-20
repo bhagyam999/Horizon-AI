@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import random
 import time
 from dataclasses import dataclass, field
@@ -177,23 +178,76 @@ CLASS_SKILL_NAMES = {
     "spellblade": ("Arcane Slash", "Elemental Edge", "Mana Guard", "Ether Break"),
 }
 
+# Six additional skills per class. They unlock progressively instead of all
+# being available at level 1, so high-level builds have meaningful choices.
+ADVANCED_SKILLS = {
+    "warrior": ("Cleave", "Battle Cry", "Sword Storm", "Lionheart", "King's Edge", "Warlord's Ascension"),
+    "berserker": ("Savage Break", "Frenzy", "Blood Cyclone", "Rage Unbound", "Executioner", "Worldbreaker"),
+    "knight": ("Shield Counter", "Fortress", "Knight's Oath", "Aegis Crash", "Royal Bulwark", "Divine Bastion"),
+    "mage": ("Arcane Lance", "Inferno", "Glacial Prison", "Arcane Barrage", "Starfall", "Cataclysm"),
+    "rogue": ("Bleeding Flurry", "Smoke Veil", "Crimson Dance", "Phantom Barrage", "Death Spiral", "Eclipse"),
+    "assassin": ("Hemorrhage", "Veiled Step", "Nightmare Cut", "Phantom Barrage", "Silent Execution", "Void Reaper"),
+    "ranger": ("Volley", "Trap Mastery", "Storm Shot", "Predator's Mark", "Star Arrow", "Heaven's Volley"),
+    "paladin": ("Consecrated Blade", "Holy Ward", "Radiant Burst", "Guardian's Grace", "Sacred Verdict", "Heaven's Judgment"),
+    "summoner": ("Spirit Swarm", "Beast Guard", "Soul Chain", "Primal Roar", "Astral Summon", "World Caller"),
+    "cleric": ("Radiant Lance", "Blessed Ward", "Mass Renewal", "Holy Nova", "Seraphic Grace", "Divine Ascension"),
+    "druid": ("Vine Prison", "Lunar Bloom", "Nature's Ward", "Wildfire", "Ancient Grove", "Worldroot"),
+    "monk": ("Palm Burst", "Iron Body", "Sevenfold Strike", "Chi Storm", "Heavenly Fist", "Dragon Ascension"),
+    "bard": ("Resonant Blast", "War Chorus", "Soothing Verse", "Grand Crescendo", "Heroic Symphony", "Mythic Finale"),
+    "necromancer": ("Grave Lance", "Bone Prison", "Soul Feast", "Army of Bones", "Deathstorm", "Eternal Night"),
+    "warlock": ("Abyssal Lance", "Hex Prison", "Soul Siphon", "Chaos Rain", "Demon's Wrath", "Void Apocalypse"),
+    "alchemist": ("Corrosive Flask", "Chain Reaction", "Vital Elixir", "Grand Bombardment", "Philosopher's Fire", "Perfect Transmutation"),
+    "engineer": ("Piercing Bolt", "Auto-Turret", "Repair Matrix", "Overdrive", "Siege Cannon", "Omega Protocol"),
+    "duelist": ("Countercut", "Flash Lunge", "Blade Tempest", "Perfect Tempo", "Sword Eclipse", "Absolute Duel"),
+    "lancer": ("Impale", "Sky Vault", "Dragon Rush", "Spear Tempest", "Heavenfall", "Dragon Emperor"),
+    "spellblade": ("Runic Slash", "Elemental Storm", "Arcane Guard", "Ether Surge", "Astral Edge", "Reality Break"),
+}
+
 MAGIC_CLASSES = {"mage", "summoner", "cleric", "druid", "bard", "necromancer", "warlock", "alchemist"}
 HEAL_CLASSES = {"paladin", "cleric", "druid", "bard", "alchemist", "engineer", "warlock", "summoner"}
 
+SKILL_UNLOCK_LEVELS = (1, 5, 10, 15, 20, 25, 30, 40, 55, 70)
+SKILL_COSTS = (5, 8, 12, 17, 24, 32, 42, 54, 68, 85)
+SKILL_MULTIPLIERS = (0.90, 1.00, 1.12, 1.22, 1.35, 1.50, 1.65, 1.82, 2.00, 2.18)
+SKILL_COOLDOWNS = (0, 0, 0, 2, 3, 2, 3, 4, 3, 5)
 
 def _build_class_skills():
     result = {}
-    for class_name, names in CLASS_SKILL_NAMES.items():
-        magic = class_name in MAGIC_CLASSES
-        result[class_name] = [
-            {"key": "skill_1", "name": names[0], "cost": 6, "mult": 1.30, "effect": "damage", "desc": "Reliable low-cost damage."},
-            {"key": "skill_2", "name": names[1], "cost": 12, "mult": 1.65, "effect": "damage", "desc": "Stronger damage with a moderate MP cost."},
-            {"key": "skill_3", "name": names[2], "cost": 15, "mult": 1.25, "effect": "heal" if class_name in HEAL_CLASSES else "defend", "desc": "Utility skill that heals or braces for the next hit."},
-            {"key": "skill_4", "name": names[3], "cost": 24 if magic else 20, "mult": 2.35 if magic else 2.15, "effect": "ultimate", "cooldown": 3, "desc": "Powerful signature move with a 3-turn cooldown."},
-        ]
+    for class_name, base_names in CLASS_SKILL_NAMES.items():
+        names = list(base_names) + list(ADVANCED_SKILLS.get(class_name, ()))
+        skills=[]
+        for i, name in enumerate(names[:10]):
+            effect = "damage"
+            if i == 4:
+                effect = "heal" if class_name in HEAL_CLASSES else "defend"
+            elif i in {7, 9}:
+                effect = "ultimate"
+            skills.append({
+                "key": f"skill_{i+1}", "name": name,
+                "cost": SKILL_COSTS[i], "mult": SKILL_MULTIPLIERS[i],
+                "effect": effect, "cooldown": SKILL_COOLDOWNS[i],
+                "unlock": SKILL_UNLOCK_LEVELS[i],
+                "desc": ("Utility skill: restore HP." if effect == "heal" else
+                         "Utility skill: reduce the next hit." if effect == "defend" else
+                         "High-impact signature skill." if effect == "ultimate" else
+                         "Controlled damage with an MP cost."),
+            })
+        result[class_name] = skills
     return result
 
 SKILLS = _build_class_skills()
+
+# Combat constants: damage is deliberately slower than character growth so
+# enemies cannot be deleted by a single basic hit or low-level skill.
+CRIT_DAMAGE_MULT = 1.50
+CRIT_CAP = 35
+PLAYER_DAMAGE_VARIANCE = 0.08
+ENEMY_DAMAGE_VARIANCE = 0.08
+DEFENSE_SCALE = 1.8
+MAX_NORMAL_DAMAGE_FRACTION = 0.28
+MP_REGEN_FRACTION = 0.025
+MIN_MP_REGEN = 2
+
 
 CLASS_EVOLUTIONS = {
     "warrior": [(20, "warlord"), (35, "hero")], "mage": [(20, "archmage"), (35, "grand_archmage")],
@@ -371,6 +425,8 @@ class RPGService:
     path: str
     active_combats: dict[tuple[int, int], dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
     active_duels: dict[tuple[int, int, int], dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
+    combat_locks: dict[tuple[int, int], asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+    duel_locks: dict[tuple[int, int, int], asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
 
     async def setup(self):
         async with aiosqlite.connect(self.path) as db:
@@ -1138,6 +1194,7 @@ class RPGService:
             "defense": p["defense"] + data["defense"] + pet_bonus.get("defense",0),
             "speed": p["speed"] + data["speed"] + pet_bonus.get("speed",0),
             "crit": p["crit"] + data["crit"] + pet_bonus.get("crit",0),
+            "level": int(p.get("level",1)),
         }
 
     async def _combat_full_stats(self, guild_id, user_id, p, pet_bonus=None):
@@ -1153,17 +1210,24 @@ class RPGService:
 
     def _enemy_for_level(self, level, area_key="horizon_village"):
         area=AREAS.get(area_key, AREAS["horizon_village"])
-        candidates=[e for e in ENEMIES if e["level"] <= max(level,area["level"])+4]
-        enemy=random.choice(candidates or ENEMIES).copy()
-        scale=max(0,level-enemy["level"])
-        area_scale=max(0,area["level"]-enemy["level"])
-        enemy["level"] += scale//2 + area_scale//3
-        enemy["hp"] += scale*9 + area_scale*8
-        enemy["atk"] += scale*2 + area_scale*2
-        enemy["def"] += scale//2 + area_scale
-        enemy["xp"] += scale*12 + area_scale*15
-        enemy["gold"] += scale*8 + area_scale*10
-        # Regional enemies can drop both classic materials and new themed loot.
+        # Adventure difficulty follows the hero. A high-level hero will not
+        # randomly roll a level-1 slime as a free kill; the nearest world tier
+        # is selected and then scaled to the target level.
+        target=max(1, int(level))
+        target=max(target, min(int(area["level"]), target + 3))
+        eligible=[e for e in ENEMIES if e["level"] <= target + 2]
+        if not eligible: eligible=list(ENEMIES)
+        nearest=min(abs(e["level"]-target) for e in eligible)
+        pool=[e for e in eligible if abs(e["level"]-target) <= nearest + 3]
+        enemy=random.choice(pool or eligible).copy()
+        scale=max(0, target-enemy["level"])
+        enemy["level"] = target
+        enemy["hp"] = int(enemy["hp"] * (1.0 + 0.075 * scale) + scale * 18)
+        enemy["atk"] = int(enemy["atk"] * (1.0 + 0.035 * scale) + scale * 1.4)
+        enemy["def"] = int(enemy["def"] * (1.0 + 0.045 * scale) + scale * 0.8)
+        enemy["xp"] = int(enemy["xp"] * (1.0 + 0.045 * scale) + scale * 10)
+        enemy["gold"] = int(enemy["gold"] * (1.0 + 0.035 * scale) + scale * 7)
+        # Regional enemies can drop both classic materials and themed loot.
         regional={
             "whispering_woods":["herb","mat_wolf_claw","forest_egg"],
             "ember_plains":["mat_red_herb","mat_obsidian","fire_egg"],
@@ -1178,7 +1242,7 @@ class RPGService:
             "world_tree":["mat_world_tree_seed","celestial_egg","phoenix_egg"],
         }
         drops=list(dict.fromkeys(enemy.get("drops",[])+regional.get(area_key,[])))
-        enemy["drops"]= [d for d in drops if d in ITEMS] or ["herb"]
+        enemy["drops"]=[d for d in drops if d in ITEMS] or ["herb"]
         return enemy
 
     async def start_combat(self,guild_id,user_id,mode="adventure",dungeon_name=None):
@@ -1190,28 +1254,58 @@ class RPGService:
         pet_bonus=await self._pet_bonus(guild_id,user_id)
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus)
         pet=await self.pet_record(guild_id,user_id)
-        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats}
+        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"]}
         if mode=="adventure":
             remaining=await self._cooldown(p,"last_adventure",20)
             if remaining>0:return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
+            stamina_cost=8
+            if p["stamina"]<stamina_cost:return {"error":f"You need **{stamina_cost} stamina** to adventure. Use `!rpg rest`."}
             enemy=self._enemy_for_level(p["level"],p.get("area_key","horizon_village"))
-            state={"mode":"adventure","enemy":enemy,"enemy_hp":enemy["hp"],"floor":1,"floors":1,"name":"Adventure","log":[f"You encountered **{enemy['name']}** in {AREAS.get(p.get('area_key','horizon_village'),AREAS['horizon_village'])['name']}."],"started":time.time(),**base}
             async with aiosqlite.connect(self.path) as db:
-                await db.execute("UPDATE rpg_players SET last_adventure=? WHERE guild_id=? AND user_id=?",(time.time(),guild_id,user_id)); await db.commit()
+                await db.execute("UPDATE rpg_players SET last_adventure=?,stamina=stamina-? WHERE guild_id=? AND user_id=?",(time.time(),stamina_cost,guild_id,user_id)); await db.commit()
+            base["player_stamina"]=max(0,p["stamina"]-stamina_cost)
+            state={"mode":"adventure","enemy":enemy,"enemy_hp":enemy["hp"],"floor":1,"floors":1,"name":"Adventure","log":[f"You encountered **{enemy['name']}** in {AREAS.get(p.get('area_key','horizon_village'),AREAS['horizon_village'])['name']}."],"started":time.time(),**base}
         else:
             available=[d for d in DUNGEONS if p["level"]>=d[1]]
             d=next((x for x in available if dungeon_name and x[0].lower()==dungeon_name.lower()),None) if dungeon_name else (available[-1] if available else None)
             if not d:return {"error":"No dungeon unlocked yet."}
             n,req,floors,xp,gold,desc=d
-            enemy=self._enemy_for_level(p["level"]+req//2,"horizon_village")
-            state={"mode":"dungeon","enemy":enemy,"enemy_hp":enemy["hp"]+20,"floor":1,"floors":floors,"name":n,"reward_xp":xp,"reward_gold":gold,"log":[f"**Floor 1/{floors}** — {enemy['name']} blocks your path."],"started":time.time(),**base}
+            stamina_cost=15 + max(0, floors-3)*3
+            if p["stamina"]<stamina_cost:return {"error":f"You need **{stamina_cost} stamina** to enter this dungeon. Use `!rpg rest`."}
+            enemy=self._enemy_for_level(p["level"]+max(0, req-p["level"])+1,"horizon_village")
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_players SET stamina=stamina-? WHERE guild_id=? AND user_id=?",(stamina_cost,guild_id,user_id)); await db.commit()
+            base["player_stamina"]=max(0,p["stamina"]-stamina_cost)
+            state={"mode":"dungeon","enemy":enemy,"enemy_hp":enemy["hp"],"floor":1,"floors":floors,"name":n,"reward_xp":xp,"reward_gold":gold,"log":[f"**Floor 1/{floors}** — {enemy['name']} blocks your path."],"started":time.time(),**base}
         self.active_combats[key]=state
         return {"state":state,"stats":stats,"pet":pet}
 
     def _skill(self, class_name, skill_key):
-        return next((s for s in SKILLS.get(class_name, []) if s["key"]==skill_key), None)
+        return next((s for s in SKILLS.get(class_name, []) if s["key"] == skill_key), None)
+
+    def _skill_available(self, p, skill):
+        return skill and int(p.get("level", 1)) >= int(skill.get("unlock", 1))
+
+    def _damage(self, attack, defense, multiplier=1.0, variance=PLAYER_DAMAGE_VARIANCE):
+        raw = max(1.0, float(attack) * float(multiplier))
+        raw *= random.uniform(1.0 - variance, 1.0 + variance)
+        mitigation = 100.0 / (100.0 + max(0.0, float(defense)) * DEFENSE_SCALE)
+        return max(2, int(round(raw * mitigation)))
+
+    def _crit_damage(self, damage, crit):
+        if random.random() < min(CRIT_CAP, max(0, int(crit))) / 100.0:
+            return max(2, int(round(damage * CRIT_DAMAGE_MULT))), True
+        return damage, False
 
     async def combat_action(self,guild_id,user_id,action):
+        key=(guild_id,user_id)
+        lock=self.combat_locks.setdefault(key, asyncio.Lock())
+        if lock.locked():
+            return {"error":"Your previous combat action is still processing. Please wait a moment."}
+        async with lock:
+            return await self._combat_action_locked(guild_id,user_id,action)
+
+    async def _combat_action_locked(self,guild_id,user_id,action):
         key=(guild_id,user_id); state=self.active_combats.get(key)
         if not state:return {"error":"No active battle."}
         p=await self.player(guild_id,user_id)
@@ -1222,15 +1316,16 @@ class RPGService:
         state["player_mp"]=max(0,min(state.get("player_mp",stats["mp"]),stats["max_mp"]))
         action=action.lower().strip(); log=[]; defending=False
         if action=="attack":
-            crit=random.random()<min(.65,stats["crit"]/100)
-            dmg=max(1,stats["atk"]+random.randint(-3,5)-state["enemy"].get("def",0)//2)
-            if crit:dmg*=2
+            dmg, crit = self._crit_damage(self._damage(stats["atk"], state["enemy"].get("def",0), 0.85), stats["crit"])
+            dmg=min(dmg, max(2,int(state["enemy"].get("hp",1)*0.28)))
             state["enemy_hp"]-=dmg; log.append(f"⚔️ You hit **{state['enemy']['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
         elif action.startswith("skill:") or action=="skill":
             if action=="skill":
                 return {"choose_skill":True,"skills":SKILLS.get(p["class_name"],[]),"state":state}
             skill_key=action.split(":",1)[1].strip(); skill=self._skill(p["class_name"],skill_key)
             if not skill:return {"error":"That skill is not available to your class."}
+            if not self._skill_available(p, skill):
+                return {"error":f"**{skill['name']}** unlocks at level **{skill.get('unlock',1)}**. You are level **{p['level']}**."}
             cooldown=int(state.get("skill_cooldowns",{}).get(skill_key,0))
             if cooldown>0:return {"error":f"**{skill['name']}** is on cooldown for **{cooldown}** more turn(s)."}
             cost=skill["cost"]
@@ -1239,8 +1334,11 @@ class RPGService:
             async with aiosqlite.connect(self.path) as db:
                 await db.execute("UPDATE rpg_players SET mp=max(0,mp-?) WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id)); await db.commit()
             if skill["effect"] in {"damage","ultimate"}:
-                dmg=max(2,int(stats["atk"]*skill["mult"])+random.randint(0,8)-state["enemy"].get("def",0)//3)
-                if skill["effect"]=="ultimate" and random.random()<0.2:dmg=int(dmg*1.35)
+                dmg=self._damage(stats["atk"], state["enemy"].get("def",0), skill["mult"])
+                if skill["effect"]=="ultimate":
+                    dmg=min(int(stats["max_hp"]*MAX_NORMAL_DAMAGE_FRACTION*1.25), dmg)
+                else:
+                    dmg=min(dmg, max(2,int(state["enemy"].get("hp",1)*0.28)))
                 state["enemy_hp"]-=dmg; log.append(f"✨ **{skill['name']}** dealt **{dmg}** damage.")
                 if skill["effect"]=="ultimate":
                     heal=max(2,int(stats["max_hp"]*0.08)); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"💚 The ultimate restored **{heal} HP**.")
@@ -1256,7 +1354,7 @@ class RPGService:
             if pet_bonus.get("ability") and PET_SPECIES.get(pet_bonus.get("species"),{}).get("role")=="heal":
                 heal=max(8,int(stats["max_hp"]*0.18)+pet_bonus.get("hp",0)//2); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🐾 **{pet_bonus['name']}** used **{pet_bonus['ability']}** and restored **{heal} HP**.")
             else:
-                dmg=max(2,pet_bonus.get("atk",0)*2+random.randint(1,6)-state["enemy"].get("def",0)//4); state["enemy_hp"]-=dmg; log.append(f"🐾 **{pet_bonus['name']}** used **{pet_bonus['ability']}** for **{dmg}** damage.")
+                dmg=self._damage(max(2,pet_bonus.get("atk",0)*2), state["enemy"].get("def",0), 0.65); dmg=min(dmg,max(2,int(state["enemy"].get("hp",1)*0.15))); state["enemy_hp"]-=dmg; log.append(f"🐾 **{pet_bonus['name']}** used **{pet_bonus['ability']}** for **{dmg}** damage.")
             state["pet_cooldown"]=3
         elif action == "potion" or action.startswith("potion:") or action.startswith("food:"):
             inv=dict(await self.inventory(guild_id,user_id)); choices=[(k,q) for k,q in inv.items() if q>0 and ITEMS.get(k,{}).get("slot") in {"consumable","food"}]
@@ -1283,7 +1381,7 @@ class RPGService:
         state["log"].extend(log)
         if state["enemy_hp"]<=0:
             if state["mode"]=="dungeon" and state["floor"]<state["floors"]:
-                state["floor"]+=1; state["enemy"]=self._enemy_for_level(p["level"]+state["floor"],p.get("area_key","horizon_village")); state["enemy_hp"]=state["enemy"]["hp"]+state["floor"]*18
+                state["floor"]+=1; state["enemy"]=self._enemy_for_level(p["level"]+state["floor"]+1,p.get("area_key","horizon_village")); state["enemy_hp"]=state["enemy"]["hp"]
                 state["player_hp"]=min(stats["max_hp"],state["player_hp"]+max(5,stats["max_hp"]//8)); state["player_mp"]=min(stats["max_mp"],state["player_mp"]+max(3,stats["max_mp"]//10))
                 state["log"].append(f"🏰 **Floor {state['floor']}/{state['floors']}** — **{state['enemy']['name']}** appears. You recover HP and MP between floors.")
                 await self.progress_quests(guild_id,user_id,"dungeon",1); await self._save_combat_hp(guild_id,user_id,state)
@@ -1306,12 +1404,18 @@ class RPGService:
         if not defending and random.random()<min(.18,stats["speed"]/220):
             state["log"].append(f"💨 You dodged **{state['enemy']['name']}**.")
         else:
-            dmg=max(1,state["enemy"]["atk"]+random.randint(-3,4)-stats["defense"]//3)
+            dmg=self._damage(state["enemy"]["atk"], stats["defense"], 0.90, ENEMY_DAMAGE_VARIANCE)
+            dmg=min(dmg, max(2, int(stats["max_hp"]*MAX_NORMAL_DAMAGE_FRACTION)))
             if defending or state.get("shield_turns",0)>0:dmg=max(1,dmg//2)
             state["player_hp"]-=dmg; state["log"].append(f"🩸 **{state['enemy']['name']}** hit you for **{dmg}**.")
         for key2 in list(state.get("skill_cooldowns",{})):
             state["skill_cooldowns"][key2]=max(0,state["skill_cooldowns"][key2]-1)
         state["pet_cooldown"]=max(0,state.get("pet_cooldown",0)-1)
+        mp_regen=max(MIN_MP_REGEN, int(stats["max_mp"]*MP_REGEN_FRACTION))
+        old_mp=state["player_mp"]
+        state["player_mp"]=min(stats["max_mp"], state["player_mp"]+mp_regen)
+        if state["player_mp"]>old_mp:
+            state["log"].append(f"💧 You recovered **{state['player_mp']-old_mp} MP**.")
         state["shield_turns"]=0
         state["turn"]+=1
         if state["player_hp"]<=0:
@@ -1464,25 +1568,37 @@ class RPGService:
         return {"state":state,"key":key}
 
     async def duel_action(self,guild_id,user_id,target_id,action):
+        key=(guild_id,min(user_id,target_id),max(user_id,target_id))
+        lock=self.duel_locks.setdefault(key, asyncio.Lock())
+        if lock.locked():
+            return {"error":"That duel action is still processing. Please wait a moment."}
+        async with lock:
+            return await self._duel_action_locked(guild_id,user_id,target_id,action)
+
+    async def _duel_action_locked(self,guild_id,user_id,target_id,action):
         key=(guild_id,min(user_id,target_id),max(user_id,target_id)); state=self.active_duels.get(key)
         if not state:return {"error":"This duel is no longer active."}
         if state["turn"]!=user_id:return {"error":"It is not your turn."}
         me=state["players"][user_id]; foe_id=target_id; foe=state["players"][foe_id]
         action=action.lower().strip(); log=[]
         if action=="attack":
-            crit=random.random()<min(.65,me["stats"]["crit"]/100); dmg=max(1,me["stats"]["atk"]+random.randint(-3,5)-foe["stats"]["defense"]//2)
-            if crit:dmg*=2
+            dmg, crit = self._crit_damage(self._damage(me["stats"]["atk"], foe["stats"]["defense"], 0.85), me["stats"]["crit"])
+            dmg=min(dmg,max(2,int(foe["max_hp"]*0.25)))
             if foe.get("defending"): dmg=max(1,dmg//2); foe["defending"]=False; log.append(f"🛡️ **{foe['name']}** blocked part of the hit.")
             foe["hp"]-=dmg; log.append(f"⚔️ **{me['name']}** hit **{foe['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
         elif action.startswith("skill:"):
             skill=self._skill(me["class"],action.split(":",1)[1])
             if not skill:return {"error":"That skill is not available."}
+            if not self._skill_available({"level":me["level"]}, skill):
+                return {"error":f"**{skill['name']}** unlocks at level **{skill.get('unlock',1)}**."}
             cd=int(me["skill_cooldowns"].get(skill["key"],0))
             if cd:return {"error":f"**{skill['name']}** is on cooldown for {cd} turn(s)."}
             if me["mp"]<skill["cost"]:return {"error":f"You need {skill['cost']} MP."}
             me["mp"]-=skill["cost"]
             if skill["effect"] in {"damage","ultimate"}:
-                dmg=max(2,int(me["stats"]["atk"]*skill["mult"])+random.randint(0,8)-foe["stats"]["defense"]//3)
+                dmg=self._damage(me["stats"]["atk"], foe["stats"]["defense"], skill["mult"])
+                if skill["effect"]=="ultimate": dmg=min(int(foe["max_hp"]*0.35),dmg)
+                else: dmg=min(dmg,max(2,int(foe["max_hp"]*0.25)))
                 if foe.get("defending"): dmg=max(1,dmg//2); foe["defending"]=False; log.append(f"🛡️ **{foe['name']}** blocked part of the skill.")
                 foe["hp"]-=dmg; log.append(f"✨ **{me['name']}** used **{skill['name']}** for **{dmg}** damage.")
                 if skill["effect"]=="ultimate":
@@ -1499,7 +1615,8 @@ class RPGService:
             if role=="heal":
                 heal=max(8,int(me["max_hp"]*.18)); me["hp"]=min(me["max_hp"],me["hp"]+heal); log.append(f"🐾 **{me['pet']['name']}** healed **{me['name']}** for {heal} HP.")
             else:
-                dmg=max(2,me["pet"].get("atk",0)*2+random.randint(1,6)-foe["stats"]["defense"]//4)
+                dmg=self._damage(max(2,me["pet"].get("atk",0)*2), foe["stats"]["defense"], 0.65)
+                dmg=min(dmg,max(2,int(foe["max_hp"]*0.12)))
                 if foe.get("defending"): dmg=max(1,dmg//2); foe["defending"]=False; log.append(f"🛡️ **{foe['name']}** blocked part of the pet attack.")
                 foe["hp"]-=dmg; log.append(f"🐾 **{me['pet']['name']}** dealt {dmg} damage with **{me['pet'].get('ability','Pet Assist')}**.")
             me["pet_cooldown"]=3
@@ -1511,7 +1628,9 @@ class RPGService:
         state["log"].extend(log)
         if foe["hp"]<=0:return await self._finish_duel(guild_id,key,user_id,foe_id,[])
         for sk in list(me["skill_cooldowns"]):me["skill_cooldowns"][sk]=max(0,me["skill_cooldowns"][sk]-1)
-        me["pet_cooldown"]=max(0,me["pet_cooldown"]-1); me["defending"]=False
+        me["pet_cooldown"]=max(0,me["pet_cooldown"]-1)
+        me["mp"]=min(me["max_mp"], me["mp"]+max(MIN_MP_REGEN,int(me["max_mp"]*MP_REGEN_FRACTION)))
+        me["defending"]=False
         state["turn"]=foe_id; state["round"]+=1
         return {"finished":False,"state":state}
 

@@ -242,3 +242,17 @@ Horizon now keeps private conversational context per Discord member (and per web
 - Character artwork is deterministic and changes when race, subrace, class, subclass or evolution changes. Equipment/name changes do not change the character artwork.
 - Mob and pet artwork is deterministic by enemy/species.
 - Existing RPG, AI, website, economy, quests, guilds, kingdoms, parties and other systems are preserved.
+
+## v10.7 Combat Balance Update
+
+- PvE enemies now scale to the hero's level and current world tier instead of becoming trivial at higher levels.
+- Adventure and dungeon encounters use a level-aware enemy tier with HP/ATK/DEF/XP/gold scaling.
+- Combat damage uses a defense mitigation curve and damage caps to prevent one-hit kills.
+- Critical hits are capped at 35% chance and use a 1.5x multiplier instead of doubling damage.
+- Skills now have 10 class-specific abilities with level unlocks, MP costs, cooldowns and controlled multipliers.
+- Higher-level skills unlock at levels 5, 10, 15, 20, 25, 30, 40, 55 and 70.
+- MP regenerates slowly each completed combat round; potions and dungeon-floor recovery remain available.
+- Adventure/dungeon entries consume stamina so exploration cannot be spammed indefinitely.
+- Combat actions are serialized per player and PvP actions per duel to prevent double-click/race-condition exploits.
+- PvP uses the same damage philosophy and per-hit damage caps.
+- Existing RPG systems, pets, eggs, AI, website, economy, quests, guilds, kingdoms, parties and other functionality are preserved.

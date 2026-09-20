@@ -1687,9 +1687,13 @@ def _combat_embed(state, result=None):
     pet=state.get("pet",{}) or {}
     skill_cds=state.get("skill_cooldowns",{})
     skill_lines=[]
+    player_level=int(state.get("player_level",1))
     for skill in SKILLS.get(state.get("class_name", ""), []):
         cd=skill_cds.get(skill["key"],0)
-        skill_lines.append(f"**{skill['name']}** · {skill['cost']} MP" + (f" · CD {cd}" if cd else ""))
+        if player_level < int(skill.get("unlock",1)):
+            skill_lines.append(f"🔒 **{skill['name']}** · Unlock Lv {skill.get('unlock',1)}")
+        else:
+            skill_lines.append(f"**{skill['name']}** · {skill['cost']} MP" + (f" · CD {cd}" if cd else ""))
     desc=(f"**{mode}{floor}** · Turn **{state.get('turn',1)}**\n\n"
           f"👹 **{enemy['name']}** · Lv **{enemy['level']}**\n"
           f"❤️ `{_bar(ehp,enemy['hp'])}` **{ehp}/{enemy['hp']} HP**\n"
@@ -1724,6 +1728,8 @@ class RPGCombatSkillView(discord.ui.View):
         cooldowns=battle_view.state.get("skill_cooldowns",{})
         mp=battle_view.state.get("player_mp",0)
         for skill in skills[:25]:
+            if int(getattr(battle_view.ctx.author, "id", 0)) and int(skill.get("unlock",1)) > int(battle_view.state.get("player_level", 1)):
+                continue
             cd=int(cooldowns.get(skill["key"],0))
             status=f"CD {cd}" if cd else (f"{skill['cost']} MP" if mp>=skill["cost"] else f"Need {skill['cost']} MP")
             options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {skill['desc']}"[:100]))
@@ -1782,6 +1788,8 @@ class RPGPvPSkillView(discord.ui.View):
         super().__init__(timeout=45); self.battle_view=battle_view; self.user_id=user_id
         data=battle_view.state["players"][user_id]; options=[]
         for skill in SKILLS.get(data.get("class",""),[]):
+            if int(data.get("level",1)) < int(skill.get("unlock",1)):
+                continue
             cd=int(data.get("skill_cooldowns",{}).get(skill["key"],0)); status=f"CD {cd}" if cd else f"{skill['cost']} MP"
             options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {skill['desc']}"[:100]))
         select=discord.ui.Select(placeholder="Choose your skill...",min_values=1,max_values=1,options=options); select.callback=self.choose; self.add_item(select)
@@ -2533,7 +2541,7 @@ async def rpg_skills(ctx):
     if not p:
         await _rpg_action_panel(ctx,"Combat Skills","Create your hero first with `!rpg start`.",False); return
     rows=SKILLS.get(p["class_name"],[])
-    pages=_rpg_pages(f"{p['class_name'].title()} Skills",rows,page_size=4,icon="✨",formatter=lambda x:f"**{x['name']}** · **{x['cost']} MP**" + (f" · **CD {x['cooldown']}**" if x.get('cooldown') else "") + f"\n{x['desc']}")
+    pages=_rpg_pages(f"{p['class_name'].title()} Skills · Lv {p['level']}",rows,page_size=4,icon="✨",formatter=lambda x:(f"**{x['name']}** · **{x['cost']} MP** · Lv **{x.get('unlock',1)}**" + (f" · CD {x['cooldown']}" if x.get('cooldown') else "") + (" · 🔒 LOCKED" if p['level'] < x.get('unlock',1) else " · ✅ UNLOCKED") + f"\n{x['desc']}"))
     await _rpg_panel(ctx,pages)
 
 
