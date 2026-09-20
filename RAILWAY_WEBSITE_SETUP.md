@@ -29,3 +29,17 @@ Horizon stores private conversation history by `(guild_id, user_id)` for Discord
 
 ## v10.1 Railway runtime fix
 The repository includes a Dockerfile with a Node build stage for `website/` and a Python runtime that starts `python bot.py`. The dashboard binds to Railway's exact `$PORT` on `0.0.0.0`; it never switches to another port, because Railway's public proxy routes to `$PORT`. On startup it logs `Dashboard listening on 0.0.0.0:<PORT>`.
+
+
+## Troubleshooting AI + Discord login
+
+Open `https://YOUR-RAILWAY-DOMAIN/health` in a browser. This endpoint intentionally reports only configuration booleans, never secret values.
+
+For Horizon AI, `ai_configured` must be `true`. The website's Horizon panel also checks the real Gemini model connection before showing Horizon as online. The Railway service must have a valid `GEMINI_API_KEY`; the browser must never receive it.
+
+For Discord login, `discord_oauth_configured` and `session_configured` must both be `true`. `DISCORD_REDIRECT_URI` is recommended and must exactly match the redirect URL registered in the Discord Developer Portal, including `https://`, domain, path, and no extra trailing slash.
+
+The required callback format is:
+`https://YOUR-RAILWAY-DOMAIN/api/site/auth-callback`
+
+If the Railway domain changes, update both Railway `SITE_URL`/`DISCORD_REDIRECT_URI` and the Discord OAuth redirect URL, then redeploy. Do not paste API keys, client secrets, bot tokens, or session secrets into chat.

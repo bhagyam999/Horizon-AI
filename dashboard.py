@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -10,6 +11,8 @@ from urllib.parse import urlencode
 
 import aiohttp
 from aiohttp import web
+
+log = logging.getLogger("horizon.dashboard")
 
 
 class Dashboard:
@@ -142,6 +145,10 @@ class Dashboard:
             "model": self.bot.ai.model,
             "ai_configured": self.bot.ai.enabled,
             "website": self.dist_dir.exists(),
+            "discord_oauth_configured": bool(os.getenv("DISCORD_CLIENT_ID", "").strip() and os.getenv("DISCORD_CLIENT_SECRET", "").strip()),
+            "session_configured": bool(self._secret()),
+            "redirect_uri_configured": bool(os.getenv("DISCORD_REDIRECT_URI", "").strip()),
+            "site_url_configured": bool(os.getenv("SITE_URL", "").strip()),
         })
 
     async def api_overview(self, request):
@@ -224,8 +231,9 @@ class Dashboard:
         await self.bot.db.add_ai_message(guild_id, scope_id, "user", message)
         try:
             answer = await self.bot.ai.generate(system, message)
-        except Exception:
+        except Exception as exc:
             await self.bot.db.remove_last_ai_message(guild_id, scope_id, "user")
+            log.exception("Website Horizon AI request failed")
             return web.json_response({"error": "Horizon AI is temporarily unavailable."}, status=502)
         await self.bot.db.add_ai_message(guild_id, scope_id, "model", answer)
         response = web.json_response({"reply": answer, "model": self.bot.ai.model})
@@ -236,8 +244,26 @@ class Dashboard:
 
     async def site_horizon_ai(self, request):
         if request.method == "GET":
-            response = web.json_response({"online": bool(self.bot.ai.enabled), "serviceOnline": True, "aiConfigured": bool(self.bot.ai.enabled), "model": self.bot.ai.model, "provider": self.bot.ai.provider_name})
-            return response
+            try:
+                online, detail = await self.bot.ai.status()
+                return web.json_response({
+                    "online": bool(online),
+                    "serviceOnline": True,
+                    "aiConfigured": bool(self.bot.ai.enabled),
+                    "model": self.bot.ai.model,
+                    "provider": self.bot.ai.provider_name,
+                    "detail": detail,
+                })
+            except Exception as exc:
+                log.exception("Website Horizon AI status check failed")
+                return web.json_response({
+                    "online": False,
+                    "serviceOnline": True,
+                    "aiConfigured": bool(self.bot.ai.enabled),
+                    "model": self.bot.ai.model,
+                    "provider": self.bot.ai.provider_name,
+                    "error": "Horizon AI status check failed.",
+                }, status=503)
         if request.method != "POST":
             return web.json_response({"error":"Method not allowed."}, status=405)
         try:
@@ -302,6 +328,7 @@ class Dashboard:
             self._set_cookie(response,"lh_oauth_state","",0,http_only=True)
             return response
         except Exception:
+            log.exception("Discord OAuth callback failed")
             return web.HTTPFound(f"{site}/?discord=error")
 
     async def site_auth_me(self, request):
