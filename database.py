@@ -55,8 +55,10 @@ class Database:
                 content TEXT NOT NULL,
                 created_at REAL DEFAULT (strftime('%s','now'))
             );
-            CREATE INDEX IF NOT EXISTS idx_ai_server_messages_guild ON ai_server_messages(guild_id, id);
-            CREATE INDEX IF NOT EXISTS idx_ai_server_messages_channel ON ai_server_messages(guild_id, channel_id, id);
+            DROP INDEX IF EXISTS idx_ai_server_messages_guild;
+            CREATE INDEX IF NOT EXISTS idx_ai_server_messages_guild ON ai_server_messages(guild_id, message_id);
+            DROP INDEX IF EXISTS idx_ai_server_messages_channel;
+            CREATE INDEX IF NOT EXISTS idx_ai_server_messages_channel ON ai_server_messages(guild_id, channel_id, message_id);
             CREATE TABLE IF NOT EXISTS cooldowns (
                 guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL,
