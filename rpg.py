@@ -1072,6 +1072,67 @@ ACHIEVEMENTS = {
     "legend": ("Legend", "Reach level 25.", 1500),
 }
 
+# ---------------------------------------------------------------------------
+# Phase 5 — Endgame systems
+# ---------------------------------------------------------------------------
+SECRET_CLASS_KEYS = {"void_knight", "chronomancer", "dragon_lord", "soul_reaper"}
+SECRET_CLASSES = {
+    "void_knight": {
+        "name": "Void Knight", "req_level": 50, "req_renown": 800,
+        "desc": "A knight who weaponizes the space between worlds.",
+        "hp": 55, "mp": 15, "atk": 13, "def": 11, "spd": 2, "crit": 4, "resource": "Void",
+        "requirement": "Reach level 50 and 800 Renown.",
+    },
+    "chronomancer": {
+        "name": "Chronomancer", "req_level": 45, "req_pvp_wins": 10,
+        "desc": "A temporal mage who bends turn order and cooldowns.",
+        "hp": 10, "mp": 55, "atk": 13, "def": 2, "spd": 8, "crit": 7, "resource": "Time",
+        "requirement": "Reach level 45 and win 10 Arena matches.",
+    },
+    "dragon_lord": {
+        "name": "Dragon Lord", "req_level": 60, "req_raid_damage": 100000,
+        "desc": "A legendary commander whose presence echoes through raid battles.",
+        "hp": 80, "mp": 25, "atk": 16, "def": 9, "spd": 5, "crit": 6, "resource": "Draconic Fury",
+        "requirement": "Reach level 60 and deal 100,000 total Raid Boss damage.",
+    },
+    "soul_reaper": {
+        "name": "Soul Reaper", "req_level": 55, "req_hidden": 2,
+        "desc": "A forbidden executioner who harvests the echoes left by hidden quests.",
+        "hp": 25, "mp": 45, "atk": 15, "def": 4, "spd": 9, "crit": 10, "resource": "Souls",
+        "requirement": "Reach level 55 and discover 2 hidden quests.",
+    },
+}
+
+# Secret classes are real combat classes, but the normal character creator
+# refuses them. They can only be awakened through the Phase 5 unlock system.
+for _k, _v in SECRET_CLASSES.items():
+    CLASSES[_k] = {k: _v[k] for k in ("hp","mp","atk","def","spd","crit","resource","desc")}
+
+# Give secret classes their own names while retaining the existing skill engine.
+_SECRET_SKILL_NAMES = {
+    "void_knight": ["Void Slash","Rift Guard","Abyss Step","Null Strike","Graviton Edge","Void Chain","Black Aegis","Rift Breaker","Abyssal Roar","Null Field","Event Horizon","Void Reversal","Dimensional Cleave","Abyss Walker","Rift Execution","Singularity","World Rend","Void Dominion","Abyss Ascension","Zero Point"],
+    "chronomancer": ["Time Bolt","Second Wind","Temporal Step","Clockwork Lance","Haste Loop","Time Fracture","Rewind","Slow Field","Chrono Burst","Paradox","Time Stop","Future Sight","Age","Timeline Break","Temporal Prison","Epoch Collapse","Infinite Moment","Chronostasis","Eternal Cycle","Absolute Time"],
+    "dragon_lord": ["Dragon Fang","Scale Guard","Drake Rush","Flame Breath","Wing Slash","Dragon Roar","Inferno","Skyfall","Ancient Might","Draconic Ward","Elder Breath","Dragonheart","Meteor Wing","Worldfire","Dragon King's Command","Calamity","Heavenrend","Ancient Dragon Form","Cataclysm","True Dragon Dominion"],
+    "soul_reaper": ["Soul Cut","Grave Step","Spirit Guard","Reaper's Mark","Soul Drain","Death Bloom","Spectral Chains","Black Lantern","Soulfire","Gravebind","Death Sentence","Soul Harvest","Abyssal Reap","Phantom March","Last Rites","Soul Storm","Requiem","Kingdom of Death","Final Harvest","End of Souls"],
+}
+for _k, _names in _SECRET_SKILL_NAMES.items():
+    _base = [dict(x) for x in SKILLS["warrior"]]
+    for _skill, _name in zip(_base, _names):
+        _skill["name"] = _name
+    SKILLS[_k] = _base
+
+ITEMS.setdefault("abyssal_core", {"name":"Abyssal Core","slot":"relic","rarity":"legendary","atk":35,"def":20,"hp":120,"spd":8,"crit":8,"price":50000,"level_req":50})
+ITEMS.setdefault("chronicle_shard", {"name":"Chronicle Shard","slot":"relic","rarity":"legendary","atk":20,"def":10,"mp":100,"spd":15,"crit":10,"price":50000,"level_req":50})
+ITEMS.setdefault("dragon_lord_scale", {"name":"Dragon Lord Scale","slot":"armor","rarity":"mythic","def":45,"hp":250,"atk":20,"spd":8,"crit":6,"price":75000,"level_req":60})
+ITEMS.setdefault("soul_reaper_scythe", {"name":"Soul Reaper's Scythe","slot":"weapon","rarity":"mythic","atk":55,"spd":12,"crit":15,"price":80000,"level_req":55})
+
+LEGENDARY_CHALLENGES = {
+    "abyssal_throne": {"name":"Abyssal Throne", "level":50, "hp":18000, "atk":260, "def":150, "reward":"abyssal_core", "xp":12000, "gold":25000, "desc":"Survive the throne of the void and claim its core."},
+    "chronicle_end": {"name":"End of the Chronicle", "level":60, "hp":24000, "atk":340, "def":190, "reward":"chronicle_shard", "xp":18000, "gold":35000, "desc":"Break the timeline without becoming trapped inside it."},
+    "dragon_throne": {"name":"Dragon Throne", "level":70, "hp":32000, "atk":430, "def":230, "reward":"dragon_lord_scale", "xp":26000, "gold":50000, "desc":"Face the ancient sovereign of dragons."},
+    "soul_end": {"name":"The Last Soul", "level":75, "hp":38000, "atk":500, "def":260, "reward":"soul_reaper_scythe", "xp":32000, "gold":65000, "desc":"A final trial for heroes who have walked beyond ordinary mortality."},
+}
+
 
 @dataclass
 class RPGService:
@@ -1329,6 +1390,46 @@ class RPGService:
             );
             CREATE INDEX IF NOT EXISTS idx_rpg_npc_relationships_user ON rpg_npc_relationships(guild_id,user_id,affinity DESC);
             CREATE INDEX IF NOT EXISTS idx_rpg_server_events_active ON rpg_server_events(guild_id,status,expires_at);
+
+            -- Phase 5: PvP seasons, raid bosses, secret classes and legendary trials.
+            CREATE TABLE IF NOT EXISTS rpg_pvp_seasons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, season_number INTEGER NOT NULL,
+                name TEXT NOT NULL, started_at REAL NOT NULL, ends_at REAL NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+                UNIQUE(guild_id,season_number)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_pvp_ratings (
+                guild_id INTEGER NOT NULL, season_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                rating INTEGER NOT NULL DEFAULT 1000, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0,
+                streak INTEGER NOT NULL DEFAULT 0, best_rating INTEGER NOT NULL DEFAULT 1000,
+                PRIMARY KEY(guild_id,season_id,user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_arena_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, season_id INTEGER NOT NULL,
+                player_a INTEGER NOT NULL, player_b INTEGER NOT NULL, winner_id INTEGER NOT NULL DEFAULT 0,
+                rating_delta_a INTEGER NOT NULL DEFAULT 0, rating_delta_b INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_pvp_ratings_leaderboard ON rpg_pvp_ratings(guild_id,season_id,rating DESC);
+            CREATE TABLE IF NOT EXISTS rpg_raid_bosses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, raid_key TEXT NOT NULL,
+                name TEXT NOT NULL, description TEXT NOT NULL, level INTEGER NOT NULL, max_hp INTEGER NOT NULL, hp INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active', started_at REAL NOT NULL, expires_at REAL NOT NULL, weekly_key TEXT NOT NULL,
+                UNIQUE(guild_id,weekly_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_raid_damage (
+                raid_id INTEGER NOT NULL, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, damage INTEGER NOT NULL DEFAULT 0,
+                attacks INTEGER NOT NULL DEFAULT 0, last_attack REAL NOT NULL DEFAULT 0, claimed INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(raid_id,user_id), FOREIGN KEY(raid_id) REFERENCES rpg_raid_bosses(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_raid_damage_rank ON rpg_raid_damage(raid_id,damage DESC);
+            CREATE TABLE IF NOT EXISTS rpg_secret_class_unlocks (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, class_key TEXT NOT NULL, unlocked_at REAL NOT NULL,
+                PRIMARY KEY(guild_id,user_id,class_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_legendary_challenges (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, challenge_key TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0, completions INTEGER NOT NULL DEFAULT 0, last_completed REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY(guild_id,user_id,challenge_key)
+            );
             """)
             # Lightweight migrations for existing Horizon RPG databases.
             migrations = {
@@ -1540,7 +1641,7 @@ class RPGService:
 
     async def create_player(self, guild_id: int, user_id: int, name: str, race: str, class_name: str):
         race = race.lower(); class_name = class_name.lower()
-        if race not in RACES or class_name not in CLASSES:
+        if race not in RACES or class_name not in CLASSES or class_name in SECRET_CLASS_KEYS:
             raise ValueError("Invalid race or class.")
         if await self.player(guild_id, user_id):
             return False, "You already have a hero. Use `!rpg profile` to inspect it."
@@ -3811,6 +3912,193 @@ class RPGService:
             await db.commit()
         return True,f"🎯 Bounty **#{bid}** claimed for **+{reward} gold** against **{target_name}**."
 
+    # ------------------------------------------------------------------
+    # Phase 5 — PvP Arenas / Seasons
+    # ------------------------------------------------------------------
+    async def _ensure_pvp_season(self, guild_id):
+        now = time.time(); period = 30 * 86400
+        season_number = int(now // period) + 1
+        started = (season_number - 1) * period; ends = season_number * period
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_pvp_seasons SET status='ended' WHERE guild_id=? AND status='active' AND season_number<?", (guild_id, season_number))
+            await db.execute("INSERT OR IGNORE INTO rpg_pvp_seasons(guild_id,season_number,name,started_at,ends_at,status) VALUES(?,?,?,?,?,'active')", (guild_id,season_number,f"Arena Season {season_number}",started,ends))
+            cur=await db.execute("SELECT id,season_number,name,started_at,ends_at FROM rpg_pvp_seasons WHERE guild_id=? AND season_number=?",(guild_id,season_number)); row=await cur.fetchone()
+            await db.commit()
+        return row
+
+    async def arena_rating(self, guild_id, user_id):
+        season=await self._ensure_pvp_season(guild_id)
+        sid=season[0]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT OR IGNORE INTO rpg_pvp_ratings(guild_id,season_id,user_id) VALUES(?,?,?)",(guild_id,sid,user_id))
+            cur=await db.execute("SELECT rating,wins,losses,streak,best_rating FROM rpg_pvp_ratings WHERE guild_id=? AND season_id=? AND user_id=?",(guild_id,sid,user_id)); row=await cur.fetchone(); await db.commit()
+        return {"season":season,"rating":row[0],"wins":row[1],"losses":row[2],"streak":row[3],"best":row[4]}
+
+    async def arena_ratings(self, guild_id, limit=50):
+        season=await self._ensure_pvp_season(guild_id); sid=season[0]
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT user_id,rating,wins,losses,streak,best_rating FROM rpg_pvp_ratings WHERE guild_id=? AND season_id=? ORDER BY rating DESC,wins DESC LIMIT ?",(guild_id,sid,limit)); rows=await cur.fetchall()
+        return season,rows
+
+    async def start_arena(self, guild_id, user_id, target_id):
+        result=await self.start_duel(guild_id,user_id,target_id)
+        if "error" in result: return result
+        season=await self._ensure_pvp_season(guild_id)
+        result["state"]["arena"]=True; result["state"]["season_id"]=season[0]
+        await self.arena_rating(guild_id,user_id); await self.arena_rating(guild_id,target_id)
+        return result
+
+    async def _record_arena_result(self, guild_id, season_id, winner_id, loser_id, key):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT OR IGNORE INTO rpg_pvp_ratings(guild_id,season_id,user_id) VALUES(?,?,?)",(guild_id,season_id,winner_id))
+            await db.execute("INSERT OR IGNORE INTO rpg_pvp_ratings(guild_id,season_id,user_id) VALUES(?,?,?)",(guild_id,season_id,loser_id))
+            cur=await db.execute("SELECT user_id,rating,streak FROM rpg_pvp_ratings WHERE guild_id=? AND season_id=? AND user_id IN (?,?)",(guild_id,season_id,winner_id,loser_id)); rows=await cur.fetchall(); data={r[0]:r for r in rows}
+            wr=data[winner_id][1]; lr=data[loser_id][1]
+            expected=1/(1+10**((lr-wr)/400)); delta=max(8,min(32,round(32*(1-expected))))
+            await db.execute("UPDATE rpg_pvp_ratings SET rating=rating+?,wins=wins+1,streak=streak+1,best_rating=MAX(best_rating,rating+?) WHERE guild_id=? AND season_id=? AND user_id=?",(delta,delta,guild_id,season_id,winner_id))
+            await db.execute("UPDATE rpg_pvp_ratings SET rating=MAX(0,rating-?),losses=losses+1,streak=0 WHERE guild_id=? AND season_id=? AND user_id=?",(delta,guild_id,season_id,loser_id))
+            await db.execute("INSERT INTO rpg_arena_matches(guild_id,season_id,player_a,player_b,winner_id,rating_delta_a,rating_delta_b,created_at) VALUES(?,?,?,?,?,?,?,?)",(guild_id,season_id,key[1],key[2],winner_id,delta if key[1]==winner_id else -delta,delta if key[2]==winner_id else -delta,time.time()))
+            await db.commit()
+        return delta
+
+    # ------------------------------------------------------------------
+    # Phase 5 — Server Raid Bosses
+    # ------------------------------------------------------------------
+    async def _ensure_raid(self, guild_id):
+        now=time.time(); week=time.strftime("%Y-W%W",time.gmtime(now))
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id,raid_key,name,description,level,max_hp,hp,status,started_at,expires_at FROM rpg_raid_bosses WHERE guild_id=? AND weekly_key=?",(guild_id,week)); row=await cur.fetchone()
+            if row and row[7] in {"active","defeated"} and row[9]>now:return row
+            level=60; max_hp=150000
+            await db.execute("INSERT OR IGNORE INTO rpg_raid_bosses(guild_id,raid_key,name,description,level,max_hp,hp,status,started_at,expires_at,weekly_key) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(guild_id,"elder_abyss_dragon","Elder Abyss Dragon","A server-wide raid boss. Every hero contributes to the same health pool.",level,max_hp,max_hp,"active",now,now+7*86400,week))
+            cur=await db.execute("SELECT id,raid_key,name,description,level,max_hp,hp,status,started_at,expires_at FROM rpg_raid_bosses WHERE guild_id=? AND weekly_key=?",(guild_id,week)); row=await cur.fetchone(); await db.commit()
+        return row
+
+    async def raid_info(self,guild_id):
+        return await self._ensure_raid(guild_id)
+
+    async def raid_leaderboard(self,guild_id,limit=10):
+        raid=await self._ensure_raid(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT user_id,damage,attacks,claimed FROM rpg_raid_damage WHERE raid_id=? ORDER BY damage DESC LIMIT ?",(raid[0],limit)); rows=await cur.fetchall()
+        return raid,rows
+
+    async def raid_attack(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        raid=await self._ensure_raid(guild_id); now=time.time()
+        if raid[7]!="active":return False,"This raid is already defeated. A new weekly raid will appear next cycle."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT last_attack FROM rpg_raid_damage WHERE raid_id=? AND user_id=?",(raid[0],user_id)); row=await cur.fetchone(); last=row[0] if row else 0
+            if now-last<20:return False,f"Your raid attack is on cooldown for **{int(20-(now-last))}s**."
+        combat=await self._combat_full_stats(guild_id,user_id,p)
+        if not combat:return False,"Create a hero first."
+        base=max(10,int(combat["atk"]*random.uniform(1.6,2.3)))
+        # Endgame builds and secret classes get a modest raid specialization.
+        if p.get("class_name") in SECRET_CLASS_KEYS: base=int(base*1.18)
+        damage=max(10,base)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_raid_damage(raid_id,guild_id,user_id,damage,attacks,last_attack) VALUES(?,?,?,?,?,?) ON CONFLICT(raid_id,user_id) DO UPDATE SET damage=damage+excluded.damage,attacks=attacks+1,last_attack=excluded.last_attack",(raid[0],guild_id,user_id,damage,1,now))
+            await db.execute("UPDATE rpg_raid_bosses SET hp=MAX(0,hp-?) WHERE id=? AND status='active'",(damage,raid[0]))
+            cur=await db.execute("SELECT hp FROM rpg_raid_bosses WHERE id=?",(raid[0],)); hp=(await cur.fetchone())[0]
+            defeated=hp<=0
+            if defeated: await db.execute("UPDATE rpg_raid_bosses SET status='defeated',hp=0 WHERE id=?",(raid[0],))
+            await db.commit()
+        if defeated:
+            async with aiosqlite.connect(self.path) as db:
+                cur=await db.execute("SELECT user_id,damage,claimed FROM rpg_raid_damage WHERE raid_id=?",(raid[0],)); participants=await cur.fetchall()
+            # Pay outside the participant read connection to avoid SQLite lock contention.
+            for uid,personal_damage,claimed in participants:
+                if not claimed:
+                    reward_xp=2500+min(10000,personal_damage//20); reward_gold=2000+min(10000,personal_damage//40)
+                    await self.add_rewards(guild_id,uid,reward_xp,reward_gold)
+                    if personal_damage>=10000: await self.add_item(guild_id,uid,"dragon_trophy",2,event_type="raid_reward")
+                    async with aiosqlite.connect(self.path) as db:
+                        await db.execute("UPDATE rpg_raid_damage SET claimed=1 WHERE raid_id=? AND user_id=?",(raid[0],uid)); await db.commit()
+            return True,f"💥 **{damage:,}** damage! **{raid[2]}** has been defeated. All contributors received raid rewards; high contributors earned bonus trophies."
+        return True,f"⚔️ You dealt **{damage:,}** damage to **{raid[2]}**. Remaining HP: **{hp:,}/{raid[5]:,}**."
+
+    # ------------------------------------------------------------------
+    # Phase 5 — Secret Classes
+    # ------------------------------------------------------------------
+    async def secret_class_list(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT class_key FROM rpg_secret_class_unlocks WHERE guild_id=? AND user_id=?",(guild_id,user_id)); unlocked={r[0] for r in await cur.fetchall()}
+        result=[]
+        for key,data in SECRET_CLASSES.items():
+            result.append((key,data,key in unlocked))
+        return result
+
+    async def _secret_requirements(self,guild_id,user_id,key):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        if key not in SECRET_CLASSES:return False,"Unknown secret class."
+        data=SECRET_CLASSES[key]
+        if p["level"]<data["req_level"]:return False,f"Requires level **{data['req_level']}**."
+        if data.get("req_renown",0) and p.get("renown",0)<data["req_renown"]:return False,f"Requires **{data['req_renown']} Renown**."
+        if data.get("req_pvp_wins",0):
+            season=await self._ensure_pvp_season(guild_id)
+            async with aiosqlite.connect(self.path) as db:
+                cur=await db.execute("SELECT COALESCE(SUM(wins),0) FROM rpg_pvp_ratings WHERE guild_id=? AND user_id=?",(guild_id,user_id)); wins=(await cur.fetchone())[0]
+            if wins<data["req_pvp_wins"]:return False,f"Requires **{data['req_pvp_wins']} Arena wins**; you have **{wins}**."
+        if data.get("req_raid_damage",0):
+            async with aiosqlite.connect(self.path) as db:
+                cur=await db.execute("SELECT COALESCE(SUM(damage),0) FROM rpg_raid_damage WHERE guild_id=? AND user_id=?",(guild_id,user_id)); damage=(await cur.fetchone())[0]
+            if damage<data["req_raid_damage"]:return False,f"Requires **{data['req_raid_damage']:,} total Raid damage**; you have **{damage:,}**."
+        if data.get("req_hidden",0):
+            async with aiosqlite.connect(self.path) as db:
+                cur=await db.execute("SELECT COUNT(*) FROM rpg_hidden_quest_progress WHERE guild_id=? AND user_id=? AND status='claimed'",(guild_id,user_id)); count=(await cur.fetchone())[0]
+            if count<data["req_hidden"]:return False,f"Requires **{data['req_hidden']} completed hidden quests**; you have **{count}**."
+        return True,"Requirements met."
+
+    async def awaken_secret_class(self,guild_id,user_id,key):
+        key=key.lower().strip(); ok,msg=await self._secret_requirements(guild_id,user_id,key)
+        if not ok:return False,msg
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT 1 FROM rpg_secret_class_unlocks WHERE guild_id=? AND user_id=? AND class_key=?",(guild_id,user_id,key))
+            if await cur.fetchone():return False,"You have already awakened this secret class."
+            await db.execute("INSERT INTO rpg_secret_class_unlocks(guild_id,user_id,class_key,unlocked_at) VALUES(?,?,?,?)",(guild_id,user_id,key,time.time()))
+            data=SECRET_CLASSES[key]; s=self._class_stats((await self.player(guild_id,user_id))["race"],key)
+            await db.execute("UPDATE rpg_players SET class_name=?,max_hp=?,hp=?,max_mp=?,mp=?,atk=?,defense=?,speed=?,crit=?,subclass='' WHERE guild_id=? AND user_id=?",(key,s["max_hp"],s["max_hp"],s["max_mp"],s["max_mp"],s["atk"],s["defense"],s["speed"],s["crit"],guild_id,user_id)); await db.commit()
+        return True,f"🌌 You awakened **{data['name']}**. Your class has been transformed into a Phase 5 secret class."
+
+    # ------------------------------------------------------------------
+    # Phase 5 — Legendary Endgame
+    # ------------------------------------------------------------------
+    async def legendary_list(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT challenge_key,completed,completions,last_completed FROM rpg_legendary_challenges WHERE guild_id=? AND user_id=?",(guild_id,user_id)); rows={r[0]:r for r in await cur.fetchall()}
+        return [(key,data,rows.get(key,(key,0,0,0))) for key,data in LEGENDARY_CHALLENGES.items()]
+
+    async def legendary_challenge(self,guild_id,user_id,key):
+        p=await self.player(guild_id,user_id); key=key.lower().strip()
+        if not p:return False,"Create a hero first."
+        boss=LEGENDARY_CHALLENGES.get(key)
+        if not boss:return False,"Unknown legendary challenge. Use `!rpg legendary` to see the trials."
+        if p["level"]<boss["level"]:return False,f"Requires level **{boss['level']}**."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT completed,last_completed FROM rpg_legendary_challenges WHERE guild_id=? AND user_id=? AND challenge_key=?",(guild_id,user_id,key)); row=await cur.fetchone()
+        if row and row[1] and time.time()-row[1]<86400:return False,"That legendary trial can be challenged once every **24 hours**."
+        combat=await self._combat_full_stats(guild_id,user_id,p)
+        if not combat:return False,"Create a hero first."
+        power=combat["atk"]*2.0+combat["defense"]*1.5+combat["speed"]*1.2+combat["max_hp"]*.25+combat.get("crit",0)*4
+        boss_power=boss["atk"]*1.8+boss["def"]*1.4+boss["hp"]*.06
+        chance=max(.08,min(.92,power/max(1,boss_power)))
+        # Three-round simulation prevents a single lucky random roll from deciding the entire trial.
+        score=0
+        for _ in range(3): score += power*random.uniform(.82,1.18)
+        success=score >= boss_power*2.15 or random.random()<chance*.35
+        if not success:
+            await self.add_rewards(guild_id,user_id,boss["xp"]//5,boss["gold"]//5)
+            return False,f"**{boss['name']}** defeated the attempt. You earned a consolation reward, but the legendary trial remains incomplete."
+        await self.add_rewards(guild_id,user_id,boss["xp"],boss["gold"])
+        await self.add_item(guild_id,user_id,boss["reward"],1,event_type="legendary_reward",metadata={"challenge":key})
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_legendary_challenges(guild_id,user_id,challenge_key,completed,completions,last_completed) VALUES(?,?,?,?,?,?) ON CONFLICT(guild_id,user_id,challenge_key) DO UPDATE SET completed=1,completions=completions+1,last_completed=excluded.last_completed",(guild_id,user_id,key,1,1,time.time())); await db.commit()
+        return True,f"👑 **Legendary Trial Cleared:** {boss['name']}\nRewards: **+{boss['xp']:,} XP**, **+{boss['gold']:,} Gold**, and **{ITEMS[boss['reward']]['name']}**."
+
     async def start_duel(self,guild_id,user_id,target_id):
         a=await self.player(guild_id,user_id); b=await self.player(guild_id,target_id)
         if not a or not b:return {"error":"Both players need RPG characters."}
@@ -3931,4 +4219,12 @@ class RPGService:
                 await db.execute("UPDATE rpg_players SET hp=?,mp=? WHERE guild_id=? AND user_id=?",(stored_hp,stored_mp,guild_id,uid))
             await db.commit()
         state["turn"]=None; state["winner"]=winner_id; state["loser"]=loser_id
+        if state.get("arena"):
+            try:
+                delta=await self._record_arena_result(guild_id,state.get("season_id"),winner_id,loser_id,key)
+                await self.add_rewards(guild_id,winner_id,300,450)
+                await self.add_rewards(guild_id,loser_id,100,150)
+                state["arena_rating_delta"]=delta
+            except Exception:
+                pass
         return {"finished":True,"state":state,"winner":winner_id,"loser":loser_id}

@@ -23,7 +23,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
-from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, LIFE_PATHS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY
+from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, LIFE_PATHS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES
 from storage import backup_database, migrate_legacy_database, resolve_database_path
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -1957,8 +1957,11 @@ def _pvp_embed(state, result=None):
     desc=f"**Round {state.get('round',1)}**\n\n{block(left_id,left)}\n\n⚔️ **VS** ⚔️\n\n{block(right_id,right)}\n\n" + "\n".join(f"• {x}" for x in state.get("log",[])[-6:])
     if result and result.get("finished"):
         winner=state.get("winner"); loser=state.get("loser")
-        desc += f"\n\n🏆 **Victory:** <@{winner}>\n💀 **Defeated:** <@{loser}>\n🎁 Winner: **80 XP + 120 gold**"
-    e=_rpg_embed("⚔️ PvP Duel",desc)
+        if state.get("arena"):
+            desc += f"\n\n🏆 **Arena Victory:** <@{winner}>\n💀 **Defeated:** <@{loser}>\n📈 Ranked result recorded for the current season."
+        else:
+            desc += f"\n\n🏆 **Victory:** <@{winner}>\n💀 **Defeated:** <@{loser}>\n🎁 Winner: **80 XP + 120 gold**"
+    e=_rpg_embed("🏆 Ranked Arena" if state.get("arena") else "⚔️ PvP Duel",desc)
     e.set_image(url=_character_image(left))
     e.set_thumbnail(url=_character_image(right))
     return e
@@ -2135,6 +2138,8 @@ async def rpg_root(ctx):
     e.add_field(name="⚔️ Adventure", value="`!rpg adventure` — live battle\n`!rpg dungeon` — floor-by-floor dungeon", inline=False)
     e.add_field(name="🧬 Hero", value="`!rpg profile` • `!rpg change` • `!rpg evolve`", inline=True)
     e.add_field(name="🏰 Society", value="`!rpg party` • `!rpg guild` • `!rpg kingdom`", inline=True)
+    e.add_field(name="👑 Endgame", value="`!rpg arena` • `!rpg raid` • `!rpg secretclasses` • `!rpg legendary`", inline=False)
+    e.add_field(name="👑 Endgame", value="`!rpg arena` • `!rpg raid` • `!rpg secretclasses` • `!rpg legendary`", inline=False)
     e.add_field(name="🎒 Collection", value="`!rpg inventory` • `!rpg items` • `!rpg eggs` • `!rpg pet`", inline=False)
     e.set_footer(text="Every RPG panel can be paged • use 🗑️ to remove it")
     await _rpg_panel(ctx,[e])
@@ -2149,6 +2154,7 @@ async def rpg_help(ctx):
         _rpg_embed("✨ Horizon RPG — Enchanting & Gacha", "`!rpg gacha` — view rates, pity and Gems\n`!rpg gacha 1` — single pull\n`!rpg gacha 10` — ten-pull\n`!rpg open-chest <key>` — open a gacha chest\n`!rpg enchantments` — see enchant types\n`!rpg enchant <slot> <item> <enchant>` — upgrade equipped gear\n\nGacha uses earned in-game Gems and published rates. Pity guarantees Epic+ at the configured threshold and Mythic at the higher threshold."),
         _rpg_embed("🐾 Horizon RPG — Pets", "`!rpg pets` — full pet inventory\n`!rpg pet` — equipped companion\n`!rpg equip-pet <pet_id>` — switch companions\n`!rpg unequip-pet` — store the active companion\n`!rpg adopt <name>` — starter companion\n`!rpg eggs` — owned eggs\n`!rpg hatch <egg> <name>` — hatch an egg\n`!rpg rename <name>` — rename equipped pet\n`!rpg release` — release equipped pet\n\nPets are now stored as a collection, so switching pets does **not** require releasing the others. Each pet shows its actual ability and passive stats."),
         _rpg_embed("🗺️ Horizon RPG — World & Progression", "`!rpg areas` — world atlas\n`!rpg travel <area_key>` — travel\n`!rpg quests` — quest board\n`!rpg daily` — daily reward\n`!rpg rest` — recover\n`!rpg shop` / `buy` / `sell` / `craft` / `market` — economy\n`!rpg trade @player` — direct trading of gear, items, pets, Gold and Diamonds\n`!rpg trades` / `tradeview` / `tradeadd` / `tradepet` / `tradegold` / `tradediamonds` / `tradeaccept` / `tradecancel` — trade controls\n`!rpg party ...` / `guild ...` / `kingdom ...` — multiplayer systems\n\nThe world now has dozens of additional areas. Level XP scales increasingly with level, so late-game progression takes substantially more XP than early progression."),
+        _rpg_embed("👑 Horizon RPG — Phase 5 Endgame", "`!rpg arena @player` — ranked PvP match\n`!rpg season` — current PvP leaderboard\n`!rpg raid` — inspect the weekly server raid\n`!rpg raid attack` — damage the shared Raid Boss\n`!rpg secretclasses` — secret class requirements\n`!rpg awaken <class>` — awaken a secret class\n`!rpg legendary` — legendary endgame trials\n`!rpg challenge <key>` — attempt a legendary trial\n\nArena ratings are seasonal. Raid HP is shared across the server. Secret classes are hidden from normal character creation and require endgame requirements."),
     ]
     await _rpg_panel(ctx,pages)
 
@@ -2167,7 +2173,7 @@ async def rpg_start(ctx, name: str = "", race: str = "human", class_name: str = 
 @rpg_root.command(name="classes")
 async def rpg_classes(ctx):
     await _rpg_delete(ctx)
-    rows=list(CLASSES.items())
+    rows=[(k,v) for k,v in CLASSES.items() if k not in SECRET_CLASS_KEYS]
     def fmt(x):
         key,data=x; skills=SKILLS.get(key,[])[:4]
         return (f"**{key.replace('_',' ').title()}** · {data.get('resource','Resource')}\n{data['desc']}\n"
@@ -2179,8 +2185,17 @@ async def rpg_classes(ctx):
 async def rpg_class_info(ctx, *, class_name: str = ""):
     await _rpg_delete(ctx)
     key=class_name.lower().strip()
+    if key in SECRET_CLASS_KEYS:
+        data=SECRET_CLASSES[key]
+        unlocked_rows=await bot.rpg.secret_class_list(ctx.guild.id,ctx.author.id)
+        unlocked=next((x[2] for x in unlocked_rows if x[0]==key),False)
+        status="AWAKENED" if unlocked else "SECRET / LOCKED"
+        body=(f"**{data['desc']}**\n\n**Status:** {status}\n**Requirement:** {data['requirement']}\n\n"
+              f"❤️ HP +{data['hp']} • 💧 MP +{data['mp']} • ⚔️ ATK +{data['atk']} • 🛡️ DEF +{data['def']} • 💨 SPD +{data['spd']} • 🎯 Crit +{data['crit']}%\n"
+              f"**Resource:** {data['resource']}\n\nUse `!rpg awaken {key}` when the requirement is met.")
+        await _rpg_action_panel(ctx,"🌌 Secret Class — "+data['name'],body,True); return
     if key not in CLASSES:
-        await _rpg_action_panel(ctx,"Class Details","Use `!rpg classes` first, then `!rpg class <class>`.",False); return
+        await _rpg_action_panel(ctx,"Class Details","Use `!rpg classes` first, then `!rpg class <class>`." ,False); return
     data=CLASSES[key]; skills=SKILLS.get(key,[])
     strong=[k.replace('_',' ').title() for k,v in CLASS_MATCHUPS.get(key,{}).items() if v>1]
     weak=[k.replace('_',' ').title() for k,v in CLASS_MATCHUPS.items() if key in v and v[key]<1]
@@ -2976,6 +2991,69 @@ async def rpg_battle(ctx,member:discord.Member=None):
     view=RPGPvPView(ctx,result["state"],result["key"])
     view.message=await ctx.send(embed=_pvp_embed(result["state"]),view=view)
 
+
+@rpg_root.command(name="arena", aliases=["ranked","rankedpvp"])
+async def rpg_arena(ctx, member: discord.Member = None):
+    await _rpg_delete(ctx)
+    if not member:
+        rating=await bot.rpg.arena_rating(ctx.guild.id,ctx.author.id)
+        await _rpg_action_panel(ctx,"🏆 Ranked Arena",f"**Season:** {rating['season'][2]}\n**Rating:** {rating['rating']}\n**Record:** {rating['wins']}W / {rating['losses']}L\n**Streak:** {rating['streak']}\n\nUse `!rpg arena @player` to start a ranked match.",True); return
+    result=await bot.rpg.start_arena(ctx.guild.id,ctx.author.id,member.id)
+    if "error" in result:
+        await _rpg_action_panel(ctx,"🏆 Ranked Arena",result["error"],False); return
+    view=RPGPvPView(ctx,result["state"],result["key"])
+    view.message=await ctx.send(embed=_pvp_embed(result["state"]),view=view)
+
+@rpg_root.command(name="season", aliases=["pvpseason","rankings"])
+async def rpg_season(ctx):
+    await _rpg_delete(ctx)
+    season,rows=await bot.rpg.arena_ratings(ctx.guild.id)
+    body=f"**{season[2]}**\nEnds <t:{int(season[4])}:R>\n\n" + ("\n".join(f"**#{i}** <@{r[0]}> — **{r[1]} Rating** · {r[2]}W / {r[3]}L · Best {r[5]}" for i,r in enumerate(rows,1)) or "No ranked matches yet.")
+    await _rpg_action_panel(ctx,"🏆 PvP Season",body,True)
+
+@rpg_root.command(name="raid", aliases=["raidboss","worldraid"])
+async def rpg_raid(ctx, action: str = "info"):
+    await _rpg_delete(ctx); action=action.lower().strip()
+    if action in {"attack","fight","hit"}:
+        ok,msg=await bot.rpg.raid_attack(ctx.guild.id,ctx.author.id)
+        await _rpg_action_panel(ctx,"🐉 Server Raid",msg,ok); return
+    raid,rows=await bot.rpg.raid_leaderboard(ctx.guild.id)
+    top="\n".join(f"**#{i}** <@{r[0]}> — **{r[1]:,} damage** · {r[2]} attacks" for i,r in enumerate(rows,1)) or "No contributors yet."
+    await _rpg_action_panel(ctx,"🐉 "+raid[2],f"{raid[3]}\n\n❤️ **{max(0,raid[6]):,}/{raid[5]:,} HP**\nStatus: **{raid[7].title()}**\nExpires <t:{int(raid[9])}:R>\n\n**Top Contributors**\n{top}\n\nAttack with `!rpg raid attack`.",True)
+
+@rpg_root.command(name="secretclasses", aliases=["secret-classes","secretclass"])
+async def rpg_secret_classes(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.secret_class_list(ctx.guild.id,ctx.author.id)
+    def fmt(x):
+        key,data,unlocked=x
+        return f"**{data['name']}** · `{key}`\n{data['desc']}\n**Requirement:** {data['requirement']}\n{'AWAKENED' if unlocked else 'LOCKED'}\nAwaken: `!rpg awaken {key}`"
+    await _rpg_panel(ctx,_rpg_pages("🌌 Secret Classes",rows,page_size=2,icon="🌌",formatter=fmt))
+
+@rpg_root.command(name="awaken", aliases=["awakenclass","unlockclass"])
+async def rpg_awaken(ctx, class_key: str = ""):
+    await _rpg_delete(ctx)
+    if not class_key:
+        await _rpg_action_panel(ctx,"🌌 Secret Class Awakening","Use `!rpg awaken <class_key>`. See `!rpg secretclasses`.",False); return
+    ok,msg=await bot.rpg.awaken_secret_class(ctx.guild.id,ctx.author.id,class_key)
+    await _rpg_action_panel(ctx,"🌌 Secret Class Awakening",msg,ok)
+
+@rpg_root.command(name="legendary", aliases=["endgame","legendarycontent"])
+async def rpg_legendary(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.legendary_list(ctx.guild.id,ctx.author.id)
+    def fmt(x):
+        key,data,state=x
+        return f"👑 **{data['name']}** · Lv {data['level']}\n{data['desc']}\nReward: **{ITEMS[data['reward']]['name']}** + {data['xp']:,} XP + {data['gold']:,}g\n{'CLEARED' if state[1] else 'LOCKED'} · Completions: {state[2]}\nChallenge: `!rpg challenge {key}`"
+    await _rpg_panel(ctx,_rpg_pages("👑 Legendary Endgame",rows,page_size=2,icon="👑",formatter=fmt))
+
+@rpg_root.command(name="challenge", aliases=["legendarychallenge","trial"])
+async def rpg_challenge(ctx, challenge_key: str = ""):
+    await _rpg_delete(ctx)
+    if not challenge_key:
+        await _rpg_action_panel(ctx,"👑 Legendary Trial","Use `!rpg challenge <challenge_key>`. See `!rpg legendary`.",False); return
+    ok,msg=await bot.rpg.legendary_challenge(ctx.guild.id,ctx.author.id,challenge_key)
+    await _rpg_action_panel(ctx,"👑 Legendary Trial",msg,ok)
 
 @rpg_root.command(name="pet")
 async def rpg_pet(ctx):
