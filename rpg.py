@@ -290,6 +290,49 @@ SKILL_ARCHETYPES = [
 SKILL_COSTS = (8, 12, 15, 18, 14, 16, 18, 20, 21, 22, 24, 25, 26, 28, 30, 32, 34, 36, 38, 42)
 SKILL_COOLDOWNS = (0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 6, 7)
 
+# Skill points are now for mastering unlocked skills, not for raw stats.
+# Each skill can be mastered to rank 5; every rank gives a small, bounded
+# improvement so a high-level skill feels stronger without replacing gear or
+# talent choices.
+SKILL_MAX_RANK = 5
+SKILL_RANK_DAMAGE = 0.035
+SKILL_RANK_HEAL = 0.02
+
+# Permanent talent trees. Every node has five ranks and costs one Talent Point
+# per rank. Class trees are deliberately different in name/flavour, while the
+# mechanical bonuses stay small and predictable. Race trees add a second layer.
+CLASS_TALENT_TEMPLATES = {
+    "warrior": [("vanguard_heart","Vanguard Heart","+1.5% maximum HP per rank","hp_pct"),("weapon_mastery","Weapon Mastery","+1% skill damage per rank","skill_pct"),("iron_training","Iron Training","+1% DEF per rank","def_pct"),("battle_instinct","Battle Instinct","+0.5% Crit per rank","crit"),("second_wind","Second Wind","+1% healing received per rank","heal_pct"),("martial_focus","Martial Focus","+1% ATK per rank","atk_pct"),("steady_breath","Steady Breath","+1% maximum MP per rank","mp_pct"),("finisher_training","Finisher Training","+1% execute/ultimate damage per rank","finisher_pct")],
+    "berserker": [("blood_furnace","Blood Furnace","+1% ATK per rank","atk_pct"),("pain_to_power","Pain to Power","+1% skill damage per rank","skill_pct"),("scarred_hide","Scarred Hide","+1% DEF per rank","def_pct"),("predator_eye","Predator Eye","+0.5% Crit per rank","crit"),("blood_recovery","Blood Recovery","+1% healing per rank","heal_pct"),("fury_reserve","Fury Reserve","+1% maximum MP per rank","mp_pct"),("rage_body","Rage Body","+1.5% HP per rank","hp_pct"),("executioner_training","Executioner Training","+1% finisher damage per rank","finisher_pct")],
+    "knight": [("fortress_heart","Fortress Heart","+1.5% maximum HP per rank","hp_pct"),("shield_mastery","Shield Mastery","+1% skill damage per rank","skill_pct"),("plate_discipline","Plate Discipline","+1% DEF per rank","def_pct"),("battle_awareness","Battle Awareness","+0.5% Crit per rank","crit"),("guardian_grace","Guardian Grace","+1% healing per rank","heal_pct"),("holy_reserve","Holy Reserve","+1% maximum MP per rank","mp_pct"),("royal_strength","Royal Strength","+1% ATK per rank","atk_pct"),("verdict_mastery","Verdict Mastery","+1% finisher damage per rank","finisher_pct")],
+    "mage": [("arcane_core","Arcane Core","+1.5% maximum MP per rank","mp_pct"),("spellcraft","Spellcraft","+1% skill damage per rank","skill_pct"),("warding","Warding","+1% DEF per rank","def_pct"),("arcane_precision","Arcane Precision","+0.5% Crit per rank","crit"),("mystic_recovery","Mystic Recovery","+1% healing per rank","heal_pct"),("ether_body","Ether Body","+1% HP per rank","hp_pct"),("arcane_force","Arcane Force","+1% ATK per rank","atk_pct"),("cataclysm_mastery","Cataclysm Mastery","+1% finisher damage per rank","finisher_pct")],
+    "rogue": [("shadow_body","Shadow Body","+1% HP per rank","hp_pct"),("dirty_tricks","Dirty Tricks","+1% skill damage per rank","skill_pct"),("evasive_training","Evasive Training","+1% DEF per rank","def_pct"),("killer_eye","Killer Eye","+0.5% Crit per rank","crit"),("field_recovery","Field Recovery","+1% healing per rank","heal_pct"),("shadow_reserve","Shadow Reserve","+1% MP per rank","mp_pct"),("assassin_force","Assassin Force","+1% ATK per rank","atk_pct"),("execution_art","Execution Art","+1% finisher damage per rank","finisher_pct")],
+}
+# Classes not listed above inherit a class-specific named tree generated from
+# their identity, keeping every class playable without repetitive hard-coded data.
+CLASS_TALENT_FALLBACK = [
+    ("core_training","Core Training","+1% maximum HP per rank","hp_pct"),
+    ("combat_mastery","Combat Mastery","+1% skill damage per rank","skill_pct"),
+    ("guard_training","Guard Training","+1% DEF per rank","def_pct"),
+    ("keen_eye","Keen Eye","+0.5% Crit per rank","crit"),
+    ("renewal","Renewal","+1% healing per rank","heal_pct"),
+    ("resource_mastery","Resource Mastery","+1% maximum MP per rank","mp_pct"),
+    ("power_training","Power Training","+1% ATK per rank","atk_pct"),
+    ("finisher_mastery","Finisher Mastery","+1% finisher damage per rank","finisher_pct"),
+]
+
+RACE_TALENT_TEMPLATES = {
+    "human": [("adaptation","Adaptation","+0.5% ATK, DEF and HP per rank","balanced"),("resourcefulness","Resourcefulness","+1% maximum MP per rank","mp_pct"),("luck","Fortune","+0.5% Crit per rank","crit")],
+    "elf": [("keen_senses","Keen Senses","+0.5% Crit per rank","crit"),("forest_vigor","Forest Vigor","+1% HP per rank","hp_pct"),("arcane_affinity","Arcane Affinity","+1% skill damage per rank","skill_pct")],
+    "dwarf": [("stone_skin","Stone Skin","+1% DEF per rank","def_pct"),("deep_reserves","Deep Reserves","+1% HP per rank","hp_pct"),("forge_power","Forge Power","+1% ATK per rank","atk_pct")],
+    "orc": [("blood_strength","Blood Strength","+1% ATK per rank","atk_pct"),("warrior_hide","Warrior Hide","+1% HP per rank","hp_pct"),("brutal_focus","Brutal Focus","+0.5% Crit per rank","crit")],
+    "kitsune": [("foxfire","Foxfire","+1% skill damage per rank","skill_pct"),("trickster_speed","Trickster Speed","+0.5% Crit per rank","crit"),("spirit_reserve","Spirit Reserve","+1% MP per rank","mp_pct")],
+    "fae": [("fey_grace","Fey Grace","+1% HP per rank","hp_pct"),("glimmer","Glimmer","+1% skill damage per rank","skill_pct"),("fey_focus","Fey Focus","+0.5% Crit per rank","crit")],
+    "vampire": [("bloodline","Bloodline","+1% ATK per rank","atk_pct"),("night_body","Night Body","+1% HP per rank","hp_pct"),("blood_magic","Blood Magic","+1% healing per rank","heal_pct")],
+    "golem": [("living_fortress","Living Fortress","+1% DEF per rank","def_pct"),("stone_core","Stone Core","+1.5% HP per rank","hp_pct"),("crystal_power","Crystal Power","+1% skill damage per rank","skill_pct")],
+}
+
+
 _CLASS_SKILL_NAMES = {
     "warrior": ["Power Strike", "Cleave", "Whirlwind", "Crushing Arc", "Second Wind", "Iron Guard", "Battle Cry", "Armor Sundering", "Open Wound", "Blazing Edge", "Concussion", "Warrior's Drain", "Battle Focus", "Swift Footwork", "Riposte", "Aegis Stance", "Weakpoint Slash", "Executioner's Cut", "Adamant Pierce", "Warlord's Verdict"],
     "berserker": ["Raging Slash", "Savage Break", "Blood Cyclone", "Rupture", "Blood Recovery", "Frenzied Guard", "Rage Howl", "Bone Crusher", "Toxic Fury", "Inferno Rage", "Skull Freeze", "Blood Feast", "Rage Siphon", "Feral Step", "Fury Counter", "Berserker Hide", "Killing Instinct", "Execution", "Rage Piercer", "Worldbreaker"],
@@ -752,6 +795,14 @@ class RPGService:
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot INTEGER NOT NULL, skill_key TEXT NOT NULL,
                 PRIMARY KEY (guild_id, user_id, slot)
             );
+            CREATE TABLE IF NOT EXISTS rpg_skill_mastery (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, skill_key TEXT NOT NULL, rank INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (guild_id, user_id, skill_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_talents (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, tree TEXT NOT NULL, talent_key TEXT NOT NULL, rank INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id, tree, talent_key)
+            );
             CREATE TABLE IF NOT EXISTS rpg_pet_inventory (
                 pet_id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
                 name TEXT NOT NULL, species TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
@@ -886,6 +937,13 @@ class RPGService:
                 if count == 0:
                     for slot, skill_key in enumerate(("skill_1","skill_2","skill_3"),1):
                         await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)", (guild_id,user_id,slot,skill_key))
+            # Ensure every existing character has exactly three starter skills and
+            # a mastery record for those skills. Skill points are intentionally not
+            # spent automatically; players decide which skills to master.
+            cur = await db.execute("SELECT guild_id,user_id,class_name FROM rpg_players")
+            for guild_id,user_id,class_name in await cur.fetchall():
+                for skill_key in ("skill_1","skill_2","skill_3"):
+                    await db.execute("INSERT OR IGNORE INTO rpg_skill_mastery(guild_id,user_id,skill_key,rank) VALUES(?,?,?,1)", (guild_id,user_id,skill_key))
             await db.commit()
 
     def _level_xp(self, level: int) -> int:
@@ -1063,12 +1121,11 @@ class RPGService:
             while p[1] >= self._level_xp(new_level) and new_level < 100: new_level += 1
             levels = new_level - old_level
             if levels:
-                # Every level gives both an automatic growth package and points
-                # the player can deliberately invest.  This makes progression
+                # Every level gives automatic growth plus separate Stat, Skill and Talent points.  This makes progression
                 # visible instead of merely changing the number on the sheet.
                 await db.execute(
                     "UPDATE rpg_players SET level=?, max_hp=max_hp+?, hp=max_hp+?, max_mp=max_mp+?, mp=max_mp+?, atk=atk+?, defense=defense+?, speed=speed+?, skill_points=skill_points+?, stat_points=stat_points+?, talent_points=talent_points+? WHERE guild_id=? AND user_id=?",
-                    (new_level, levels*12, levels*12, levels*5, levels*5, levels*2, levels, levels, levels*2, levels*3, levels, guild_id, user_id)
+                    (new_level, levels*12, levels*12, levels*5, levels*5, levels*2, levels, levels, levels, levels*3, levels, guild_id, user_id)
                 )
             await db.commit()
             return old_level, new_level
@@ -1761,35 +1818,108 @@ class RPGService:
             await db.execute("UPDATE rpg_guilds SET level=level+1,xp=xp-? WHERE guild_id=? AND name=?",(cost,guild_id,g[1])); await db.commit()
         return True,f"**{g[1]}** reached guild level **{level+1}**."
 
-    async def spend_skill(self,guild_id,user_id,stat):
+    async def spend_stat(self,guild_id,user_id,stat):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         stat=stat.lower()
         mapping={"attack":"atk","atk":"atk","defense":"defense","def":"defense","speed":"speed","spd":"speed","crit":"crit","hp":"max_hp","mana":"max_mp","mp":"max_mp"}
         column=mapping.get(stat)
         if not column:return False,"Choose `attack`, `defense`, `speed`, `crit`, `hp`, or `mana`."
+        if p["stat_points"]<1:return False,"You have no stat points. Level up to earn one."
+        amount=5 if column in {"max_hp","max_mp"} else 1
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(f"UPDATE rpg_players SET {column}={column}+?,stat_points=stat_points-1 WHERE guild_id=? AND user_id=?",(amount,guild_id,user_id)); await db.commit()
+        return True,f"Stat point spent on **{stat.title()}** (+{amount})."
+
+    async def skill_mastery(self,guild_id,user_id,skill_key):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        skill=self._skill(p["class_name"],skill_key.lower())
+        if not skill:return False,"That skill does not belong to your current class."
+        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
         if p["skill_points"]<1:return False,"You have no skill points. Level up to earn one."
         async with aiosqlite.connect(self.path) as db:
-            await db.execute(f"UPDATE rpg_players SET {column}={column}+?,skill_points=skill_points-1 WHERE guild_id=? AND user_id=?",(5 if column in {"max_hp","max_mp"} else 1,guild_id,user_id)); await db.commit()
-        return True,f"Skill point spent on **{stat}**."
+            cur=await db.execute("SELECT rank FROM rpg_skill_mastery WHERE guild_id=? AND user_id=? AND skill_key=?",(guild_id,user_id,skill["key"]))
+            row=await cur.fetchone(); rank=int(row[0]) if row else 0
+            if rank>=SKILL_MAX_RANK:return False,f"**{skill['name']}** is already at Mastery **{SKILL_MAX_RANK}**."
+            await db.execute("INSERT INTO rpg_skill_mastery(guild_id,user_id,skill_key,rank) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,skill_key) DO UPDATE SET rank=rank+1",(guild_id,user_id,skill["key"],max(1,rank+1)))
+            await db.execute("UPDATE rpg_players SET skill_points=skill_points-1 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
+        return True,f"✨ **{skill['name']}** mastered to **Rank {rank+1}/{SKILL_MAX_RANK}**. Each rank improves its scaling slightly."
 
-    def _combat_stats(self, p, pet_bonus=None):
+    async def skill_masteries(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT skill_key,rank FROM rpg_skill_mastery WHERE guild_id=? AND user_id=?",(guild_id,user_id)); rows=await cur.fetchall()
+        return {key:int(rank) for key,rank in rows}
+
+    def _talent_nodes(self,p,tree):
+        if tree=="class":
+            class_name=p["class_name"]
+            if class_name in CLASS_TALENT_TEMPLATES:
+                return CLASS_TALENT_TEMPLATES[class_name]
+            label=class_name.replace("_"," ").title()
+            return [(f"{class_name}_{key}",f"{label} {name}",desc,effect) for key,name,desc,effect in CLASS_TALENT_FALLBACK]
+        race=p.get("race","human")
+        return RACE_TALENT_TEMPLATES.get(race,RACE_TALENT_TEMPLATES["human"])
+
+    async def talent_ranks(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT tree,talent_key,rank FROM rpg_talents WHERE guild_id=? AND user_id=?",(guild_id,user_id)); rows=await cur.fetchall()
+        return {(tree,key):int(rank) for tree,key,rank in rows}
+
+    async def spend_talent(self,guild_id,user_id,tree,talent_key):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        tree=tree.lower(); talent_key=talent_key.lower()
+        if tree not in {"class","race"}:return False,"Choose the `class` or `race` talent tree."
+        nodes=self._talent_nodes(p,tree); node=next((x for x in nodes if x[0]==talent_key),None)
+        if not node:return False,"That talent is not available in your current tree."
+        if p["talent_points"]<1:return False,"You have no talent points. Level up to earn one."
+        ranks=await self.talent_ranks(guild_id,user_id); current=ranks.get((tree,talent_key),0)
+        if current>=5:return False,f"**{node[1]}** is already at Rank **5/5**."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_talents(guild_id,user_id,tree,talent_key,rank) VALUES(?,?,?,?,1) ON CONFLICT(guild_id,user_id,tree,talent_key) DO UPDATE SET rank=rank+1",(guild_id,user_id,tree,talent_key))
+            await db.execute("UPDATE rpg_players SET talent_points=talent_points-1 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
+        return True,f"🌟 **{node[1]}** is now **Rank {current+1}/5**. {node[2]}"
+
+    def _talent_bonuses(self,p,ranks):
+        bonus={"atk_pct":0.0,"def_pct":0.0,"hp_pct":0.0,"mp_pct":0.0,"crit":0.0,"skill_pct":0.0,"heal_pct":0.0,"finisher_pct":0.0}
+        for tree in ("class","race"):
+            for key,_name,_desc,effect in self._talent_nodes(p,tree):
+                rank=int(ranks.get((tree,key),0));
+                if not rank: continue
+                if effect=="balanced":
+                    bonus["atk_pct"]+=.5*rank; bonus["def_pct"]+=.5*rank; bonus["hp_pct"]+=.5*rank
+                elif effect in bonus:
+                    bonus[effect]+=({"hp_pct":1.5,"mp_pct":1.5}.get(effect,1.0))*rank if effect in {"hp_pct","mp_pct"} else (0.5*rank if effect=="crit" else 1.0*rank)
+        return bonus
+
+    def _combat_stats(self, p, pet_bonus=None, talent_bonus=None):
         data=self._progression_bonus(p)
+        talent_bonus=talent_bonus or {}
         pet_bonus=pet_bonus or {"hp":0,"mp":0,"atk":0,"defense":0,"speed":0,"crit":0}
+        base_hp=p["max_hp"] + data["hp"] + pet_bonus.get("hp",0)
+        base_mp=p["max_mp"] + data["mp"] + pet_bonus.get("mp",0)
+        base_atk=p["atk"] + data["atk"] + pet_bonus.get("atk",0)
+        base_def=p["defense"] + data["defense"] + pet_bonus.get("defense",0)
         return {
-            "hp": p["hp"] + data["hp"] + pet_bonus.get("hp",0),
-            "max_hp": p["max_hp"] + data["hp"] + pet_bonus.get("hp",0),
-            "mp": p["mp"] + data["mp"] + pet_bonus.get("mp",0),
-            "max_mp": p["max_mp"] + data["mp"] + pet_bonus.get("mp",0),
-            "atk": p["atk"] + data["atk"] + pet_bonus.get("atk",0),
-            "defense": p["defense"] + data["defense"] + pet_bonus.get("defense",0),
+            "hp": int((p["hp"] + data["hp"] + pet_bonus.get("hp",0)) * (1+talent_bonus.get("hp_pct",0)/100)),
+            "max_hp": int(base_hp * (1+talent_bonus.get("hp_pct",0)/100)),
+            "mp": int((p["mp"] + data["mp"] + pet_bonus.get("mp",0)) * (1+talent_bonus.get("mp_pct",0)/100)),
+            "max_mp": int(base_mp * (1+talent_bonus.get("mp_pct",0)/100)),
+            "atk": int(base_atk * (1+talent_bonus.get("atk_pct",0)/100)),
+            "defense": int(base_def * (1+talent_bonus.get("def_pct",0)/100)),
             "speed": p["speed"] + data["speed"] + pet_bonus.get("speed",0),
-            "crit": p["crit"] + data["crit"] + pet_bonus.get("crit",0),
+            "crit": p["crit"] + data["crit"] + pet_bonus.get("crit",0) + talent_bonus.get("crit",0),
+            "skill_pct": talent_bonus.get("skill_pct",0),
+            "heal_pct": talent_bonus.get("heal_pct",0),
+            "finisher_pct": talent_bonus.get("finisher_pct",0),
             "level": int(p.get("level",1)),
         }
 
     async def _combat_full_stats(self, guild_id, user_id, p, pet_bonus=None):
-        stats=self._combat_stats(p,pet_bonus)
+        talent_ranks=await self.talent_ranks(guild_id,user_id)
+        talent_bonus=self._talent_bonuses(p,talent_ranks)
+        stats=self._combat_stats(p,pet_bonus,talent_bonus)
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=await cur.fetchall()
             cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=?",(guild_id,user_id)); enchants=await cur.fetchall()
@@ -1936,6 +2066,11 @@ class RPGService:
         mult=float(multiplier if multiplier is not None else skill.get("mult",1.0))
         if state.get("buffs",{}).get("atk_up"):
             mult*=1+float(state["buffs"]["atk_up"])
+        if stats.get("skill_pct"):
+            mult*=1+float(stats.get("skill_pct",0))/100
+        if skill.get("finisher") or skill.get("effect") in {"execute","ultimate","signature","mythic"}:
+            if stats.get("finisher_pct"):
+                mult*=1+float(stats.get("finisher_pct",0))/100
         if debuff.get("vulnerable"):
             mult*=1+float(debuff["vulnerable"])
         if debuff.get("marked"):
@@ -1963,6 +2098,7 @@ class RPGService:
             log.append(f"⚔️ **{skill['name']}** struck twice for **{sum(hits)}** total.")
         elif effect in {"heal","team_heal","recovery"}:
             ratio={"heal":0.22,"team_heal":0.30,"recovery":0.34}[effect]
+            ratio*=1+float(stats.get("heal_pct",0))/100
             heal=max(12,int(stats["max_hp"]*ratio)); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
             if effect=="recovery": state["player_mp"]=min(stats["max_mp"],state["player_mp"]+max(8,int(stats["max_mp"]*.22)))
             log.append(f"💚 **{skill['name']}** restored **{heal} HP**.")
@@ -2090,6 +2226,13 @@ class RPGService:
             cost=skill["cost"]
             if state["player_mp"]<cost:return {"error":f"You need **{cost} MP** for **{skill['name']}**. Current MP: {state['player_mp']}."}
             state["player_mp"]-=cost
+            mastery=await self.skill_masteries(guild_id,user_id)
+            skill=dict(skill)
+            skill_rank=max(1,int(mastery.get(skill["key"],1)))
+            skill["mastery_rank"]=skill_rank
+            skill["mult"]=float(skill.get("mult",1.0))*(1+SKILL_RANK_DAMAGE*(skill_rank-1))
+            if skill.get("heal_pct"):
+                skill["heal_pct"]=float(skill["heal_pct"])+SKILL_RANK_HEAL*(skill_rank-1)
             async with aiosqlite.connect(self.path) as db:
                 await db.execute("UPDATE rpg_players SET mp=max(0,mp-?) WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id)); await db.commit()
             log,defending=self._apply_skill_effect(skill,stats,state)
@@ -2394,7 +2537,9 @@ class RPGService:
                 elif effect=="true_damage": dmg=max(2,int(me["stats"]["atk"]*skill["mult"]*matchup))
                 else:
                     mult=skill["mult"]
-                    if effect in {"heavy","ultimate","execute","mythic","signature"}: mult*=1.15
+                    mult*=1+float(me["stats"].get("skill_pct",0))/100
+                    if effect in {"heavy","ultimate","execute","mythic","signature"}:
+                        mult*=1.15+float(me["stats"].get("finisher_pct",0))/100
                     if effect=="lifesteal": mult*=1.05
                     dmg=self._damage(me["stats"]["atk"],foe["stats"]["defense"],mult*matchup)
                     dmg=min(dmg,max(2,int(foe["max_hp"]*(.34 if effect in {"ultimate","mythic","signature"} else .25))))

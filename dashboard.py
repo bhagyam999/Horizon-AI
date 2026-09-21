@@ -47,6 +47,7 @@ class Dashboard:
             web.get("/api/site/auth-logout", self.site_auth_logout),
             web.route("*", "/api/site/horizon-ai", self.site_horizon_ai),
             web.get("/api/site/horizon-server", self.site_horizon_server),
+            web.get("/api/rpg/art", self.rpg_art),
             web.get("/assets/{path:.*}", self.asset),
         ])
 
@@ -143,6 +144,110 @@ class Dashboard:
         if not str(path).startswith(str(assets_root)) or not path.is_file():
             raise web.HTTPNotFound()
         return web.FileResponse(path)
+
+    async def rpg_art(self, request):
+        """Render deterministic full-body RPG art as a PNG that Discord can display."""
+        import hashlib
+        import io
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+        kind=request.query.get("kind","character").lower()
+        seed=request.query.get("seed","unknown")
+        bits=[x.strip().lower().replace("_"," ") for x in seed.split("|") if x.strip()]
+        digest=hashlib.sha256(seed.encode()).digest()
+        def pick(values,offset=0): return values[digest[offset % len(digest)] % len(values)]
+        bg=pick([(12,20,39),(24,16,45),(10,31,42),(37,24,15),(18,28,25)],0)
+        accent=pick([(99,213,255),(192,132,252),(245,158,11),(244,63,94),(52,211,153),(229,231,235)],2)
+        skin=pick([(243,201,173),(220,174,139),(185,120,85),(240,208,189),(143,93,69)],4)
+        hair=pick([(17,24,39),(63,36,23),(124,45,18),(245,208,97),(229,231,235),(107,33,168)],6)
+        cloth=pick([(23,32,51),(59,29,43),(23,53,47),(41,32,68),(58,43,27)],8)
+
+        W,H=900,620
+        im=Image.new("RGB",(W,H),bg)
+        glow=Image.new("RGBA",(W,H),(0,0,0,0)); gd=ImageDraw.Draw(glow)
+        for r,a in [(240,20),(190,28),(135,38)]:
+            gd.ellipse((450-r,310-r,450+r,310+r),fill=(*accent,a))
+        glow=glow.filter(ImageFilter.GaussianBlur(20)); im=Image.alpha_composite(im.convert("RGBA"),glow)
+        d=ImageDraw.Draw(im)
+        try: font=ImageFont.truetype("DejaVuSans.ttf",24); small=ImageFont.truetype("DejaVuSans.ttf",16); tiny=ImageFont.truetype("DejaVuSans.ttf",13)
+        except Exception: font=small=tiny=None
+        def txt(xy,text,f,fill): d.text(xy,text,font=f,fill=fill)
+        txt((36,30),bits[0].title() + (" " + bits[2].title() if kind=="character" and len(bits)>2 else ""),font,(245,247,250))
+        if kind=="character":
+            race=bits[0] if bits else "human"; cls=bits[2] if len(bits)>2 else "warrior"; sub=bits[3] if len(bits)>3 else ""
+            txt((36,62),f"{sub.title() or 'Adventurer'}  •  identity-based battle art",small,(184,196,216))
+            # cape/aura
+            d.ellipse((150,115,600,565),outline=(*accent,90),width=5)
+            # race traits behind body
+            if race in {"fae"}:
+                d.polygon([(245,270),(70,190),(110,390),(275,320)],fill=(*accent,80))
+                d.polygon([(555,270),(830,190),(790,390),(525,320)],fill=(*accent,80))
+            if race in {"beastfolk","kitsune","dragonkin"}:
+                d.line((575,390,760,470,720,530),fill=accent,width=24,joint="curve")
+            # legs and boots
+            d.line((340,445,310,560),fill=(31,41,55),width=55)
+            d.line((455,445,490,560),fill=(31,41,55),width=55)
+            d.line((280,565,350,565),fill=(5,10,18),width=24)
+            d.line((455,565,525,565),fill=(5,10,18),width=24)
+            # torso + armor
+            d.polygon([(300,265),(500,265),(545,450),(450,485),(350,485),(255,450)],fill=cloth,outline=accent)
+            d.line((350,300,450,300),fill=accent,width=6)
+            # head
+            d.ellipse((305,120,495,300),fill=skin,outline=accent,width=4)
+            d.pieslice((305,105,495,300),180,355,fill=hair)
+            if race not in {"human","dwarf","golem"}:
+                d.polygon([(325,165),(250,120),(300,205)],fill=hair)
+                d.polygon([(475,165),(550,120),(500,205)],fill=hair)
+            if race in {"tiefling","vampire","dragonkin"}:
+                d.polygon([(345,145),(330,75),(385,125)],fill=(215,208,199))
+                d.polygon([(455,145),(470,75),(415,125)],fill=(215,208,199))
+            # eyes + face
+            eye=(15,23,42) if race not in {"vampire","fae"} else accent
+            d.ellipse((350,185,370,205),fill=eye); d.ellipse((430,185,450,205),fill=eye)
+            d.arc((380,205,420,235),0,180,fill=(127,29,29),width=4)
+            # weapon determined by class
+            if "lancer" in cls:
+                d.line((590,480,700,105),fill=(204,181,138),width=12); d.polygon([(700,85),(682,135),(718,135)],fill=accent)
+            elif "ranger" in cls:
+                d.arc((565,150,735,480),70,290,fill=(204,181,138),width=13); d.line((650,155,650,470),fill=(229,231,235),width=4)
+            elif "engineer" in cls:
+                d.rounded_rectangle((565,245,760,300),18,fill=(156,163,175),outline=accent,width=4); d.rectangle((625,295,675,390),fill=(75,85,99)); d.ellipse((700,255,730,285),fill=accent)
+            elif "rogue" in cls or "assassin" in cls:
+                d.polygon([(585,285),(750,215),(735,255),(590,315)],fill=(219,234,254)); d.rectangle((560,285,625,305),fill=(154,103,63))
+            elif any(x in cls for x in ("mage","cleric","druid","summoner","warlock","necromancer","bard")):
+                d.line((610,480,650,120),fill=(200,177,138),width=12); d.ellipse((625,90,685,150),fill=accent,outline=(245,247,250),width=3)
+            else:
+                d.polygon([(630,90),(690,300),(630,485),(570,300)],fill=(219,234,254),outline=(245,247,250)); d.rectangle((585,295,675,320),fill=(183,121,63))
+            # identity card
+            d.rounded_rectangle((625,405,855,555),20,fill=(255,255,255,18),outline=accent,width=2)
+            txt((650,425),"IDENTITY",small,(245,247,250)); txt((650,452),race.title(),tiny,(184,196,216)); txt((650,476),cls.title(),tiny,(184,196,216)); txt((650,500),sub.title() or "Base",tiny,(184,196,216))
+        elif kind=="pet":
+            species=bits[0] if bits else "companion"; archetype=pick(["wolf","fox","cat","dragon","hawk","spirit","bear"],10)
+            txt((36,62),f"{archetype.title()} companion archetype  •  stable identity art",small,(184,196,216))
+            d.ellipse((230,145,670,565),fill=(*accent,28),outline=accent,width=5)
+            # ears/head/body
+            d.polygon([(300,255),(250,145),(350,205),(550,205),(650,145),(600,255)],fill=cloth,outline=accent)
+            d.ellipse((290,190,610,430),fill=cloth,outline=accent,width=6)
+            d.ellipse((360,285,405,330),fill=accent); d.ellipse((495,285,540,330),fill=accent)
+            d.polygon([(425,350),(450,370),(475,350)],fill=skin)
+            d.arc((400,355,500,425),0,180,fill=(10,15,25),width=12)
+            d.line((355,410,270,520),fill=cloth,width=55); d.line((545,410,630,520),fill=cloth,width=55)
+            d.ellipse((390,125,510,245),fill=(*accent,55),outline=accent,width=4)
+            txt((36,535),species.title(),font,(245,247,250))
+        else:
+            name=bits[0] if bits else "monster"; role=bits[4] if len(bits)>4 else "beast"; archetype=pick(["beast","undead","construct","elemental","demon","insect","humanoid"],14); eye=pick([(239,68,68),(245,158,11),(168,85,247),(34,211,238),(132,204,22)],16)
+            txt((36,62),f"{archetype.title()}  •  {role.title()}  •  persistent mob identity",small,(184,196,216))
+            d.ellipse((185,125,715,570),fill=(*eye,18),outline=accent,width=6)
+            d.polygon([(260,445),(210,275),(275,155),(450,100),(625,155),(690,275),(640,445),(450,510)],fill=cloth,outline=accent,width=7)
+            d.polygon([(310,185),(225,90),(345,145)],fill=cloth,outline=accent); d.polygon([(590,185),(675,90),(555,145)],fill=cloth,outline=accent)
+            d.ellipse((320,235,380,310),fill=eye); d.ellipse((520,235,580,310),fill=eye)
+            d.arc((350,315,550,425),0,180,fill=(5,10,18),width=24)
+            d.line((320,420,215,535),fill=cloth,width=65); d.line((580,420,685,535),fill=cloth,width=65)
+            d.ellipse((395,105,505,215),fill=(*accent,45),outline=accent,width=4)
+            txt((36,535),name.title(),font,(245,247,250))
+
+        out=io.BytesIO(); im.convert("RGB").save(out,format="PNG",optimize=True)
+        return web.Response(body=out.getvalue(),content_type="image/png",headers={"Cache-Control":"public, max-age=86400"})
 
     async def health(self, request):
         return web.json_response({

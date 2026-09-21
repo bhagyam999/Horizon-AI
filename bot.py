@@ -1516,25 +1516,29 @@ def _rpg_embed(title, description=""):
 
 
 def _rpg_image_url(kind, seed):
-    # Deterministic generated artwork: the image changes only when the identity
-    # components supplied in the seed change. No image files or secrets are stored.
-    style = {"character": "adventurer-neutral", "mob": "bottts-neutral", "pet": "fun-emoji"}.get(kind, "bottts-neutral")
-    return f"https://api.dicebear.com/9.x/{style}/png?seed={quote(seed, safe='')}"
+    # Use the live Railway art renderer when SITE_URL is configured. Unlike the
+    # old random-avatar service, the renderer builds a stable full-body scene
+    # from race/class/species identity. DiceBear remains a safe fallback.
+    base=os.getenv("SITE_URL", "").strip().rstrip("/")
+    if base:
+        return f"{base}/api/rpg/art?kind={quote(kind, safe='')}&seed={quote(seed, safe='')}"
+    style = {"character": "adventurer", "mob": "notionists", "pet": "notionists"}.get(kind, "adventurer")
+    return f"https://api.dicebear.com/9.x/{style}/png?seed={quote(seed, safe='')}&backgroundColor=b6e3f4,c0aede,d1d4f9"
 
 
 def _character_image(p):
-    seed="|".join(str(p.get(k) or "none") for k in ("race","subrace"))
-    seed += "|" + str(p.get("class_name") or p.get("class") or "warrior")
-    seed += "|" + str(p.get("subclass") or "none") + "|" + str(p.get("evolution") or "none")
-    return _rpg_image_url("character", seed)
+    parts=[str(p.get(k) or "none") for k in ("race","subrace","class_name","subclass","evolution")]
+    return _rpg_image_url("character", "|".join(parts))
 
 
 def _mob_image(enemy):
-    return _rpg_image_url("mob", str(enemy.get("name","Monster")))
+    parts=[str(enemy.get(k) or "") for k in ("name","level","region","element","role","type")]
+    return _rpg_image_url("mob", "|".join(parts))
 
 
 def _pet_image(pet):
-    return _rpg_image_url("pet", str(pet.get("species","Companion")))
+    parts=[str(pet.get(k) or "") for k in ("species","level","ability","rarity")]
+    return _rpg_image_url("pet", "|".join(parts))
 
 
 def _bar(current, maximum, length=16):
@@ -1993,7 +1997,7 @@ async def rpg_help(ctx):
     await _rpg_delete(ctx)
     pages=[
         _rpg_embed("🌌 Horizon RPG — Start Here", "**Create & preview**\n`!rpg races` — browse races + matchup strengths/weaknesses\n`!rpg race <name>` — full race preview\n`!rpg classes` — browse classes + starter skills\n`!rpg class <name>` — full class preview + skill progression\n`!rpg start <name> <race> <class>` — create your hero\n`!rpg profile` — full character sheet\n\n**Important:** changing race/class/subrace/subclass/path/evolution always asks for confirmation first."),
-        _rpg_embed("⚔️ Horizon RPG — Combat", "`!rpg adventure` — live battle\n`!rpg dungeon [name]` — multi-floor battle\n`!rpg battle @player` — PvP duel\n\n**Battle buttons:** Attack • Skills • Pet Assist • Potion/Food • Defend • Flee\n\n**Skills:** every class has **20 distinct skills**. Start with **3**, then unlock new skills every several levels. Each skill shows damage/healing, MP, cooldown, buffs and debuffs. Only **4 can be active**.\n`!rpg skills` — browse all 20\n`!rpg equip-skill <skill_key> <1-4>` — change active loadout\n\nMatchup bonuses are deliberately small so counters matter without hard-locking a build."),
+        _rpg_embed("⚔️ Horizon RPG — Combat", "`!rpg adventure` — live battle\n`!rpg dungeon [name]` — multi-floor battle\n`!rpg battle @player` — PvP duel\n\n**Battle buttons:** Attack • Skills • Pet Assist • Potion/Food • Defend • Flee\n\n**Skills:** every class has **20 distinct skills**. Start with **3**, then unlock new skills every several levels. Each skill shows damage/healing, MP, cooldown, buffs and debuffs. Only **4 can be active**.\n`!rpg skills` — browse all skills + mastery\n`!rpg skill <skill_key>` — spend Skill Points to master an unlocked skill\n`!rpg stat <stat>` — spend Stat Points on core stats\n`!rpg talents` — view class + race talent trees\n`!rpg talent <class|race> <key>` — spend a Talent Point\n`!rpg equip-skill <skill_key> <1-4>` — change active loadout\n\nMatchup bonuses are deliberately small so counters matter without hard-locking a build."),
         _rpg_embed("🎒 Horizon RPG — Items & Gear", "`!rpg inventory` — your owned items\n`!rpg items [category] [page]` — classified item codex\n`!rpg iteminfo <item_key>` — detailed item inspection\n`!rpg equip <item_key>` — equip gear\n`!rpg use [item_key] [qty]` — consume food/potions\n\nThe world now contains **1,000+ generated items** across weapons, armor, offhands, accessories, rings, amulets, relics, consumables, food, materials, eggs and chests. High-tier gear has level requirements and small percentage bonuses capped per item."),
         _rpg_embed("✨ Horizon RPG — Enchanting & Gacha", "`!rpg gacha` — view rates, pity and Gems\n`!rpg gacha 1` — single pull\n`!rpg gacha 10` — ten-pull\n`!rpg open-chest <key>` — open a gacha chest\n`!rpg enchantments` — see enchant types\n`!rpg enchant <slot> <item> <enchant>` — upgrade equipped gear\n\nGacha uses earned in-game Gems and published rates. Pity guarantees Epic+ at the configured threshold and Mythic at the higher threshold."),
         _rpg_embed("🐾 Horizon RPG — Pets", "`!rpg pets` — full pet inventory\n`!rpg pet` — equipped companion\n`!rpg equip-pet <pet_id>` — switch companions\n`!rpg unequip-pet` — store the active companion\n`!rpg adopt <name>` — starter companion\n`!rpg eggs` — owned eggs\n`!rpg hatch <egg> <name>` — hatch an egg\n`!rpg rename <name>` — rename equipped pet\n`!rpg release` — release equipped pet\n\nPets are now stored as a collection, so switching pets does **not** require releasing the others. Each pet shows its actual ability and passive stats."),
@@ -2651,9 +2655,45 @@ async def rpg_dungeons(ctx):
     await _rpg_delete(ctx)
     pages=_rpg_pages("Dungeon Atlas",DUNGEONS,page_size=4,icon="🏰",formatter=lambda x:f"**{x[0]}**\nLv **{x[1]}+** • **{x[2]} floors** • {x[3]} XP base • {x[4]}g base\n{x[5]}")
     await _rpg_panel(ctx,pages)
+@rpg_root.command(name="stat")
+async def rpg_stat(ctx,stat:str=""):
+    await _rpg_delete(ctx)
+    if not stat:
+        await _rpg_action_panel(ctx,"Stat Points","Use `!rpg stat <attack|defense|speed|crit|hp|mana>` to spend one Stat Point.",False); return
+    ok,msg=await bot.rpg.spend_stat(ctx.guild.id,ctx.author.id,stat); await _rpg_action_panel(ctx,"Stat Point",msg,ok)
+
+
 @rpg_root.command(name="skill")
-async def rpg_skill(ctx,stat:str=""):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.spend_skill(ctx.guild.id,ctx.author.id,stat); await _rpg_action_panel(ctx, "Skill Point", msg, ok)
+async def rpg_skill(ctx,skill_key:str=""):
+    await _rpg_delete(ctx)
+    if not skill_key:
+        await _rpg_action_panel(ctx,"Skill Points","Use `!rpg skill <skill_key>` to spend one Skill Point and raise that unlocked skill's mastery by one rank (max 5).\n\nUse `!rpg skills` to see skill keys and mastery ranks.",False); return
+    ok,msg=await bot.rpg.skill_mastery(ctx.guild.id,ctx.author.id,skill_key); await _rpg_action_panel(ctx,"Skill Mastery",msg,ok)
+
+
+@rpg_root.command(name="talents")
+async def rpg_talents(ctx):
+    await _rpg_delete(ctx)
+    p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
+    if not p:
+        await _rpg_action_panel(ctx,"Talent Trees","Create your hero first with `!rpg start`.",False); return
+    ranks=await bot.rpg.talent_ranks(ctx.guild.id,ctx.author.id)
+    def fmt_node(node,tree):
+        key,name,desc,effect=node; rank=ranks.get((tree,key),0)
+        return f"`{key}` **{name}** · Rank **{rank}/5**\n{desc}"
+    class_nodes=bot.rpg._talent_nodes(p,"class")
+    race_nodes=bot.rpg._talent_nodes(p,"race")
+    pages=[_rpg_embed(f"🌟 {p['class_name'].title()} Talent Tree",f"Unspent Talent Points: **{p.get('talent_points',0)}**\nSpend with `!rpg talent class <talent_key>`\n\n"+"\n\n".join(fmt_node(x,"class") for x in class_nodes)),
+           _rpg_embed(f"🧬 {p['race'].title()} Talent Tree",f"Unspent Talent Points: **{p.get('talent_points',0)}**\nSpend with `!rpg talent race <talent_key>`\n\n"+"\n\n".join(fmt_node(x,"race") for x in race_nodes))]
+    await _rpg_panel(ctx,pages)
+
+
+@rpg_root.command(name="talent")
+async def rpg_talent(ctx,tree:str="",talent_key:str=""):
+    await _rpg_delete(ctx)
+    if not tree or not talent_key:
+        await _rpg_action_panel(ctx,"Talent Point","Use `!rpg talent <class|race> <talent_key>`. See `!rpg talents` for every node and its current rank.",False); return
+    ok,msg=await bot.rpg.spend_talent(ctx.guild.id,ctx.author.id,tree,talent_key); await _rpg_action_panel(ctx,"Talent Point",msg,ok)
 
 
 @rpg_root.command(name="skills")
@@ -2663,16 +2703,18 @@ async def rpg_skills(ctx, page: int = 1):
     if not p:
         await _rpg_action_panel(ctx,"Combat Skills","Create your hero first with `!rpg start`.",False); return
     rows=SKILLS.get(p["class_name"],[])
+    mastery=await bot.rpg.skill_masteries(ctx.guild.id,ctx.author.id)
     loadout=await bot.rpg.skill_loadout(ctx.guild.id,ctx.author.id); active={slot:skill["key"] for slot,skill in loadout if skill}
     def fmt(x):
         unlocked=p["level"]>=x["unlock"]; slots=[str(slot) for slot,key in active.items() if key==x["key"]]
-        atk=max(1,int(p.get("atk",10))); mult=float(x.get("mult",0)); effect=x.get("effect")
+        rank=max(1,int(mastery.get(x["key"],1))) if unlocked else 0
+        atk=max(1,int(p.get("atk",10))); mult=float(x.get("mult",0))*(1+0.035*max(0,rank-1)); effect=x.get("effect")
         if effect=="heal": damage_text="Damage: —"
         elif effect in {"counter","barrier"}: damage_text="Damage: utility"
         else: damage_text=f"Damage: ~{int(atk*mult*.92)}–{int(atk*mult*1.08)} base"
         heal=x.get("heal_pct",0)
         heal_text=f"Heal: ~{int(p.get('max_hp',100)*heal)} HP" if heal else "Heal: —"
-        return (f"`{x['key']}` **{x['name']}** · Unlock Lv **{x['unlock']}** · **{x['cost']} MP** · CD **{x['cooldown']}t**\n"
+        return (f"`{x['key']}` **{x['name']}** · Unlock Lv **{x['unlock']}** · Mastery **{rank}/5** · **{x['cost']} MP** · CD **{x['cooldown']}t**\n"
                 f"{damage_text} • {heal_text}\n"
                 f"Buff: **{x.get('buff_text','None')}** • Debuff: **{x.get('debuff_text','None')}**\n"
                 f"{x['mechanic']}: {x['desc']}\n"
@@ -2680,8 +2722,8 @@ async def rpg_skills(ctx, page: int = 1):
     pages=_rpg_pages(f"{p['class_name'].title()} Skills — 20 Distinct Skills",rows,page_size=4,icon="✨",formatter=fmt)
     # Add loadout overview to the first page.
     if pages:
-        active_text="\n".join(f"**Slot {slot}:** {skill['name']}" for slot,skill in loadout if skill) or "No active skills."
-        pages[0].description=f"**Active 4-skill loadout**\n{active_text}\n\n"+pages[0].description
+        active_text="\n".join(f"**Slot {slot}:** {skill['name']} · Mastery {mastery.get(skill['key'],1)}/5" for slot,skill in loadout if skill) or "No active skills."
+        pages[0].description=f"**Active 4-skill loadout** · Unspent Skill Points: **{p.get('skill_points',0)}**\n{active_text}\n\n`!rpg skill <skill_key>` → spend 1 Skill Point to master a skill.\n\n"+pages[0].description
     await _rpg_panel(ctx,pages)
 
 @rpg_root.command(name="equip-skill", aliases=["equipskill","skill-equip"])

@@ -292,3 +292,11 @@ This release builds on the complete v10.7 project; it is not a reduced rewrite.
 - Skill unlocks are spaced across the level curve rather than every 1-2 levels.
 - Skill views now show approximate damage/healing, MP cost, cooldown, buff and debuff information.
 - Existing progression, gear, pets, gacha, quests, economy, website and AI systems are preserved.
+
+## v10.10 RPG progression and art
+- Stat Points are spent with `!rpg stat <stat>`.
+- Skill Points are spent with `!rpg skill <skill_key>` to raise unlocked skill mastery to Rank 5.
+- Talent Points are spent in separate class and race trees with `!rpg talent class <key>` or `!rpg talent race <key>`; `!rpg talents` shows both trees.
+- Skill mastery gives small bounded scaling improvements rather than replacing level-based unlocks.
+- RPG battle/profile art now uses a deterministic full-body PNG renderer based on race, subrace, class, subclass/evolution, mob identity and pet identity instead of random face-only avatars.
+- The RPG art renderer requires Pillow.
