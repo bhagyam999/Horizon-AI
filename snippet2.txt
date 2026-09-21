@@ -1,0 +1,521 @@
+            "crit": 5 + race["crit"] + cls["crit"],
+        }
+
+    async def player(self, guild_id: int, user_id: int):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM rpg_players WHERE guild_id=? AND user_id=?", (guild_id, user_id))
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def create_player(self, guild_id: int, user_id: int, name: str, race: str, class_name: str):
+        race = race.lower(); class_name = class_name.lower()
+        if race not in RACES or class_name not in CLASSES:
+            raise ValueError("Invalid race or class.")
+        if await self.player(guild_id, user_id):
+            return False, "You already have a hero. Use `!rpg profile` to inspect it."
+        s = self._class_stats(race, class_name)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_players(guild_id,user_id,name,race,class_name,max_hp,hp,max_mp,mp,atk,defense,speed,crit) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                             (guild_id,user_id,name[:32],race,class_name,s["max_hp"],s["max_hp"],s["max_mp"],s["max_mp"],s["atk"],s["defense"],s["speed"],s["crit"]))
+            for item, qty in (("life_potion",3),("mana_potion",2),("iron_sword",1),("iron_armor",1)):
+                await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?)", (guild_id,user_id,item,qty))
+            for slot,skill_key in enumerate(("skill_1","skill_2","skill_3"),1):
+                await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)",(guild_id,user_id,slot,skill_key))
+            await db.commit()
+        return True, f"Hero **{name}** created as a **{race.title()} {class_name.title()}**."
+
+    async def ensure_player(self, guild_id: int, user_id: int):
+        p = await self.player(guild_id, user_id)
+        if not p:
+            return False, "You don't have an RPG character yet. Start with `!rpg start <name> <race> <class>`."
+        return True, p
+
+    async def inventory(self, guild_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute("SELECT item_key,quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND quantity>0 ORDER BY item_key", (guild_id,user_id))
+            return await cur.fetchall()
+
+    async def pet_record(self, guild_id, user_id):
+        # The new pet inventory keeps multiple companions. rpg_pets is retained
+        # as a compatibility cache for older code/databases.
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            cur = await db.execute("SELECT * FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? AND equipped=1 ORDER BY pet_id LIMIT 1", (guild_id, user_id))
+            row = await cur.fetchone()
+            if row:
+                return dict(row)
+            cur = await db.execute("SELECT * FROM rpg_pets WHERE guild_id=? AND user_id=?", (guild_id, user_id))
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+    async def pet_inventory(self, guild_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory = aiosqlite.Row
+            cur=await db.execute("SELECT * FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? ORDER BY equipped DESC, level DESC, pet_id", (guild_id,user_id))
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def _sync_legacy_pet_cache(self, db, guild_id, user_id):
+        await db.execute("DELETE FROM rpg_pets WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+        cur=await db.execute("SELECT name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? AND equipped=1 ORDER BY pet_id LIMIT 1", (guild_id,user_id))
+        row=await cur.fetchone()
+        if row:
+            await db.execute("INSERT INTO rpg_pets(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (guild_id,user_id,*row))
+
+    async def equip_pet(self, guild_id, user_id, pet_id):
+        pets=await self.pet_inventory(guild_id,user_id)
+        chosen=next((p for p in pets if int(p["pet_id"])==int(pet_id)),None)
+        if not chosen:return False,"That pet is not in your pet inventory."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_pet_inventory SET equipped=0 WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+            await db.execute("UPDATE rpg_pet_inventory SET equipped=1 WHERE guild_id=? AND user_id=? AND pet_id=?", (guild_id,user_id,int(pet_id)))
+            await self._sync_legacy_pet_cache(db,guild_id,user_id)
+            await db.commit()
+        return True,f"Equipped **{chosen['name']}** ({chosen['species']})."
+
+    async def unequip_pet(self, guild_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_pet_inventory SET equipped=0 WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+            await self._sync_legacy_pet_cache(db,guild_id,user_id)
+            await db.commit()
+        return True,"Your active pet was placed back into the pet inventory."
+
+    async def unlocked_skills(self, guild_id, user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        return [s for s in SKILLS.get(p["class_name"],[]) if int(s["unlock"])<=int(p["level"])]
+
+    async def equipped_skills(self, guild_id, user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot,skill_key FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? ORDER BY slot", (guild_id,user_id))
+            rows=await cur.fetchall()
+        available={s["key"]:s for s in SKILLS.get(p["class_name"],[]) if int(s["unlock"])<=int(p["level"])}
+        return [available[key] for _,key in rows if key in available][:4]
+
+    async def equip_skill(self, guild_id, user_id, skill_key, slot=1):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        slot=max(1,min(4,int(slot)))
+        skill=self._skill(p["class_name"],skill_key.lower())
+        if not skill:return False,"That skill does not belong to your current class."
+        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND skill_key=?", (guild_id,user_id,skill["key"]))
+            existing=await cur.fetchone()
+            if existing and int(existing[0])!=slot:
+                await db.execute("DELETE FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,int(existing[0])))
+            await db.execute("INSERT INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET skill_key=excluded.skill_key", (guild_id,user_id,slot,skill["key"]))
+            await db.commit()
+        return True,f"Equipped **{skill['name']}** in skill slot **{slot}**."
+
+    async def skill_loadout(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot,skill_key FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? ORDER BY slot", (guild_id,user_id))
+            rows=await cur.fetchall()
+        all_skills={s["key"]:s for s in SKILLS.get(p["class_name"],[])}
+        return [(slot,all_skills.get(key)) for slot,key in rows if all_skills.get(key)]
+
+    async def _pet_bonus(self, guild_id, user_id):
+        pet = await self.pet_record(guild_id, user_id)
+        if not pet:
+            return {"hp": 0, "mp": 0, "atk": 0, "defense": 0, "speed": 0, "crit": 0, "ability": "", "name": "", "species": ""}
+        data = PET_SPECIES.get(pet["species"], {})
+        return {
+            "hp": int(pet.get("bonus_hp", data.get("hp", 0))),
+            "mp": int(pet.get("bonus_mp", 0)),
+            "atk": int(pet.get("bonus_atk", data.get("atk", 0))),
+            "defense": int(pet.get("bonus_def", data.get("def", 0))),
+            "speed": int(pet.get("bonus_speed", data.get("spd", 0))),
+            "crit": int(pet.get("bonus_crit", data.get("crit", 0))),
+            "ability": pet.get("ability") or data.get("ability", "Pounce"),
+            "name": pet.get("name", "Pet"),
+            "species": pet.get("species", "Companion"),
+        }
+
+    async def add_item(self, guild_id, user_id, item_key, quantity=1):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity", (guild_id,user_id,item_key,quantity))
+            await db.commit()
+
+    async def remove_item(self, guild_id, user_id, item_key, quantity=1):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?", (guild_id,user_id,item_key))
+            row = await cur.fetchone()
+            if not row or row[0] < quantity: return False
+            await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?", (quantity,guild_id,user_id,item_key))
+            await db.commit(); return True
+
+    async def add_rewards(self, guild_id, user_id, xp=0, gold=0):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET xp=xp+?, gold=gold+? WHERE guild_id=? AND user_id=?", (xp,gold,guild_id,user_id))
+            cur = await db.execute("SELECT level,xp FROM rpg_players WHERE guild_id=? AND user_id=?", (guild_id,user_id)); p = await cur.fetchone()
+            old_level = p[0]
+            new_level = old_level
+            while p[1] >= self._level_xp(new_level) and new_level < 100: new_level += 1
+            levels = new_level - old_level
+            if levels:
+                # Every level gives automatic growth plus separate Stat, Skill and Talent points.  This makes progression
+                # visible instead of merely changing the number on the sheet.
+                await db.execute(
+                    "UPDATE rpg_players SET level=?, max_hp=max_hp+?, hp=max_hp+?, max_mp=max_mp+?, mp=max_mp+?, atk=atk+?, defense=defense+?, speed=speed+?, skill_points=skill_points+?, stat_points=stat_points+?, talent_points=talent_points+? WHERE guild_id=? AND user_id=?",
+                    (new_level, levels*12, levels*12, levels*5, levels*5, levels*2, levels, levels, levels, levels*3, levels, guild_id, user_id)
+                )
+            await db.commit()
+            return old_level, new_level
+
+    async def _cooldown(self, p, field, seconds):
+        remaining = max(0, seconds - (time.time() - float(p[field])))
+        return remaining
+
+    async def adventure(self, guild_id, user_id):
+        p = await self.player(guild_id,user_id)
+        if not p: return {"error":"Start a character first with `!rpg start`."}
+        remaining = await self._cooldown(p,"last_adventure",45)
+        if remaining > 0: return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
+        enemy = random.choice([e for e in ENEMIES if e["level"] <= p["level"]+3])
+        player_hp = p["hp"]; enemy_hp = enemy["hp"] + max(0,p["level"]-enemy["level"])*8
+        log=[]; turn=0
+        atk = p["atk"]; defense=p["defense"]; speed=p["speed"]
+        while player_hp>0 and enemy_hp>0 and turn<30:
+            turn += 1
+            if random.random() < min(.18, speed/200):
+                log.append("You dodged the enemy's attack.")
+            else:
+                dmg=max(1,enemy["atk"] + random.randint(-2,3) - defense//3); player_hp-=dmg; log.append(f"{enemy['name']} hit you for **{dmg}**.")
+            if player_hp<=0: break
+            crit = random.random() < min(.60,p["crit"]/100)
+            dmg=max(1,atk + random.randint(-2,4) - enemy["def"]//2)
+            if crit: dmg*=2
+            enemy_hp-=dmg; log.append(f"You dealt **{dmg}**{' critical damage' if crit else ''}.")
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET last_adventure=?,hp=? WHERE guild_id=? AND user_id=?", (time.time(),max(1,player_hp),guild_id,user_id)); await db.commit()
+        if player_hp<=0:
+            await self.add_item(guild_id,user_id,"life_potion",1)
+            return {"win":False,"enemy":enemy,"log":log[-8:],"hp":1}
+        xp=enemy["xp"]+random.randint(0,20); gold=enemy["gold"]+random.randint(0,30)
+        await self.add_rewards(guild_id,user_id,xp,gold)
+        drop=random.choice(enemy["drops"])
+        await self.add_item(guild_id,user_id,drop,1)
+        await self.progress_quests(guild_id,user_id,"hunt",1)
+        await self.check_achievements(guild_id,user_id)
+        return {"win":True,"enemy":enemy,"log":log[-8:],"xp":xp,"gold":gold,"drop":drop,"hp":max(1,player_hp)}
+
+    async def daily(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p: return None,"Start your hero first with `!rpg start`."
+        remaining=await self._cooldown(p,"last_daily",86400)
+        if remaining>0: return None,f"Daily reward ready in **{int(remaining//3600)}h {int((remaining%3600)//60)}m**."
+        streak_bonus=random.randint(0,100); xp=150; gold=300+streak_bonus; gems=random.randint(80,140)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET last_daily=?,gold=gold+?,gems=gems+? WHERE guild_id=? AND user_id=?",(time.time(),gold,gems,guild_id,user_id)); await db.commit()
+        old,new=await self.add_rewards(guild_id,user_id,xp,0)
+        await self.add_item(guild_id,user_id,"life_potion",1)
+        return (xp,gold,gems,new),None
+
+    async def use_item(self,guild_id,user_id,item_key,quantity=1):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        item_key=item_key.lower(); item=ITEMS.get(item_key)
+        if not item or item.get("slot") not in {"consumable","food"}:return False,"That item cannot be used this way."
+        quantity=max(1,min(int(quantity),10))
+        if not await self.remove_item(guild_id,user_id,item_key,quantity):return False,"You don't own enough of that item."
+        heal=item.get("heal",0)*quantity; mana=item.get("mana",0)*quantity; stamina=item.get("stamina",0)*quantity
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET hp=min(max_hp,hp+?),mp=min(max_mp,mp+?),stamina=min(100,stamina+?) WHERE guild_id=? AND user_id=?",(heal,mana,stamina,guild_id,user_id)); await db.commit()
+        return True,f"Used **{item['name']} ×{quantity}** — +{heal} HP, +{mana} MP, +{stamina} stamina."
+
+    async def equip(self,guild_id,user_id,item_key):
+        p=await self.player(guild_id,user_id)
+        if not p: return False,"Start a hero first."
+        item_key=item_key.lower().strip(); item=ITEMS.get(item_key)
+        allowed={"weapon","armor","offhand","accessory","ring","amulet","relic"}
+        if not item or item.get("slot") not in allowed: return False,"That item cannot be equipped. Check `!rpg items <category>`."
+        inv=dict(await self.inventory(guild_id,user_id))
+        if inv.get(item_key,0)<1: return False,"You don't own that item."
+        req=int(item.get("level_req",1))
+        if int(p["level"])<req:return False,f"**{item['name']}** requires level **{req}**. You are level **{p['level']}**."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key",(guild_id,user_id,item["slot"],item_key))
+            await db.commit()
+        return True,f"Equipped **{item['name']}** in **{item['slot']}**."
+
+    def _progression_bonus(self, p):
+        bonus={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
+        subrace=p.get("subrace") or ""
+        if subrace in SUBRACES:
+            _, values=SUBRACES[subrace]
+            bonus["hp"]+=values.get("hp",0); bonus["atk"]+=values.get("atk",0); bonus["defense"]+=values.get("def",0)
+            bonus["speed"]+=values.get("spd",0); bonus["crit"]+=values.get("crit",0)
+        subclass=p.get("subclass") or ""
+        if subclass in SUBCLASSES:
+            _,_,values=SUBCLASSES[subclass]
+            bonus["hp"]+=values.get("hp",0); bonus["atk"]+=values.get("atk",0); bonus["defense"]+=values.get("def",0)
+            bonus["speed"]+=values.get("spd",0); bonus["crit"]+=values.get("crit",0); bonus["mp"]+=values.get("mp",0)
+        if p.get("evolution"):
+            tier=2 if p["level"]>=35 else 1
+            bonus["atk"]+=4*tier; bonus["defense"]+=2*tier; bonus["hp"]+=15*tier; bonus["mp"]+=10*tier; bonus["crit"]+=2*tier
+        return bonus
+
+    async def stats(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return None
+        gear={}
+        enchants=[]
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=dict(await cur.fetchall())
+            cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=?",(guild_id,user_id)); enchants=await cur.fetchall()
+        bonus=self._progression_bonus(p)
+        pct={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
+        for key in gear.values():
+            item=ITEMS.get(key,{})
+            bonus["atk"]+=item.get("atk",0); bonus["defense"]+=item.get("def",0); bonus["hp"]+=item.get("hp",0); bonus["mp"]+=item.get("mp",0); bonus["speed"]+=item.get("spd",0); bonus["crit"]+=item.get("crit",0)
+            pct["atk"]+=min(10,int(item.get("pct_atk",0))); pct["defense"]+=min(10,int(item.get("pct_def",0))); pct["hp"]+=min(10,int(item.get("pct_hp",0))); pct["mp"]+=min(10,int(item.get("pct_mp",0))); pct["speed"]+=min(10,int(item.get("pct_speed",0))); pct["crit"]+=min(10,int(item.get("pct_crit",0)))
+        for slot,enchant_key,level in enchants:
+            e=ENCHANTMENTS.get(enchant_key,{})
+            stat=e.get("stat"); value=int(e.get("pct",0))*int(level)
+            if stat=="atk":pct["atk"]+=value
+            elif stat=="def":pct["defense"]+=value
+            elif stat=="hp":pct["hp"]+=value
+            elif stat=="mp":pct["mp"]+=value
+            elif stat=="speed":pct["speed"]+=value
+            elif stat=="crit":pct["crit"]+=value
+        # Percentage bonuses are capped per source at 10%, while the aggregate
+        # cap remains controlled enough to avoid gear invalidating class choice.
+        pct={k:min(10,v) for k,v in pct.items()}
+        bonus["pct"] = pct
+        pet_bonus=await self._pet_bonus(guild_id,user_id)
+        bonus["atk"]+=pet_bonus["atk"]; bonus["defense"]+=pet_bonus["defense"]; bonus["hp"]+=pet_bonus["hp"]; bonus["mp"]+=pet_bonus["mp"]; bonus["speed"]+=pet_bonus["speed"]; bonus["crit"]+=pet_bonus["crit"]
+        return p,gear,bonus
+
+    async def change_identity(self,guild_id,user_id,kind,value):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        kind=kind.lower(); value=value.lower().strip()
+        costs={"race":1500,"class":1200,"subrace":2200,"subclass":3000,"path":1800,"evolution":5000}
+        if kind not in costs:return False,"Change one of: race, subrace, class, subclass, path, evolution."
+        if kind=="race":
+            if value not in RACES:return False,f"Unknown race. Use `!rpg races`."
+            if value==p["race"]:return False,"You already are that race."
+            updates={"race":value,"subrace":""}
+        elif kind=="class":
+            if value not in CLASSES:return False,"Unknown class. Use `!rpg classes`."
+            if value==p["class_name"]:return False,"You already have that class."
+            updates={"class_name":value,"subclass":"","evolution":""}
+        elif kind=="subrace":
+            if value not in SUBRACES:return False,"Unknown subrace. Use `!rpg subraces`."
+            parent,_=SUBRACES[value]
+            if parent!=p["race"]:return False,f"That subrace belongs to **{parent.title()}**, not {p['race'].title()}."
+            updates={"subrace":value}
+        elif kind=="subclass":
+            if value not in SUBCLASSES:return False,"Unknown subclass. Use `!rpg subclasses`."
+            parent,_,_=SUBCLASSES[value]
+            if parent!=p["class_name"]:return False,f"That subclass requires **{parent.title()}**."
+            if p["level"]<10:return False,"Subclasses unlock at level **10**."
+            updates={"subclass":value,"evolution":""}
+        elif kind=="path":
+            if value not in LIFE_PATHS:return False,"Unknown life path. Use `!rpg paths`."
+            updates={"life_path":value}
+        else:
+            evolutions=[name for lvl,name in CLASS_EVOLUTIONS.get(p["class_name"],[]) if p["level"]>=lvl]
+            if value not in evolutions:return False,"That evolution is not unlocked for your class and level."
+            updates={"evolution":value}
+        cost=costs[kind]
+        if p["gold"]<cost:return False,f"Changing your {kind} costs **{cost} gold**. You have {p['gold']}."
+        new_race=updates.get("race",p["race"]); new_class=updates.get("class_name",p["class_name"])
+        old_base=self._class_stats(p["race"],p["class_name"]); new_base=self._class_stats(new_race,new_class)
+        growth=p["level"]-1
+        old_atk=old_base["atk"]+growth*2; old_def=old_base["defense"]+growth; old_spd=old_base["speed"]+growth; old_hp=old_base["max_hp"]+growth*12; old_mp=old_base["max_mp"]+growth*5
+        keep_atk=max(0,p["atk"]-old_atk); keep_def=max(0,p["defense"]-old_def); keep_spd=max(0,p["speed"]-old_spd); keep_hp=max(0,p["max_hp"]-old_hp); keep_mp=max(0,p["max_mp"]-old_mp)
+        new_max_hp=new_base["max_hp"]+growth*12+keep_hp; new_max_mp=new_base["max_mp"]+growth*5+keep_mp
+        new_atk=new_base["atk"]+growth*2+keep_atk; new_def=new_base["defense"]+growth+keep_def; new_spd=new_base["speed"]+growth+keep_spd
+        fields=", ".join(f"{k}=?" for k in updates)
+        vals=list(updates.values())+[p["gold"]-cost,new_max_hp,new_max_mp,new_atk,new_def,new_spd,max(1,min(p["hp"],new_max_hp)),max(0,min(p["mp"],new_max_mp)),guild_id,user_id]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(f"UPDATE rpg_players SET {fields}, gold=?, max_hp=?, max_mp=?, atk=?, defense=?, speed=?, hp=?, mp=? WHERE guild_id=? AND user_id=?",vals)
+            await db.commit()
+        return True,f"Your **{kind}** changed to **{value.replace('_',' ').title()}** for **{cost} gold**."
+
+    async def spend_stat(self,guild_id,user_id,stat,amount=1):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        amount=max(1,min(int(amount),25)); stat=stat.lower()
+        mapping={"attack":"atk","atk":"atk","defense":"defense","def":"defense","speed":"speed","spd":"speed","crit":"crit","hp":"max_hp","mana":"max_mp","mp":"max_mp"}
+        column=mapping.get(stat)
+        if not column:return False,"Choose attack, defense, speed, crit, hp or mana."
+        if p["stat_points"]<amount:return False,f"You only have **{p['stat_points']} stat points**."
+        gain=amount*5 if column in {"max_hp","max_mp"} else amount
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(f"UPDATE rpg_players SET {column}={column}+?, stat_points=stat_points-? WHERE guild_id=? AND user_id=?",(gain,amount,guild_id,user_id)); await db.commit()
+        return True,f"Spent **{amount}** stat point(s) on **{stat}** (+{gain})."
+
+    async def create_guild(self,guild_id,user_id,name):
+        if await self.player(guild_id,user_id) is None:return False,"Create an RPG character first."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT 1 FROM rpg_guilds WHERE guild_id=? AND lower(name)=lower(?)",(guild_id,name));
+            if await cur.fetchone(): return False,"A guild with that name already exists."
+            await db.execute("INSERT INTO rpg_guilds(guild_id,name,leader_id,created_at) VALUES(?,?,?,?)",(guild_id,name[:32],user_id,time.time()))
+            await db.execute("INSERT INTO rpg_guild_members VALUES(?,?,?,?,?)",(guild_id,name[:32],user_id,"leader",time.time()))
+            await db.execute("UPDATE rpg_players SET guild_name=? WHERE guild_id=? AND user_id=?",(name[:32],guild_id,user_id)); await db.commit()
+        await self.check_achievements(guild_id,user_id)
+        return True,f"Guild **{name}** created. You are its leader."
+
+    async def guilds(self,guild_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT name,leader_id,level,xp,bank FROM rpg_guilds WHERE guild_id=? ORDER BY level DESC,name",(guild_id,)); return await cur.fetchall()
+
+    async def join_guild(self,guild_id,user_id,name):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT name FROM rpg_guilds WHERE guild_id=? AND lower(name)=lower(?)",(guild_id,name)); g=await cur.fetchone()
+            if not g:return False,"Guild not found."
+            await db.execute("DELETE FROM rpg_guild_members WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            await db.execute("INSERT INTO rpg_guild_members VALUES(?,?,?,?,?)",(guild_id,g[0],user_id,"member",time.time()))
+            await db.execute("UPDATE rpg_players SET guild_name=? WHERE guild_id=? AND user_id=?",(g[0],guild_id,user_id)); await db.commit()
+        return True,f"Joined **{g[0]}**."
+
+    async def guild_info(self,guild_id,name=None,user_id=None):
+        async with aiosqlite.connect(self.path) as db:
+            if name:
+                cur=await db.execute("SELECT * FROM rpg_guilds WHERE guild_id=? AND lower(name)=lower(?)",(guild_id,name))
+            else:
+                if user_id is not None:
+                    cur=await db.execute("SELECT g.* FROM rpg_guilds g JOIN rpg_guild_members m ON g.guild_id=m.guild_id AND g.name=m.guild_name WHERE m.guild_id=? AND m.user_id=? LIMIT 1",(guild_id,user_id))
+                else:
+                    cur=await db.execute("SELECT * FROM rpg_guilds WHERE guild_id=? ORDER BY level DESC LIMIT 1",(guild_id,))
+            row=await cur.fetchone();
+            if not row:return None
+            cur=await db.execute("SELECT user_id,rank FROM rpg_guild_members WHERE guild_id=? AND guild_name=?",(guild_id,row[1])); members=await cur.fetchall()
+            return row,members
+
+    async def leave_guild(self,guild_id,user_id):
+        info=await self.guild_info(guild_id,user_id=user_id)
+        if not info:return False,"You are not in a guild."
+        g,members=info
+        if g[2]==user_id:
+            return False,"The guild leader cannot leave. Transfer leadership or create a new guild."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("DELETE FROM rpg_guild_members WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            await db.execute("UPDATE rpg_players SET guild_name='' WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            await db.commit()
+        return True,f"You left **{g[1]}**."
+
+    async def create_party(self,guild_id,user_id,name):
+        if not await self.player(guild_id,user_id):return False,"Create a hero first."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id FROM rpg_parties WHERE guild_id=? AND leader_id=? AND status='open'",(guild_id,user_id));
+            if await cur.fetchone():return False,"You already lead an open party."
+            cur=await db.execute("INSERT INTO rpg_parties(guild_id,name,leader_id,created_at) VALUES(?,?,?,?)",(guild_id,name[:32],user_id,time.time())); pid=cur.lastrowid
+            await db.execute("INSERT INTO rpg_party_members VALUES(?,?,?)",(pid,user_id,"leader")); await db.commit()
+        return True,f"Party **{name}** created. Party ID: `{pid}`. Others can `!rpg party join {pid}`."
+
+    async def party_info(self,guild_id,pid=None,user_id=None):
+        async with aiosqlite.connect(self.path) as db:
+            if pid is not None: cur=await db.execute("SELECT * FROM rpg_parties WHERE guild_id=? AND id=?",(guild_id,pid))
+            else: cur=await db.execute("SELECT p.* FROM rpg_parties p JOIN rpg_party_members m ON p.id=m.party_id WHERE p.guild_id=? AND m.user_id=? AND p.status='open' LIMIT 1",(guild_id,user_id))
+            party=await cur.fetchone()
+            if not party:return None
+            cur=await db.execute("SELECT user_id,role FROM rpg_party_members WHERE party_id=?",(party[0],)); members=await cur.fetchall(); return party,members
+
+    async def join_party(self,guild_id,user_id,pid):
+        info=await self.party_info(guild_id,pid=pid)
+        if not info:return False,"Party not found."
+        party,members=info
+        if party[4]!="open":return False,"That party is already running."
+        if len(members)>=4:return False,"Party is full (4 players)."
+        if any(m[0]==user_id for m in members):return False,"You are already in this party."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_party_members VALUES(?,?,?)",(pid,user_id,"member")); await db.commit()
+        return True,f"Joined **{party[1]}**."
+
+    async def leave_party(self,guild_id,user_id):
+        info=await self.party_info(guild_id,user_id=user_id)
+        if not info:return False,"You are not in an open party."
+        party,members=info
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("DELETE FROM rpg_party_members WHERE party_id=? AND user_id=?",(party[0],user_id))
+            if party[3]==user_id:
+                await db.execute("UPDATE rpg_parties SET status='closed' WHERE id=?",(party[0],))
+            await db.commit()
+        return True,"You left the party."
+
+    async def quest_seed(self,guild_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT COUNT(*) FROM rpg_quests WHERE guild_id=? AND expires_at>?",(guild_id,time.time())); count=(await cur.fetchone())[0]
+            if count>=8:return
+            templates=[
+                ("daily","Wolf Hunt","Defeat 3 enemies.",1,3,"hunt",180,260,"wolf_pelt",2),
+                ("daily","Gatherer","Collect 3 materials from adventures.",1,3,"gather",160,220,"herb",2),
+                ("daily","Dungeon Call","Clear a dungeon floor.",1,1,"dungeon",250,350,"life_potion",2),
+                ("weekly","Champion's Path","Win 8 battles or adventures.",5,8,"hunt",800,1200,"arcane_shard",2),
+            ]
+            for kind,title,desc,lvl,target,ptype,xp,gold,item,qty in templates:
+                await db.execute("INSERT INTO rpg_quests(guild_id,kind,title,description,level_req,target,progress_type,reward_xp,reward_gold,reward_item,reward_qty,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",(guild_id,kind,title,desc,lvl,target,ptype,xp,gold,item,qty,time.time()+86400*(7 if kind=='weekly' else 1)))
+            await db.commit()
+
+    async def quests(self,guild_id,user_id):
+        await self.quest_seed(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT q.id,q.title,q.description,q.level_req,q.target,q.progress_type,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty,COALESCE(p.progress,0),COALESCE(p.status,'available') FROM rpg_quests q LEFT JOIN rpg_player_quests p ON q.id=p.quest_id AND p.guild_id=? AND p.user_id=? WHERE q.guild_id=? AND q.expires_at>? ORDER BY q.kind,q.id",(guild_id,user_id,guild_id,time.time())); return await cur.fetchall()
+
+    async def accept_quest(self,guild_id,user_id,qid):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id,level_req FROM rpg_quests WHERE guild_id=? AND id=?",(guild_id,qid)); q=await cur.fetchone()
+            if not q:return False,"Quest not found."
+            if p["level"]<q[1]:return False,f"You need level {q[1]}."
+            cur=await db.execute("SELECT status FROM rpg_player_quests WHERE guild_id=? AND user_id=? AND quest_id=?",(guild_id,user_id,qid)); existing=await cur.fetchone()
+            if existing:
+                if existing[0]=="claimed":return False,"You already claimed this quest."
+                if existing[0]=="active":return False,"Quest is already active."
+                if existing[0]=="complete":return False,"Quest is complete. Claim your reward."
+            await db.execute("INSERT INTO rpg_player_quests(guild_id,user_id,quest_id,progress,status) VALUES(?,?,?,?,?)",(guild_id,user_id,qid,0,"active")); await db.commit()
+        return True,"Quest accepted."
+
+    async def progress_quests(self,guild_id,user_id,ptype,amount=1):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                """UPDATE rpg_player_quests
+                   SET progress=MIN(progress+?, (SELECT target FROM rpg_quests WHERE id=quest_id)),
+                       status=CASE WHEN progress+? >= (SELECT target FROM rpg_quests WHERE id=quest_id) THEN 'complete' ELSE 'active' END
+                   WHERE guild_id=? AND user_id=? AND status='active'
+                     AND quest_id IN (SELECT id FROM rpg_quests WHERE progress_type=?)""",
+                (amount,amount,guild_id,user_id,ptype),
+            )
+            await db.commit()
+
+    async def claim_quest(self,guild_id,user_id,qid):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT q.target,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty,p.progress,p.status FROM rpg_quests q JOIN rpg_player_quests p ON q.id=p.quest_id WHERE q.guild_id=? AND q.id=? AND p.user_id=?",(guild_id,qid,user_id)); row=await cur.fetchone()
+            if not row:return False,"Quest not active."
+            target,xp,gold,item,qty,progress,status=row
+            if status not in {"active","complete"}:return False,"Quest has already been claimed."
+            if progress<target:return False,f"Progress: {progress}/{target}."
+            await db.execute("UPDATE rpg_player_quests SET status='claimed' WHERE guild_id=? AND user_id=? AND quest_id=?",(guild_id,user_id,qid)); await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(gold,guild_id,user_id)); await db.commit()
+        await self.add_rewards(guild_id,user_id,xp,0)
+        if item: await self.add_item(guild_id,user_id,item,qty)
+        return True,f"Quest complete: **+{xp} XP**, **+{gold} gold**" + (f", **{ITEMS[item]['name']} ×{qty}**" if item else "")
+
+    async def check_achievements(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return []
+        inv=await self.inventory(guild_id,user_id)
+        unlocked=[]
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT achievement_key FROM rpg_achievements WHERE guild_id=? AND user_id=?",(guild_id,user_id)); existing={r[0] for r in await cur.fetchall()}
+            checks={"first_blood":p["xp"]>0,"level_10":p["level"]>=10,"collector":len(inv)>=10,"legend":p["level"]>=25}
+            cur=await db.execute("SELECT 1 FROM rpg_guild_members WHERE guild_id=? AND user_id=? AND rank='leader'",(guild_id,user_id)); checks["guild_founder"]=bool(await cur.fetchone())
+            # Dungeon achievement is awarded by the dungeon command through this helper flag.
+            cur=await db.execute("SELECT 1 FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key='dragon_trophy'",(guild_id,user_id)); checks["dungeon_clear"]=bool(await cur.fetchone())
+            for key,ok in checks.items():
+                if ok and key not in existing:
+                    await db.execute("INSERT INTO rpg_achievements VALUES(?,?,?,?)",(guild_id,user_id,key,time.time())); unlocked.append(ACHIEVEMENTS[key])
+            await db.commit()
+        return unlocked
+
+    async def achievement_list(self,guild_id,user_id):

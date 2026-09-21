@@ -5,6 +5,7 @@ import os
 import random
 import re
 import shlex
+import time
 from urllib.parse import quote
 import aiosqlite
 
@@ -1717,6 +1718,7 @@ def _combat_embed(state, result=None):
     stats=state.get("combat_stats",{})
     mode="🏰 Dungeon" if state["mode"]=="dungeon" else "🗺️ Adventure"
     floor=f" • Floor {state['floor']}/{state['floors']}" if state["mode"]=="dungeon" else ""
+    boss_tag=" 👑 BOSS" if enemy.get("is_boss") else ""
     pet=state.get("pet",{}) or {}
     skill_cds=state.get("skill_cooldowns",{})
     skill_lines=[]
@@ -1741,6 +1743,9 @@ def _combat_embed(state, result=None):
         desc += f"\n\n🐾 **{pet['name']}** · {pet.get('species','Companion')}\n+{pet.get('atk',0)} ATK · +{pet.get('defense',0)} DEF · +{pet.get('hp',0)} HP · +{pet.get('speed',0)} SPD · +{pet.get('crit',0)}% Crit\nAbility: **{pet.get('ability','Pet Assist')}**" + (f" · Ready in {pet_cd}" if pet_cd else " · **READY**")
     if skill_lines:
         desc += "\n\n✨ **Skills**\n" + "\n".join(skill_lines)
+    statuses=bot.rpg._status_summary(state.get("enemy_statuses",{})) if hasattr(bot.rpg,"_status_summary") else "None"
+    desc += f"\n\n🧿 **Enemy Status:** {statuses}"
+    if state.get("combo",0): desc += f"\n🔗 **Combo:** x{state.get('combo',0)}"
     desc += "\n\n" + "\n".join(f"• {line}" for line in state["log"][-5:])
     if result and result.get("finished"):
         if result.get("win"):
@@ -2151,6 +2156,75 @@ async def rpg_travel(ctx, *, area: str = ""):
     await _rpg_action_panel(ctx, "Travel", msg, ok)
 
 
+@rpg_root.command(name="map", aliases=["worldmap", "atlas"])
+async def rpg_map(ctx):
+    await _rpg_delete(ctx)
+    data=await bot.rpg.world_map(ctx.guild.id,ctx.author.id)
+    if not data:
+        await _rpg_action_panel(ctx,"World Map","Create your hero first with `!rpg start`.",False); return
+    current,discovered=data
+    rows=[]
+    ordered=sorted(AREAS.items(), key=lambda kv:(int(kv[1].get("level",1)),kv[0]))
+    for key,area in ordered:
+        marker="📍" if key==current else ("🟢" if key in discovered else "🔒")
+        routes=bot.rpg.__class__.__dict__.get("_dummy",None)
+        rows.append((key,area))
+    pages=_rpg_pages("🌎 World Map",rows,page_size=5,icon="🗺️",formatter=lambda x:(f"**{'📍' if x[0]==current else ('🟢' if x[0] in discovered else '🔒')} {x[1]['name']}** — `{x[0]}`\nLv {x[1]['level']}+ • {x[1]['type'].title()}\n{x[1]['desc']}"))
+    await _rpg_panel(ctx,pages)
+
+@rpg_root.command(name="explore")
+async def rpg_explore(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.explore(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx,"🧭 Exploration",msg,ok)
+
+@rpg_root.command(name="dungeons", aliases=["dungeonlist"])
+async def rpg_dungeons(ctx):
+    await _rpg_delete(ctx)
+    rows=[(d[0],d) for d in DUNGEONS]
+    def fmt(x):
+        d=x[1]; boss=bot.rpg.__class__  # keep formatter deterministic
+        from rpg import DUNGEON_BOSSES
+        return f"**{d[0]}** — `{d[0].lower().replace(' ','_')}`\nLv **{d[1]}+** • {d[2]} floors • +{d[3]} base XP • +{d[4]} base Gold\n👑 Boss: **{DUNGEON_BOSSES.get(d[0],'Unknown')}**\n{d[5]}"
+    await _rpg_panel(ctx,_rpg_pages("🏰 Dungeon Atlas",rows,page_size=3,icon="🏰",formatter=fmt))
+
+@rpg_root.command(name="objectives", aliases=["goals", "tasks"])
+async def rpg_objectives(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.objectives(ctx.guild.id,ctx.author.id)
+    def fmt(x):
+        period,key,title,desc,target,progress,xp,gold,item,qty,claimed,period_key=x
+        state="CLAIMED" if claimed else ("READY" if progress>=target else f"{progress}/{target}")
+        reward=f"+{xp} XP • +{gold}g" + (f" • {ITEMS.get(item,{'name':item}).get('name',item)} ×{qty}" if item else "")
+        return f"**{title}** · {period.title()} · **{state}**\n{desc}\nReward: {reward}\nKey: `{key}`"
+    pages=_rpg_pages("🎯 Daily & Weekly Objectives",rows,page_size=4,icon="🎯",formatter=fmt)
+    await _rpg_panel(ctx,pages)
+
+@rpg_root.command(name="objective")
+async def rpg_objective_claim(ctx,key:str=""):
+    await _rpg_delete(ctx)
+    if not key:
+        await _rpg_action_panel(ctx,"Objective","Use `!rpg objective <objective_key>` to claim a completed objective. See `!rpg objectives`.",False); return
+    ok,msg=await bot.rpg.claim_objective(ctx.guild.id,ctx.author.id,key.lower()); await _rpg_action_panel(ctx,"🎯 Objective Reward",msg,ok)
+
+@rpg_root.group(name="worldboss", invoke_without_command=True)
+async def rpg_worldboss(ctx):
+    await _rpg_delete(ctx)
+    event=await bot.rpg.world_boss_active(ctx.guild.id)
+    if not event:
+        await _rpg_action_panel(ctx,"🌎 World Boss","No world boss is active. Use `!rpg worldboss spawn` to summon one.",False); return
+    eid,gid,event_key,name,desc,area,level,max_hp,hp,status,started,expires,created_by=event
+    remaining=max(0,int(expires-time.time()))
+    e=_rpg_embed(f"🌎 WORLD BOSS — {name}",f"👑 Level **{level}**\n❤️ **{hp:,}/{max_hp:,} HP**\n📍 **{AREAS.get(area,{'name':area})['name']}**\n⏳ {remaining//60}m {remaining%60}s remaining\n\n{desc}\n\n`!rpg worldboss attack` — basic attack\n`!rpg worldboss attack <skill_key>` — use an equipped skill")
+    e.set_image(url=_mob_image({'name':name,'level':level,'type':'boss','element':'world','role':'boss'}))
+    await _rpg_panel(ctx,[e])
+
+@rpg_worldboss.command(name="spawn")
+async def rpg_worldboss_spawn(ctx, template:str=""):
+    await _rpg_delete(ctx); ok,msg,event=await bot.rpg.world_boss_spawn(ctx.guild.id,ctx.author.id,template.lower() or None); await _rpg_action_panel(ctx,"🌎 World Boss",msg,ok)
+
+@rpg_worldboss.command(name="attack")
+async def rpg_worldboss_attack(ctx, *, skill_key:str=""):
+    await _rpg_delete(ctx); ok,msg,event=await bot.rpg.world_boss_attack(ctx.guild.id,ctx.author.id,skill_key.strip()); await _rpg_action_panel(ctx,"⚔️ World Boss Attack",msg,ok)
+
 @rpg_root.command(name="profile", aliases=["character", "sheet"])
 async def rpg_profile(ctx):
     await _rpg_delete(ctx)
@@ -2413,17 +2487,17 @@ async def rpg_quests(ctx):
     await _rpg_delete(ctx)
     rows=await bot.rpg.quests(ctx.guild.id,ctx.author.id)
     def fmt(x):
-        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status=x
+        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status,kind,chain_key,chain_step=x
         mark="🟢" if status=="active" else "⚪" if status=="available" else "✅"
         reward=f"+{xp} XP • +{gold}g" + (f" • {ITEMS.get(item,{'name':item})['name']} ×{qty}" if item else "")
-        return f"{mark} **#{qid} {title}**\n{desc}\nLv {lvl}+ • Progress **{progress}/{target}** • {reward}"
+        return f"{mark} **#{qid} {title}**" + (f" · Story {chain_step}" if kind=="story" else "") + f"\n{desc}\nLv {lvl}+ • Progress **{progress}/{target}** • {reward}"
     pages=_rpg_pages("Quest Board",rows,page_size=4,icon="📜",formatter=fmt)
     options=[(str(q[0]),q[1],f"{q[11].title()} • {q[10]}/{q[4]}") for q in rows[:25]]
     async def info(interaction,value):
         q=next((x for x in rows if str(x[0])==value),None)
         if not q:
             await interaction.response.send_message("Quest not found.",ephemeral=True); return
-        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status=q
+        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status,kind,chain_key,chain_step=q
         reward=f"+{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{'name':item})['name']} ×{qty}" if item else "")
         e=_rpg_embed(f"📜 Quest #{qid} — {title}",f"{desc}\n\n**Required:** Level {lvl}+\n**Progress:** {progress}/{target}\n**Status:** {status.title()}\n**Reward:** {reward}\n\nAccept: `!rpg quest accept {qid}`\nClaim: `!rpg quest claim {qid}`")
         await interaction.response.send_message(embed=e,ephemeral=True)
@@ -2447,7 +2521,7 @@ async def rpg_quest(ctx,quest_id:int=0):
     q=next((x for x in rows if x[0]==quest_id),None)
     if not q:
         await _rpg_action_panel(ctx,"Quest","Quest not found.",False); return
-    qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status=q
+    qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status,kind,chain_key,chain_step=q
     reward=f"+{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{"name":item})['name']} ×{qty}" if item else "")
     e=_rpg_embed(f"📜 Quest #{qid} — {title}",f"{desc}\n\n**Required:** Level {lvl}+\n**Progress:** {min(progress,target)}/{target}\n**Status:** {status.title()}\n**Reward:** {reward}\n\nAccept: `!rpg quest accept {qid}`\nClaim: `!rpg quest claim {qid}`")
     await _rpg_panel(ctx,[e])

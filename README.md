@@ -315,3 +315,46 @@ This release builds on the complete v10.7 project; it is not a reduced rewrite.
 - Existing legacy elemental item keys remain valid for old inventories/trades, but display as neutral archive/base items with no embedded enchantment.
 - `!rpg iteminfo <item_key>` now provides the **Full Preview**, including base stats, empty enchantment slots, and every enchantment compatible with that equipment slot.
 - Enchantment application now validates slot compatibility before spending gold.
+
+## v10.14 Phase 1 — Living World RPG
+
+Phase 1 connects the existing RPG systems into a more active MMORPG-style world while preserving the existing economy, trading, pets, gear, talents, skills, guilds, parties, kingdoms and website.
+
+### World map and exploration
+- Added a connected 48-area world graph used by the World Map and Exploration systems.
+- `!rpg map` / `!rpg worldmap` shows the current region, discovered regions and locked regions.
+- `!rpg explore` discovers nearby level-appropriate regions and rewards exploration.
+- Travel now records discovered regions and advances exploration quests/objectives.
+
+### Multi-floor dungeons
+- Expanded the dungeon atlas from 3 dungeons to 17 dungeons across the full level curve.
+- Every dungeon has a final-floor boss with a unique identity.
+- Final floors use stronger boss HP/ATK/DEF scaling and display a boss marker.
+- Floor transitions restore a controlled amount of HP/MP and reset combat statuses/combos.
+- `!rpg dungeons` lists dungeon requirements, floors, rewards and bosses.
+
+### Status effects and combat combos
+- Added persistent combat status tracking for Bleed, Poison, Burn, Freeze, Stun, Vulnerable and Weaken-style effects.
+- Damage-over-time statuses tick independently and expire cleanly.
+- Freeze can occasionally stun an enemy; weakened/silenced enemies deal reduced damage.
+- Combat UI now displays active enemy statuses and the current combo counter.
+- Added bounded skill-combo chains so compatible skill sequences can create small bonus damage without one-shotting enemies.
+
+### World bosses
+- Added persistent server-wide world boss events with 60-minute lifetimes.
+- `!rpg worldboss` shows the active boss.
+- `!rpg worldboss spawn` starts a world boss when none is active.
+- `!rpg worldboss attack` performs a basic attack; `!rpg worldboss attack <skill_key>` uses an equipped skill.
+- Boss HP, contribution damage and attack cooldowns are persisted in SQLite.
+- Bosses change phases as HP falls and grant contribution rewards when defeated, with additional rewards for top contributors.
+
+### Story quest chains
+- Added three persistent multi-step story chains with prerequisites, rewards and world-boss/dungeon/exploration objectives.
+- Story steps must be completed in order instead of being claimable all at once.
+- Existing daily/weekly quest behavior remains compatible.
+
+### Daily and weekly objectives
+- Added persistent daily and weekly objective boards.
+- `!rpg objectives` shows current progress and rewards.
+- `!rpg objective <key>` claims a completed objective.
+- Hunt, exploration, dungeon, gathering and world-boss activity automatically advances the relevant objectives.
