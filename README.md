@@ -308,3 +308,12 @@ This release builds on the complete v10.7 project; it is not a reduced rewrite.
 - Added persistent trade tables and indexes; existing RPG databases migrate automatically through `CREATE TABLE IF NOT EXISTS` during startup.
 - Replaced the previous simple procedural RPG art with a larger 1024×1024 identity renderer featuring layered lighting, gradients, particles, magic circles, armor/weapon silhouettes, race traits, class-specific weapons, pet archetypes, mob roles/elements and dedicated gear/item renders. The renderer remains deterministic so the same identity stays visually consistent.
 - RPG art URLs now include a renderer version so Discord can refresh previously cached images after deployment.
+
+## v10.12 — Cinematic RPG AI Art
+- RPG art now uses Gemini native image generation when `GEMINI_API_KEY` is available.
+- Default image model: `gemini-3.1-flash-image`; override with `GEMINI_IMAGE_MODEL`.
+- The supplied Log Horizon visual reference is used only for broad dark-fantasy MMORPG presentation; generated subjects are original and contain no copied UI/text/logo.
+- Generated art is cached under `/data/rpg_art_cache` on Railway so the same RPG identity keeps the same cinematic artwork.
+- First request returns a deterministic fallback quickly if generation is still running; later requests automatically use the cached AI render.
+- Optional settings: `RPG_ART_AI=1`, `RPG_ART_FIRST_WAIT=8`, `RPG_ART_AI_TIMEOUT=35`.
+- The bot now requests art URLs with cache version `v=4`.

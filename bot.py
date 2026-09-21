@@ -1521,7 +1521,7 @@ def _rpg_image_url(kind, seed):
     # from race/class/species identity. DiceBear remains a safe fallback.
     base=os.getenv("SITE_URL", "").strip().rstrip("/")
     if base:
-        return f"{base}/api/rpg/art?kind={quote(kind, safe='')}&seed={quote(seed, safe='')}&v=3"
+        return f"{base}/api/rpg/art?kind={quote(kind, safe='')}&seed={quote(seed, safe='')}&v=4"
     style = {"character": "adventurer", "mob": "notionists", "pet": "notionists"}.get(kind, "adventurer")
     return f"https://api.dicebear.com/9.x/{style}/png?seed={quote(seed, safe='')}&backgroundColor=b6e3f4,c0aede,d1d4f9"
 
