@@ -308,3 +308,10 @@ This release builds on the complete v10.7 project; it is not a reduced rewrite.
 - Added persistent trade tables and indexes; existing RPG databases migrate automatically through `CREATE TABLE IF NOT EXISTS` during startup.
 - Replaced the previous simple procedural RPG art with a larger 1024×1024 identity renderer featuring layered lighting, gradients, particles, magic circles, armor/weapon silhouettes, race traits, class-specific weapons, pet archetypes, mob roles/elements and dedicated gear/item renders. The renderer remains deterministic so the same identity stays visually consistent.
 - RPG art URLs now include a renderer version so Discord can refresh previously cached images after deployment.
+
+## v10.13 RPG Item Catalogue Overhaul
+- Replaced the repetitive elemental/enchantment-named gear catalogue with **14,000+ distinct base items**.
+- Enchantments are now a separate system: item names never include an applied enchantment.
+- Existing legacy elemental item keys remain valid for old inventories/trades, but display as neutral archive/base items with no embedded enchantment.
+- `!rpg iteminfo <item_key>` now provides the **Full Preview**, including base stats, empty enchantment slots, and every enchantment compatible with that equipment slot.
+- Enchantment application now validates slot compatibility before spending gold.

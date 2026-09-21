@@ -21,7 +21,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
-from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, LIFE_PATHS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, ENCHANTMENTS, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY
+from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, LIFE_PATHS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY
 from storage import backup_database, migrate_legacy_database, resolve_database_path
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -1998,7 +1998,7 @@ async def rpg_help(ctx):
     pages=[
         _rpg_embed("🌌 Horizon RPG — Start Here", "**Create & preview**\n`!rpg races` — browse races + matchup strengths/weaknesses\n`!rpg race <name>` — full race preview\n`!rpg classes` — browse classes + starter skills\n`!rpg class <name>` — full class preview + skill progression\n`!rpg start <name> <race> <class>` — create your hero\n`!rpg profile` — full character sheet\n\n**Important:** changing race/class/subrace/subclass/path/evolution always asks for confirmation first."),
         _rpg_embed("⚔️ Horizon RPG — Combat", "`!rpg adventure` — live battle\n`!rpg dungeon [name]` — multi-floor battle\n`!rpg battle @player` — PvP duel\n\n**Battle buttons:** Attack • Skills • Pet Assist • Potion/Food • Defend • Flee\n\n**Skills:** every class has **20 distinct skills**. Start with **3**, then unlock new skills every several levels. Each skill shows damage/healing, MP, cooldown, buffs and debuffs. Only **4 can be active**.\n`!rpg skills` — browse all skills + mastery\n`!rpg skill <skill_key>` — spend Skill Points to master an unlocked skill\n`!rpg stat <stat>` — spend Stat Points on core stats\n`!rpg talents` — view class + race talent trees\n`!rpg talent <class|race> <key>` — spend a Talent Point\n`!rpg equip-skill <skill_key> <1-4>` — change active loadout\n\nMatchup bonuses are deliberately small so counters matter without hard-locking a build."),
-        _rpg_embed("🎒 Horizon RPG — Items & Gear", "`!rpg inventory` — your owned items\n`!rpg items [category] [page]` — classified item codex\n`!rpg iteminfo <item_key>` — detailed item inspection\n`!rpg equip <item_key>` — equip gear\n`!rpg use [item_key] [qty]` — consume food/potions\n\nThe world now contains **1,000+ generated items** across weapons, armor, offhands, accessories, rings, amulets, relics, consumables, food, materials, eggs and chests. High-tier gear has level requirements and small percentage bonuses capped per item."),
+        _rpg_embed("🎒 Horizon RPG — Items & Gear", "`!rpg inventory` — your owned items\n`!rpg items [category] [page]` — classified item codex\n`!rpg iteminfo <item_key>` — detailed item inspection\n`!rpg equip <item_key>` — equip gear\n`!rpg use [item_key] [qty]` — consume food/potions\n\nThe world now contains **8,000+ base items** across weapons, armor, offhands, accessories, rings, amulets, relics, consumables, food, materials, eggs and chests. Gear names are no longer enchantment variants: every piece is a clean base item with empty enchantment slots. Open `!rpg iteminfo <item_key>` for the full preview and every enchantment compatible with that item."),
         _rpg_embed("✨ Horizon RPG — Enchanting & Gacha", "`!rpg gacha` — view rates, pity and Gems\n`!rpg gacha 1` — single pull\n`!rpg gacha 10` — ten-pull\n`!rpg open-chest <key>` — open a gacha chest\n`!rpg enchantments` — see enchant types\n`!rpg enchant <slot> <item> <enchant>` — upgrade equipped gear\n\nGacha uses earned in-game Gems and published rates. Pity guarantees Epic+ at the configured threshold and Mythic at the higher threshold."),
         _rpg_embed("🐾 Horizon RPG — Pets", "`!rpg pets` — full pet inventory\n`!rpg pet` — equipped companion\n`!rpg equip-pet <pet_id>` — switch companions\n`!rpg unequip-pet` — store the active companion\n`!rpg adopt <name>` — starter companion\n`!rpg eggs` — owned eggs\n`!rpg hatch <egg> <name>` — hatch an egg\n`!rpg rename <name>` — rename equipped pet\n`!rpg release` — release equipped pet\n\nPets are now stored as a collection, so switching pets does **not** require releasing the others. Each pet shows its actual ability and passive stats."),
         _rpg_embed("🗺️ Horizon RPG — World & Progression", "`!rpg areas` — world atlas\n`!rpg travel <area_key>` — travel\n`!rpg quests` — quest board\n`!rpg daily` — daily reward\n`!rpg rest` — recover\n`!rpg shop` / `buy` / `sell` / `craft` / `market` — economy\n`!rpg trade @player` — direct trading of gear, items, pets, Gold and Diamonds\n`!rpg trades` / `tradeview` / `tradeadd` / `tradepet` / `tradegold` / `tradediamonds` / `tradeaccept` / `tradecancel` — trade controls\n`!rpg party ...` / `guild ...` / `kingdom ...` — multiplayer systems\n\nThe world now has dozens of additional areas. Level XP scales increasingly with level, so late-game progression takes substantially more XP than early progression."),
@@ -2254,8 +2254,7 @@ async def rpg_items(ctx, category: str = "all", page: int = 1):
             pct=[]
             for field,label in (("pct_atk","ATK"),("pct_def","DEF"),("pct_hp","HP"),("pct_mp","MP"),("pct_speed","SPD"),("pct_crit","Crit")):
                 if v.get(field): pct.append(f"+{v[field]}% {label}")
-            ability=f" • {v['ability']}" if v.get('ability') else ""
-            lines.append(f"**{v.get('name',k)}**\n`{k}` • {v.get('rarity','common').title()} • Lv {v.get('level_req',1)}+ • {v.get('slot','item').title()} • {v.get('price',0)}g{ability}\n" + (" • ".join(pct) if pct else "No % bonus"))
+            lines.append(f"**{v.get('name',k)}**\n`{k}` • {v.get('rarity','common').title()} • Lv {v.get('level_req',1)}+ • {v.get('slot','item').title()} • {v.get('price',0)}g • {v.get('enchant_slots',0)} empty enchant slot(s)\n" + (" • ".join(pct) if pct else "Base item — no intrinsic % bonus"))
         e=_rpg_embed(f"📚 Item Codex — {category.title()}","\n\n".join(lines) or "No items in this category.")
         e.set_footer(text=f"Page {n+1} / {total} • {len(rows)} items • Use `!rpg iteminfo <key>` for exact details")
         pages.append(e)
@@ -2263,10 +2262,12 @@ async def rpg_items(ctx, category: str = "all", page: int = 1):
     async def info(interaction,value):
         d=ITEMS.get(value,{})
         stats=[f"**{label}:** {d[k]}" + ("%" if k.startswith("pct_") or k=="crit" else "") for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit"),("heal","Heal"),("mana","Mana"),("stamina","Stamina"),("pct_atk","ATK %"),("pct_def","DEF %"),("pct_hp","HP %"),("pct_mp","MP %"),("pct_speed","SPD %"),("pct_crit","Crit %")) if k in d and d[k]]
-        desc=(f"**Rarity:** {d.get('rarity','common').title()}\n**Type:** {d.get('slot','item').title()}\n**Level requirement:** {d.get('level_req',1)}\n**Enchantment slots:** {d.get('enchant_slots',0)}\n"
-              + (f"**Ability:** {d['ability']}\n" if d.get('ability') else "")
-              + ("\n".join(stats) if stats else "No extra stats."))
-        await interaction.response.send_message(embed=_rpg_embed(f"📦 {d.get('name',value)}",desc),ephemeral=True)
+        compatible=compatible_enchantments(d) if d.get('slot') in ENCHANTMENT_COMPATIBILITY else []
+        enchant_lines=[f"• **{e['name']}** — {e['desc']} (`{key}`)" for key,e in compatible]
+        desc=(f"**Rarity:** {d.get('rarity','common').title()}\n**Type:** {d.get('slot','item').title()}\n**Level requirement:** {d.get('level_req',1)}\n**Empty enchantment slots:** {d.get('enchant_slots',0)}\n"
+              + ("\n".join(stats) if stats else "No extra stats.")
+              + ("\n\n**Compatible Enchantments**\n" + "\n".join(enchant_lines) if enchant_lines else ""))
+        await interaction.response.send_message(embed=_rpg_embed(f"📦 {d.get('name',value)} — Full Preview",desc),ephemeral=True)
     view=RPGPaginationView(ctx,pages,select_options=options_by_page[page-1],select_callback=info,select_options_by_page=options_by_page)
     view.index=page-1; view._sync(); view.message=await ctx.send(embed=view.pages[view.index],view=view)
 
@@ -2277,10 +2278,14 @@ async def rpg_item_info(ctx, *, item_key: str = ""):
     if not d:
         await _rpg_action_panel(ctx,"Item Details","Unknown item. Use `!rpg items` to browse the full classified catalogue.",False); return
     pct=[f"+{d[k]}% {label}" for k,label in (("pct_atk","ATK"),("pct_def","DEF"),("pct_hp","HP"),("pct_mp","MP"),("pct_speed","SPD"),("pct_crit","Crit")) if d.get(k)]
-    desc=f"**{d['name']}**\n\nRarity: **{d.get('rarity','common').title()}**\nCategory: **{d.get('slot','item').title()}**\nLevel requirement: **{d.get('level_req',1)}**\nValue: **{d.get('price',0)} gold**\nEnchant slots: **{d.get('enchant_slots',0)}**\n"
-    if d.get('ability'): desc+=f"\n**Ability:** {d['ability']}\n"
-    if pct: desc+=f"\n**Percentage bonuses:** {' • '.join(pct)}"
-    e=_rpg_embed(f"📦 {d['name']}",desc); e.set_image(url=_rpg_image_url("item",item_key)); await _rpg_panel(ctx,[e])
+    stats=[f"**{label}:** {d[k]}" + ("%" if k=="crit" else "") for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit")) if d.get(k)]
+    compatible=compatible_enchantments(d) if d.get('slot') in ENCHANTMENT_COMPATIBILITY else []
+    enchant_lines=[f"• **{e['name']}** — {e['desc']} (`{key}`)" for key,e in compatible]
+    desc=f"**Base Item — no enchantment applied**\n\nRarity: **{d.get('rarity','common').title()}**\nCategory: **{d.get('slot','item').title()}**\nLevel requirement: **{d.get('level_req',1)}**\nValue: **{d.get('price',0)} gold**\nEmpty enchantment slots: **{d.get('enchant_slots',0)}**\n"
+    if stats: desc += "\n**Base Stats**\n" + " • ".join(stats) + "\n"
+    if pct: desc+=f"\n**Intrinsic percentage bonuses:** {' • '.join(pct)}\n"
+    if enchant_lines: desc += "\n**Enchantments You Can Equip**\n" + "\n".join(enchant_lines)
+    e=_rpg_embed(f"📦 {d['name']} — Full Preview",desc); e.set_image(url=_rpg_image_url("item",item_key)); await _rpg_panel(ctx,[e])
 
 @bot.command(name="items", aliases=["item"])
 async def prefix_items(ctx, category: str = "all", page: int = 1):

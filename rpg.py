@@ -542,6 +542,24 @@ ENCHANTMENTS = {
     "hunter": {"name":"Hunter's Mark","desc":"Improves damage against marked targets.","stat":"atk","pct":2,"max_level":4},
 }
 
+
+# Which enchantments are legal for each equipment slot.  Enchantments are a
+# separate progression layer; none are baked into an item's name or base stats.
+ENCHANTMENT_COMPATIBILITY = {
+    "weapon": {"sharpness", "precision", "vampiric", "flamebrand", "frostbind", "hunter", "swiftness", "soulbound"},
+    "armor": {"fortitude", "bulwark", "swiftness", "manaweave", "frostbind", "warding", "soulbound"},
+    "offhand": {"fortitude", "bulwark", "precision", "manaweave", "swiftness", "warding", "soulbound"},
+    "accessory": {"sharpness", "fortitude", "precision", "manaweave", "swiftness", "warding", "soulbound", "hunter", "vampiric"},
+    "ring": {"precision", "manaweave", "swiftness", "soulbound", "vampiric", "hunter", "flamebrand", "frostbind"},
+    "amulet": {"fortitude", "manaweave", "warding", "soulbound", "vampiric", "hunter", "flamebrand", "frostbind"},
+    "relic": set(ENCHANTMENTS),
+}
+
+def compatible_enchantments(item: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Return the enchantments that can be applied to this base item."""
+    allowed = ENCHANTMENT_COMPATIBILITY.get(item.get("slot"), set())
+    return [(key, ENCHANTMENTS[key]) for key in ENCHANTMENTS if key in allowed]
+
 PET_SPECIES = {
     "Wolf Pup": {"rarity": "common", "atk": 2, "def": 2, "hp": 5, "spd": 2, "crit": 1, "ability": "Howl", "role": "damage"},
     "Rabbit": {"rarity": "common", "atk": 1, "def": 1, "hp": 3, "spd": 4, "crit": 2, "ability": "Lucky Hop", "role": "crit"},
@@ -597,98 +615,276 @@ for _pet in PET_SPECIES.values():
 
 
 def _build_expanded_items():
-    # Keep the original iconic items, then add a large discoverable catalog.
+    """Build a large base-item catalogue.
+
+    Important design rule: enchantments are NOT part of an item's identity or
+    display name.  Items are clean base gear (weapon, armour, offhand,
+    accessory, relic, etc.); enchantments are applied separately and shown in
+    the full item preview.
+    """
     generated = {}
+
+    # --- Weapons ---------------------------------------------------------
     weapon_bases = [
-        ("sword", "Sword", 9), ("greatsword", "Greatsword", 13), ("katana", "Katana", 11),
-        ("rapier", "Rapier", 8), ("axe", "Axe", 12), ("greataxe", "Greataxe", 15),
-        ("mace", "Mace", 10), ("hammer", "Warhammer", 13), ("spear", "Spear", 10),
-        ("lance", "Lance", 12), ("dagger", "Dagger", 7), ("bow", "Bow", 9),
-        ("crossbow", "Crossbow", 11), ("staff", "Staff", 8), ("wand", "Wand", 7),
-        ("orb", "Arcane Orb", 8), ("scythe", "Scythe", 14), ("claws", "Claws", 9),
+        ("sword", "Sword", 9), ("longsword", "Longsword", 10),
+        ("greatsword", "Greatsword", 13), ("claymore", "Claymore", 14),
+        ("katana", "Katana", 11), ("nodachi", "Nodachi", 13),
+        ("rapier", "Rapier", 8), ("saber", "Saber", 9),
+        ("falchion", "Falchion", 11), ("scimitar", "Scimitar", 10),
+        ("axe", "Axe", 12), ("greataxe", "Greataxe", 15),
+        ("battleaxe", "Battleaxe", 13), ("mace", "Mace", 10),
+        ("warhammer", "Warhammer", 13), ("maul", "Maul", 15),
+        ("spear", "Spear", 10), ("lance", "Lance", 12),
+        ("halberd", "Halberd", 14), ("glaive", "Glaive", 13),
+        ("dagger", "Dagger", 7), ("stiletto", "Stiletto", 8),
+        ("kunai", "Kunai", 7), ("bow", "Bow", 9),
+        ("longbow", "Longbow", 11), ("shortbow", "Shortbow", 8),
+        ("crossbow", "Crossbow", 11), ("repeater", "Repeater", 10),
+        ("staff", "Staff", 8), ("warstaff", "War Staff", 11),
+        ("wand", "Wand", 7), ("scepter", "Scepter", 9),
+        ("orb", "Arcane Orb", 8), ("scythe", "Scythe", 14),
+        ("chakram", "Chakram", 10), ("claws", "Claws", 9),
+        ("gauntlet", "Battle Gauntlets", 10), ("whip", "Whip", 8),
     ]
-    metals = [("bronze", "Bronze", "common", 1.0), ("steel", "Steel", "uncommon", 1.2),
-              ("silver", "Silver", "rare", 1.5), ("mithril", "Mithril", "epic", 2.0),
-              ("dragon", "Dragon", "legendary", 3.0), ("celestial", "Celestial", "mythic", 4.5)]
-    for mat_key, mat_name, rarity, mult in metals:
-        for key, label, base in weapon_bases:
-            k=f"{mat_key}_{key}"; generated[k]={"name":f"{mat_name} {label}","slot":"weapon","rarity":rarity,"atk":int(base*mult)+2,"crit":2 if key in {"rapier","dagger","katana","bow"} else 0,"price":int(90*base*mult)}
-    armor_sets=[("chainmail","Chainmail",8),("plate","Plate Armor",13),("leather","Leather Armor",5),("scale","Scale Armor",10),
-                ("mage","Mage Robe",4),("cleric","Cleric Vestments",5),("assassin","Assassin Garb",4),("ranger","Ranger Leathers",6),
-                ("royal","Royal Armor",12),("dragon","Dragon Armor",16),("celestial","Celestial Armor",20)]
-    for mat_key, mat_name, rarity, mult in metals:
-        for key,label,base in armor_sets:
-            k=f"{mat_key}_{key}"; generated[k]={"name":f"{mat_name} {label}","slot":"armor","rarity":rarity,"def":int(base*mult),"hp":int(base*mult*1.5),"price":int(120*base*mult)}
-    for i,(name,rarity,price) in enumerate([
-        ("Small Health Potion","common",45),("Health Potion","uncommon",90),("Greater Health Potion","rare",180),("Superior Health Potion","epic",350),
-        ("Elixir of Vitality","legendary",700),("Full Restore Elixir","mythic",1500),
-        ("Small Mana Potion","common",50),("Mana Potion","uncommon",100),("Greater Mana Potion","rare",200),("Superior Mana Potion","epic",400),
-        ("Stamina Tonic","uncommon",80),("Antidote","common",35),("Burn Cure","common",35),("Freeze Cure","common",35),("Focus Elixir","rare",220),
-        ("Strength Draught","rare",250),("Iron Skin Potion","rare",250),("Swiftstep Potion","rare",250),("Critical Elixir","epic",500),("Phoenix Elixir","legendary",1200)]):
-        key=name.lower().replace(" ","_").replace("-",""); generated[key]={"name":name,"slot":"consumable","rarity":rarity,"heal":35+i*8 if "Health" in name or "Restore" in name or "Vitality" in name else 0,"mana":30+i*6 if "Mana" in name else 0,"price":price}
+    materials = [
+        ("bronze", "Bronze", "common", 1.00), ("iron", "Iron", "common", 1.08),
+        ("steel", "Steel", "uncommon", 1.20), ("blacksteel", "Blacksteel", "uncommon", 1.30),
+        ("silver", "Silver", "rare", 1.50), ("gold", "Gold", "rare", 1.60),
+        ("adamant", "Adamant", "epic", 1.85), ("mithril", "Mithril", "epic", 2.00),
+        ("orichalcum", "Orichalcum", "epic", 2.15), ("starforged", "Starforged", "legendary", 2.55),
+        ("dragonbone", "Dragonbone", "legendary", 2.75), ("dragonscale", "Dragonscale", "legendary", 3.00),
+        ("moonsteel", "Moonsteel", "legendary", 3.10), ("sunsteel", "Sunsteel", "legendary", 3.15),
+        ("aetherium", "Aetherium", "mythic", 3.65), ("worldstone", "Worldstone", "mythic", 4.00),
+    ]
+    weapon_names = [
+        "Ashenvale", "Blackwater", "Dawnwatch", "Duskfall", "Frostmere", "Grimreach",
+        "Highcrest", "Ironroot", "Kingsroad", "Moonspire", "Nightbloom", "Ravenmark",
+        "Redhaven", "Silverpine", "Stormkeep", "Sunreach", "Thornwall", "Westfall",
+        "Windscar", "Winterhold", "Brightforge", "Deepstone", "Ebonmarch", "Goldmere",
+        "Hollowcrest", "Ivorygate", "Mistvale", "Oakheart", "Queensguard", "Rosehall",
+    ]
+    weapon_name_words = ["Pattern", "Design", "Model", "Relic", "Arsenal", "Masterwork"]
+    precision_types = {"rapier", "stiletto", "dagger", "katana", "bow", "longbow", "chakram", "kunai"}
+    for m_i, (mat_key, mat_name, rarity, mult) in enumerate(materials):
+        for w_i, (key, label, base) in enumerate(weapon_bases):
+            family = weapon_names[(m_i * 7 + w_i * 3) % len(weapon_names)]
+            variant = weapon_name_words[(m_i + w_i) % len(weapon_name_words)]
+            item_key = f"{mat_key}_{key}"
+            generated[item_key] = {
+                "name": f"{family} {mat_name} {label}", "slot": "weapon", "rarity": rarity,
+                "atk": int(base * mult) + 2 + (w_i % 3),
+                "crit": 2 if key in precision_types else 0,
+                "price": int(95 * base * mult) + m_i * 20,
+                "level_req": {"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                "enchant_slots": 1 + min(4, list(RARITIES).index(rarity)),
+                "family": family, "design": variant,
+            }
+
+    # Extra named weapon variants make the catalogue genuinely large while
+    # remaining distinct base items rather than fake enchantment variants.
+    for tier, (mat_key, mat_name, rarity, mult) in enumerate(materials):
+        for w_i, (key, label, base) in enumerate(weapon_bases):
+            for v in range(2):
+                family = weapon_names[(m_i if False else tier * 11 + w_i * 5 + v * 13) % len(weapon_names)]
+                suffix = ["Field Edition", "Veteran Edition"][v]
+                item_key = f"{mat_key}_{key}_{'field' if v == 0 else 'veteran'}"
+                generated[item_key] = {
+                    "name": f"{family} {label} {suffix}", "slot":"weapon", "rarity":rarity,
+                    "atk":int(base * mult) + 4 + tier + v,
+                    "crit": 3 if key in precision_types else (1 if v else 0),
+                    "price":int(120 * base * mult) + tier * 35 + v * 80,
+                    "level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                    "enchant_slots":1 + min(4, list(RARITIES).index(rarity)),
+                    "family":family, "design":suffix,
+                }
+
+    # --- Armour ----------------------------------------------------------
+    armor_sets = [
+        ("chainmail", "Chainmail", 8), ("plate", "Plate Armor", 13),
+        ("leather", "Leather Armor", 5), ("scale", "Scale Armor", 10),
+        ("brigandine", "Brigandine", 9), ("halfplate", "Half-Plate", 11),
+        ("mage", "Mage Robe", 4), ("cleric", "Cleric Vestments", 5),
+        ("assassin", "Assassin Garb", 4), ("ranger", "Ranger Leathers", 6),
+        ("royal", "Royal Armor", 12), ("dragon", "Dragon Armor", 16),
+        ("celestial", "Celestial Armor", 20), ("traveler", "Traveler Coat", 6),
+        ("battlecoat", "Battlecoat", 10), ("warplate", "Warplate", 17),
+        ("ceremonial", "Ceremonial Armor", 9), ("guardian", "Guardian Harness", 14),
+    ]
+    armor_families = ["Alder", "Blackwater", "Dawnwatch", "Ebonmarch", "Fallowmere", "Goldcrest",
+                      "Highwall", "Ironroot", "Kingsguard", "Moonspire", "Ravenmark", "Silverpine",
+                      "Stonegate", "Sunreach", "Thornwall", "Westfall", "Windscar", "Wyrmhold"]
+    for m_i, (mat_key, mat_name, rarity, mult) in enumerate(materials):
+        for a_i, (key, label, base) in enumerate(armor_sets):
+            family = armor_families[(m_i * 5 + a_i * 7) % len(armor_families)]
+            item_key=f"{mat_key}_{key}_armor"
+            generated[item_key]={
+                "name":f"{family} {mat_name} {label}", "slot":"armor", "rarity":rarity,
+                "def":int(base*mult)+1+(a_i%3), "hp":int(base*mult*1.45)+5+(m_i%4),
+                "price":int(125*base*mult)+m_i*30,
+                "level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                "enchant_slots":1+min(4,list(RARITIES).index(rarity)), "family":family,
+            }
+            # Two silhouette variants per armour set.
+            for v, suffix in enumerate(("Field Set", "Veteran Set")):
+                key2=f"{mat_key}_{key}_{'field' if v==0 else 'veteran'}_armor"
+                generated[key2]={
+                    "name":f"{family} {mat_name} {label} {suffix}", "slot":"armor", "rarity":rarity,
+                    "def":int(base*mult)+3+m_i+v, "hp":int(base*mult*1.55)+8+m_i*2,
+                    "price":int(160*base*mult)+v*120, "level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                    "enchant_slots":1+min(4,list(RARITIES).index(rarity)), "family":family,
+                }
+
+    # --- Offhands --------------------------------------------------------
+    offhands=[("buckler","Buckler",6),("kite_shield","Kite Shield",9),("tower_shield","Tower Shield",12),
+              ("mirror_shield","Mirror Shield",10),("greatshield","Greatshield",15),("spellbook","Spellbook",4),
+              ("totem","Totem",5),("quiver","Quiver",3),("focus","Casting Focus",4),("war_banner","War Banner",6),
+              ("lantern","Battle Lantern",3),("orb_focus","Focus Orb",5)]
+    for m_i,(mat_key,mat_name,rarity,mult) in enumerate(materials):
+        for o_i,(key,label,base) in enumerate(offhands):
+            family=weapon_names[(m_i*3+o_i*4)%len(weapon_names)]
+            item_key=f"{mat_key}_{key}_offhand"
+            generated[item_key]={"name":f"{family} {mat_name} {label}","slot":"offhand","rarity":rarity,
+                                "def":int(base*mult)+1,"hp":int(base*mult)+2,
+                                "mp":int(base*mult*1.8) if key in {"spellbook","totem","focus","orb_focus"} else 0,
+                                "price":int(105*base*mult),"level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                                "enchant_slots":1+min(4,list(RARITIES).index(rarity))}
+
+    # --- Accessories -----------------------------------------------------
+    accessories=[("ring","Ring",4),("amulet","Amulet",5),("belt","War Belt",6),
+                 ("cloak","Cloak",5),("boots","Boots",4),("gloves","Gloves",5),
+                 ("crown","Crown",7),("earring","Earring",3),("charm","Charm",4),
+                 ("brooch","Brooch",3),("pendant","Pendant",4),("talisman","Talisman",5),
+                 ("medallion","Medallion",6),("sash","Sash",4),("mantle","Mantle",6),
+                 ("sigil","Sigil",4),("bracelet","Bracelet",3),("anklet","Anklet",3)]
+    accessory_families=["Aster", "Bellrose", "Crownfall", "Duskport", "Everspring", "Frostmere", "Greystone",
+                        "Hearthvale", "Ivorygate", "Larkspur", "Moonvale", "Northwatch", "Oakheart", "Pinecrest",
+                        "Queensward", "Ravenhill", "Silvermere", "Thornfield", "Umberfall", "Windmere"]
+    for m_i,(mat_key,mat_name,rarity,mult) in enumerate(materials):
+        for a_i,(key,label,base) in enumerate(accessories):
+            family=accessory_families[(m_i*7+a_i*5)%len(accessory_families)]
+            slot=key if key in {"ring","amulet"} else "accessory"
+            item_key=f"{mat_key}_{key}_accessory"
+            generated[item_key]={"name":f"{family} {mat_name} {label}","slot":slot,"rarity":rarity,
+                                "atk":int(base*mult/2),"def":int(base*mult/2),"hp":int(base*mult),
+                                "spd":int(base*mult/3),"crit":int(base/3),"price":int(220*base*mult),
+                                "level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                                "enchant_slots":1+min(4,list(RARITIES).index(rarity))}
+
+    # --- Relics ----------------------------------------------------------
+    relic_names=[
+        "Explorer's Compass","Adventurer's Lantern","Guild Crest","Royal Signet","Thief's Coin","Scholar's Lens",
+        "Hunter's Charm","Duke's Seal","King's Crown Fragment","Void Compass","Dragon Heart Shard","World Tree Seed",
+        "Cartographer's Seal","Ancient Key","Fallen Banner","Knight's Oath Token","Merchant's Ledger","Ranger's Badge",
+        "Arena Medal","Dungeon Map Fragment","Skyship Cog","Deep Mine Core","Sunken Crown","Old Kingdom Coin",
+        "Forgotten Relic","Crystal Archive","Traveler's Journal","Warrior's Memorial","Mage's Notebook","Beastkeeper Totem",
+    ]
+    for i,name in enumerate(relic_names):
+        key="relic_"+name.lower().replace(" ","_").replace("'","")
+        rarity=["uncommon","rare","epic","legendary","mythic"][min(4,i//6)]
+        generated[key]={"name":name,"slot":"relic","rarity":rarity,"atk":i//4,"def":i//5,"spd":i//3,"crit":i//2,
+                        "hp":i*2,"price":300+i*250,"level_req":{"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                        "enchant_slots":1+min(4,list(RARITIES).index(rarity))}
+
+    # --- Neutral consumables, food and materials ------------------------
+    potions=[("Small Health Potion","common",45,35,0),("Health Potion","uncommon",90,65,0),
+             ("Greater Health Potion","rare",180,110,0),("Superior Health Potion","epic",350,180,0),
+             ("Elixir of Vitality","legendary",700,300,0),("Full Restore Elixir","mythic",1500,500,0),
+             ("Small Mana Potion","common",50,0,30),("Mana Potion","uncommon",100,0,60),
+             ("Greater Mana Potion","rare",200,0,100),("Superior Mana Potion","epic",400,0,170)]
+    for i,(name,rarity,price,heal,mana) in enumerate(potions):
+        key=name.lower().replace(" ","_")
+        generated[key]={"name":name,"slot":"consumable","rarity":rarity,"heal":heal,"mana":mana,"price":price}
     foods=["Honey Bread","Berry Pie","Hearty Stew","Grilled Fish","Roasted Meat","Forest Mushroom Soup","Spicy Curry","Royal Feast","Traveler's Ration","Sweet Bun","Apple Tart","Moonberry Jam","Dragon Steak","Phoenix Fruit","Crystal Melon","Seafood Platter","Mountain Cheese","Golden Rice","Herbal Tea","Spiced Tea","Warm Milk","Campfire Skewer","Meat Pie","Fish Sandwich","Adventure Biscuit","Festival Cake","King's Banquet","Duke's Banquet","Elven Salad","Dwarven Ale Bread","Kitsune Dumplings"]
     for i,name in enumerate(foods):
         key="food_"+name.lower().replace(" ","_").replace("'","")
         generated[key]={"name":name,"slot":"food","rarity":"common" if i<10 else ("uncommon" if i<20 else "rare"),"heal":18+i*4,"stamina":8+(i%6)*3,"price":25+i*12}
-    materials=["oak log","silver ore","mithril ore","dragon scale","phoenix feather","moon crystal","sun shard","shadow essence","beast fang","wolf claw","goblin ear","orc tusk","slime core","wraith dust","demon horn","angel feather","fae pollen","ancient bone","star fragment","void crystal","sea pearl","coral","amber","ruby","sapphire","emerald","topaz","obsidian","quartz","leather scrap","silk thread","magic fiber","enchanted wood","ashwood","frostwood","red herb","blue herb","golden herb","nightshade","sunflower seed"]
-    for i,name in enumerate(materials):
-        key="mat_"+name.replace(" ","_"); rarity="common" if i<15 else ("uncommon" if i<28 else ("rare" if i<37 else "epic")); generated[key]={"name":name.title(),"slot":"material","rarity":rarity,"price":20+i*18}
+    materials_items=["Oak Log","Silver Ore","Mithril Ore","Dragon Scale","Phoenix Feather","Moon Crystal","Sun Shard","Shadow Essence","Beast Fang","Wolf Claw","Goblin Ear","Orc Tusk","Slime Core","Wraith Dust","Demon Horn","Angel Feather","Fae Pollen","Ancient Bone","Star Fragment","Void Crystal","Sea Pearl","Coral","Amber","Ruby","Sapphire","Emerald","Topaz","Obsidian","Quartz","Leather Scrap","Silk Thread","Magic Fiber","Ashwood","Frostwood","Red Herb","Blue Herb","Golden Herb","Nightshade","Sunflower Seed"]
+    for i,name in enumerate(materials_items):
+        key="mat_"+name.lower().replace(" ","_")
+        rarity="common" if i<15 else ("uncommon" if i<28 else ("rare" if i<37 else "epic"))
+        generated[key]={"name":name,"slot":"material","rarity":rarity,"price":20+i*18}
+
+    # Preserve existing egg/chest systems.
     for egg_key,(egg_name,rarity,price) in PET_EGGS.items():
         generated[egg_key]={"name":egg_name,"slot":"egg","rarity":rarity,"price":price,"pet_egg":True}
-    # Additional trinkets / offhands create another equipment layer.
-    shields=[("buckler","Buckler",6),("tower_shield","Tower Shield",12),("mirror_shield","Mirror Shield",10),("dragon_shield","Dragon Shield",16),("celestial_shield","Celestial Shield",20),("spellbook","Spellbook",3),("totem","Totem",4),("quiver","Quiver",2)]
-    for mat_key,mat_name,rarity,mult in metals:
-        for key,label,base in shields:
-            k=f"{mat_key}_{key}"; generated[k]={"name":f"{mat_name} {label}","slot":"offhand","rarity":rarity,"def":int(base*mult),"hp":int(base*mult),"mp":int(base*mult*2) if key in {"spellbook","totem","quiver"} else 0,"price":int(100*base*mult)}
-    # A few utility relics make exploration loot more interesting.
-    relics=["Explorer's Compass","Adventurer's Lantern","Guild Crest","Royal Signet","Thief's Coin","Scholar's Lens","Hunter's Charm","Duke's Seal","King's Crown Fragment","Void Compass","Dragon Heart Shard","World Tree Seed"]
-    for i,name in enumerate(relics):
-        key="relic_"+name.lower().replace(" ","_").replace("'",""); generated[key]={"name":name,"slot":"relic","rarity":["uncommon","rare","epic","legendary","mythic"][min(4,i//3)],"atk":i//4,"def":i//5,"spd":i//3,"crit":i//2,"price":300+i*250}
-    # Elemental / celestial variants push the catalogue beyond 1,000 real
-    # entries while keeping every generated item mechanically distinct.
-    elements=[
-        ("flame","Flame","burn","atk_pct"),("frost","Frost","freeze","def_pct"),
-        ("storm","Storm","haste","spd_pct"),("holy","Holy","radiance","crit_pct"),
-        ("void","Void","lifesteal","hp_pct"),
+
+    # --- Thousands of distinct BASE equipment pieces -------------------
+    # These are intentionally not named after enchantments.  Each is a real
+    # base item with its own key/name/stats; enchantments are a separate layer.
+    craft_houses=[
+        "Alderforge","Ashgate","Blackwater","Brightwall","Cinderhall","Dawnspire","Deepstone","Duskport",
+        "Ebonmarch","Evercrest","Fallowmere","Goldcrest","Gravewatch","Greenhold","Highcrest","Hollowgate",
+        "Ironroot","Ivorykeep","Kingsfall","Larkspur","Moonwatch","Northwind","Oakenshade","Ravenmark",
+        "Redhaven","Rosehall","Silverpine","Stoneward","Sunreach","Thornwall","Umberfort","Westfall",
     ]
-    rarity_level={"common":1,"uncommon":10,"rare":20,"epic":35,"legendary":55,"mythic":75}
-    for mat_key, mat_name, rarity, mult in metals:
-        for element_key, element_name, ability, pct_field in elements:
-            for key,label,base in weapon_bases:
-                k=f"{mat_key}_{element_key}_{key}"
-                pct=min(10, 2 + (list(rarity_level).index(rarity) * 2) + (base % 2))
-                generated[k]={"name":f"{element_name} {mat_name} {label}","slot":"weapon","rarity":rarity,
-                              "atk":int(base*mult)+4,"crit":2 if key in {"rapier","dagger","katana","bow"} else 0,
-                              "price":int(140*base*mult),"level_req":rarity_level[rarity],"ability":ability,
-                              "pct_atk":pct if pct_field=="atk_pct" else 0,"pct_def":pct if pct_field=="def_pct" else 0,
-                              "pct_hp":pct if pct_field=="hp_pct" else 0,"pct_speed":pct if pct_field=="spd_pct" else 0,
-                              "pct_crit":pct if pct_field=="crit_pct" else 0,"enchant_slots":1+min(4,list(rarity_level).index(rarity))}
-            for key,label,base in armor_sets:
-                k=f"{mat_key}_{element_key}_{key}_armor"
-                pct=min(10, 2 + list(rarity_level).index(rarity)*2)
-                generated[k]={"name":f"{element_name} {mat_name} {label}","slot":"armor","rarity":rarity,
-                              "def":int(base*mult)+2,"hp":int(base*mult*1.5)+5,"price":int(170*base*mult),
-                              "level_req":rarity_level[rarity],"ability":ability,"pct_hp":pct if pct_field=="hp_pct" else 0,
-                              "pct_def":pct if pct_field=="def_pct" else 0,"pct_speed":pct if pct_field=="spd_pct" else 0,
-                              "pct_crit":pct if pct_field=="crit_pct" else 0,"enchant_slots":1+min(4,list(rarity_level).index(rarity))}
-    accessory_bases=[
-        ("ring","Ring",4),("amulet","Amulet",5),("belt","War Belt",6),("cloak","Mystic Cloak",5),
-        ("boots","Traveler Boots",4),("gloves","Combat Gloves",5),("crown","Battle Crown",7),("earring","Arcane Earring",3),
-        ("charm","Spirit Charm",4),("brooch","Royal Brooch",3),
-    ]
-    for mat_key, mat_name, rarity, mult in metals:
-        for element_key, element_name, ability, pct_field in elements[:3]:
-            for key,label,base in accessory_bases:
-                k=f"{mat_key}_{element_key}_{key}"
-                pct=min(10,2+list(rarity_level).index(rarity)*2+(base%2))
-                generated[k]={"name":f"{element_name} {mat_name} {label}","slot":"accessory" if key not in {"ring","amulet","earring"} else key,
-                              "rarity":rarity,"atk":int(base*mult/2),"def":int(base*mult/2),"hp":int(base*mult),
-                              "spd":int(base*mult/3),"crit":int(base/3),"price":int(250*base*mult),
-                              "level_req":rarity_level[rarity],"ability":ability,"pct_atk":pct if pct_field=="atk_pct" else 0,
-                              "pct_def":pct if pct_field=="def_pct" else 0,"pct_hp":pct if pct_field=="hp_pct" else 0,
-                              "pct_speed":pct if pct_field=="spd_pct" else 0,"enchant_slots":1+min(4,list(rarity_level).index(rarity))}
+    design_words=["Militia","Sentinel","Vanguard","Warden","Champion","Veteran","Captain","Guardian"]
+    weapon_family_count=0
+    for h_i,house in enumerate(craft_houses):
+        for w_i,(w_key,label,base) in enumerate(weapon_bases):
+            # One additional clean base item per house/type pair.
+            mat_key,mat_name,rarity,mult=materials[(h_i+w_i)%len(materials)]
+            k=f"{house.lower()}_{w_key}"
+            if k in generated: k=f"{house.lower()}_{w_key}_arms"
+            generated[k]={"name":f"{house} {label}","slot":"weapon","rarity":rarity,
+                          "atk":int(base*mult)+5+(h_i%5),"crit":(w_i%4) if w_key in precision_types else 0,
+                          "price":int(150*base*mult)+h_i*25,"level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                          "enchant_slots":1+min(4,list(RARITIES).index(rarity)),"family":house}
+            weapon_family_count+=1
+            for v,word in enumerate(design_words[:3]):
+                k=f"{house.lower()}_{w_key}_{word.lower()}"
+                generated[k]={"name":f"{house} {word}'s {label}","slot":"weapon","rarity":rarity,
+                              "atk":int(base*mult)+7+h_i%4+v,"crit":1+(w_i%3) if w_key in precision_types else v%2,
+                              "price":int(185*base*mult)+h_i*30+v*75,"level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                              "enchant_slots":1+min(4,list(RARITIES).index(rarity)),"family":house,"design":word}
+
+    # Preserve keys from the previous elemental catalogue so existing
+    # inventories/trades do not break.  They are now clean base items with
+    # neutral display names; the old element words are no longer treated as
+    # enchantments and no enchantment is baked into their stats.
+    legacy_families={"flame":"Cinderfall Archive","frost":"Wintermere Archive","storm":"Skyreach Archive","holy":"Highspire Archive","void":"Deepveil Archive"}
+    for element_key, archive_name in legacy_families.items():
+        for m_i,(mat_key,mat_name,rarity,mult) in enumerate(materials):
+            for w_i,(w_key,label,base) in enumerate(weapon_bases):
+                legacy_key=f"{mat_key}_{element_key}_{w_key}"
+                if legacy_key not in generated:
+                    generated[legacy_key]={
+                        "name":f"{archive_name} {mat_name} {label} {m_i+1:02d}-{w_i+1:02d}",
+                        "slot":"weapon","rarity":rarity,"atk":int(base*mult)+4+(w_i%3),
+                        "crit":2 if w_key in precision_types else 0,"price":int(140*base*mult),
+                        "level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                        "enchant_slots":1+min(4,list(RARITIES).index(rarity))
+                    }
+            for a_i,(a_key,label,base) in enumerate(armor_sets):
+                legacy_key=f"{mat_key}_{element_key}_{a_key}_armor"
+                if legacy_key not in generated:
+                    generated[legacy_key]={
+                        "name":f"{archive_name} {mat_name} {label} {m_i+1:02d}-{a_i+1:02d}",
+                        "slot":"armor","rarity":rarity,"def":int(base*mult)+2,"hp":int(base*mult*1.5)+5,
+                        "price":int(170*base*mult),"level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                        "enchant_slots":1+min(4,list(RARITIES).index(rarity))
+                    }
+            for a_i,(a_key,label,base) in enumerate(accessories):
+                legacy_key=f"{mat_key}_{element_key}_{a_key}"
+                slot=a_key if a_key in {"ring","amulet"} else "accessory"
+                if legacy_key not in generated:
+                    generated[legacy_key]={
+                        "name":f"{archive_name} {mat_name} {label} {m_i+1:02d}-{a_i+1:02d}",
+                        "slot":slot,"rarity":rarity,"atk":int(base*mult/2),"def":int(base*mult/2),"hp":int(base*mult),
+                        "spd":int(base*mult/3),"crit":int(base/3),"price":int(250*base*mult),
+                        "level_req":{"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                        "enchant_slots":1+min(4,list(RARITIES).index(rarity))
+                    }
+
     ITEMS.update(generated)
     ITEMS.setdefault("dragon_trophy", {"name":"Dragon Trophy","slot":"material","rarity":"legendary","price":1000})
+
+    # Give every equipment item a sensible number of empty enchantment slots.
+    equipment_slots={"weapon","armor","offhand","accessory","ring","amulet","relic"}
+    for data in ITEMS.values():
+        if data.get("slot") in equipment_slots:
+            rarity=data.get("rarity","common")
+            data["enchant_slots"]=max(1,int(data.get("enchant_slots",1+min(4,list(RARITIES).index(rarity) if rarity in RARITIES else 0))))
+
 
 _build_expanded_items()
 for _egg_key, _egg_name, _rarity, _price in [
@@ -1943,6 +2139,9 @@ class RPGService:
         item=ITEMS.get(item_key.lower()); ench=ENCHANTMENTS.get(enchant_key.lower())
         if not item or not ench:return False,"Unknown item or enchantment. Use `!rpg enchantments`."
         if item.get("slot") not in {"weapon","armor","offhand","accessory","ring","amulet","relic"}:return False,"Only equipment can be enchanted."
+        if enchant_key.lower() not in ENCHANTMENT_COMPATIBILITY.get(item.get("slot"), set()):
+            allowed = ", ".join(ENCHANTMENTS[k]["name"] for k in ENCHANTMENT_COMPATIBILITY.get(item.get("slot"), set()))
+            return False, f"**{ench['name']}** cannot be equipped on **{item['name']}**. Compatible enchantments: {allowed}."
         if int(item.get("level_req",1))>int(p["level"]):return False,f"That gear requires level **{item['level_req']}**."
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT item_key FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
