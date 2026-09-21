@@ -253,133 +253,108 @@ MAGIC_CLASSES = {"mage", "summoner", "cleric", "druid", "bard", "necromancer", "
 HEAL_CLASSES = {"paladin", "cleric", "druid", "bard", "alchemist", "engineer", "warlock", "summoner"}
 
 # ---------------------------------------------------------------------------
-# Deep skill system
-# Every class now has 50 genuinely different skills.  The first ten preserve
-# the original stable skill names/keys so existing characters and saved combat
-# state remain compatible.  The remaining skills are generated from distinct
-# mechanics rather than being simple renamed damage buttons.
+# Skill system
+# Each class has 20 distinct skills.  The first three are available from the
+# beginning; later skills unlock in meaningful 5-10 level gaps instead of
+# handing the player a new button every couple of levels.
 # ---------------------------------------------------------------------------
-SKILL_UNLOCK_LEVELS = (
-    1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-    12, 14, 16, 18, 20, 22, 24, 26, 28, 30,
-    32, 34, 36, 38, 40, 42, 44, 46, 48, 50,
-    52, 54, 56, 58, 60, 62, 64, 66, 68, 70,
-    72, 74, 76, 78, 80, 84, 88, 92, 96, 100,
-)
-SKILL_COSTS = tuple(min(150, 8 + int(i * 3.0 + (i ** 1.18) * 0.8)) for i in range(50))
-SKILL_COOLDOWNS = tuple(0 if i < 4 else (1 + i // 12) for i in range(50))
+SKILL_UNLOCK_LEVELS = (1, 1, 1, 6, 11, 16, 22, 28, 34, 40, 46, 52, 58, 64, 70, 76, 82, 88, 94, 100)
 
-SKILL_MECHANICS = [
-    ("damage", "Direct strike", "Deals reliable weapon or spell damage."),
-    ("heavy", "Heavy strike", "Deals slower, heavier damage with stronger scaling."),
-    ("bleed", "Bleeding wound", "Deals damage and applies a bleed for the next two turns."),
-    ("multi", "Multi-hit", "Strikes twice with reduced damage per hit."),
-    ("heal", "Restoration", "Restores a meaningful amount of HP."),
-    ("defend", "Guard stance", "Cuts the next incoming hit and grants a short guard state."),
-    ("attack_buff", "Attack stance", "Raises attack for the next few turns."),
-    ("def_buff", "Defense stance", "Raises defense for the next few turns."),
-    ("lifesteal", "Life drain", "Deals damage and converts part of it into HP."),
-    ("armor_break", "Armor break", "Deals damage and temporarily reduces enemy defense."),
-    ("mark", "Mark target", "Marks the enemy, increasing the next few hits against it."),
-    ("poison", "Poison", "Applies a stacking damage-over-time poison."),
-    ("burn", "Burn", "Applies a burning damage-over-time effect."),
-    ("freeze", "Freeze", "Deals damage and has a chance to slow the enemy's next turn."),
-    ("crit", "Precision burst", "Temporarily raises critical chance before striking."),
-    ("dodge", "Evasion", "Grants a short window of improved evasion."),
-    ("mana_drain", "Mana siphon", "Damages the enemy while restoring some MP."),
-    ("stamina", "Adrenaline", "Restores stamina and deals a quick attack."),
-    ("counter", "Counter stance", "Reduces the next hit and retaliates when struck."),
-    ("reflect", "Reflect barrier", "Reduces the next incoming hit and reflects part of it."),
-    ("cleanse", "Cleanse", "Removes negative combat effects and restores a little HP."),
-    ("barrier", "Arcane barrier", "Creates a temporary damage shield."),
-    ("haste", "Haste", "Improves speed and evasion for several turns."),
-    ("focus", "Focus", "Improves critical chance and skill efficiency briefly."),
-    ("vulnerability", "Expose weakness", "Makes the enemy take increased damage briefly."),
-    ("silence", "Disruption", "Suppresses the enemy's special behavior briefly."),
-    ("execute", "Execution", "Deals bonus damage when the enemy is already weakened."),
-    ("true_damage", "True damage", "Ignores most defense, but has a controlled multiplier."),
-    ("percent_damage", "Vital strike", "Deals a small percentage of enemy maximum HP."),
-    ("aoe", "Area burst", "Wide attack designed for packs and dungeon waves."),
-    ("chain", "Chain reaction", "A hit that grows stronger after successful attacks."),
-    ("summon", "Summoning", "Calls a temporary combat spirit for a bonus strike."),
-    ("pet_boost", "Companion bond", "Empowers the equipped pet and triggers its ability."),
-    ("resource", "Resource surge", "Restores MP and stamina while dealing light damage."),
-    ("team_heal", "Battlefield recovery", "Strong self-heal designed for group/PvP support."),
-    ("team_buff", "Rally", "Grants a broad temporary combat-stat boost."),
-    ("dispel", "Dispel", "Removes enemy buffs and then strikes."),
-    ("terrain", "Terrain control", "Creates a short-lived field effect that alters combat."),
-    ("delayed", "Delayed strike", "Plants a powerful hit that lands after one turn."),
-    ("random", "Wild technique", "Chooses one of several controlled effects at random."),
-    ("sacrifice", "Sacrificial power", "Consumes a small amount of HP for a powerful attack."),
-    ("emergency", "Last stand", "Becomes stronger when the hero is below half HP."),
-    ("stance", "Adaptive stance", "Switches between offense and defense based on current HP."),
-    ("combo", "Combo finisher", "Gets stronger after consecutive successful actions."),
-    ("recovery", "Second wind", "Restores HP and MP with a long cooldown."),
-    ("mana_burst", "Mana burst", "Converts stored magical power into a controlled burst."),
-    ("curse", "Curse", "Marks the enemy with a stacking weakening curse."),
-    ("ultimate", "Ultimate", "High-impact signature attack with a strict cooldown."),
-    ("mythic", "Mythic technique", "Late-game class-defining ability with multiple effects."),
-    ("signature", "Signature", "A unique capstone that combines the class identity."),
+# Every entry uses a different combat mechanic inside a single class.
+SKILL_ARCHETYPES = [
+    ("damage", "Basic Technique", "Reliable single-target damage."),
+    ("heavy", "Heavy Technique", "A slower, stronger hit with higher damage."),
+    ("multi", "Twin Technique", "Two separate hits; useful against light defenses."),
+    ("bleed", "Wound Technique", "Deals damage and inflicts Bleed for 3 turns."),
+    ("heal", "Recovery Technique", "Restores a percentage of maximum HP."),
+    ("def_buff", "Guard Technique", "Deals light damage and grants +18% DEF for 3 turns."),
+    ("attack_buff", "Power Technique", "Deals damage and grants +15% ATK for 3 turns."),
+    ("armor_break", "Break Technique", "Deals damage and inflicts -18% DEF for 3 turns."),
+    ("poison", "Venom Technique", "Deals damage and applies Poison for 4 turns."),
+    ("burn", "Scorch Technique", "Deals damage and applies Burn for 3 turns."),
+    ("freeze", "Control Technique", "Deals damage and slows the enemy for 2 turns."),
+    ("lifesteal", "Drain Technique", "Deals damage and restores HP from the damage dealt."),
+    ("mana_drain", "Siphon Technique", "Deals damage and restores MP."),
+    ("dodge", "Evasion Technique", "Deals light damage and grants +20% evasion for 3 turns."),
+    ("counter", "Counter Technique", "Prepares a counter stance against the next attack."),
+    ("barrier", "Barrier Technique", "Creates a strong shield against the next 2 hits."),
+    ("vulnerability", "Expose Technique", "Deals damage and makes the enemy take +20% damage for 2 turns."),
+    ("execute", "Execution Technique", "Deals bonus damage when the target is below 30% HP."),
+    ("true_damage", "Piercing Technique", "Deals controlled damage that ignores defense."),
+    ("ultimate", "Signature Technique", "High-impact class finisher with damage and a small heal."),
 ]
 
-_SKILL_NAME_SUFFIXES = [
-    "Edge", "Surge", "Break", "Pulse", "Ward", "Rush", "Nova", "Veil", "Crescent", "Drive",
-    "Fang", "Brand", "Tempest", "Prism", "Aegis", "Howl", "Burst", "Requiem", "Spear", "Crown",
-    "Cascade", "Rift", "Oath", "Mirage", "Torrent", "Vortex", "Halo", "Ruin", "Bloom", "Roar",
-    "Chain", "Ascension", "Overture", "Dominion", "Fury", "Sanctum", "Execution", "Apocalypse", "Genesis", "Eclipse",
-]
+# Unlock gaps are deliberately long.  Players start with exactly three skills
+# and gradually build a toolkit rather than collecting dozens of near-identical
+# attacks immediately.
+SKILL_COSTS = (8, 12, 15, 18, 14, 16, 18, 20, 21, 22, 24, 25, 26, 28, 30, 32, 34, 36, 38, 42)
+SKILL_COOLDOWNS = (0, 1, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 6, 7)
 
-# Class identities change how the same mechanical family is presented.  The
-# actual effect is still distinct per skill so players can choose builds.
-_CLASS_FLAVOUR = {
-    "warrior":"martial", "berserker":"rage", "knight":"guardian", "mage":"arcane",
-    "rogue":"shadow", "assassin":"lethal", "ranger":"precision", "paladin":"holy",
-    "summoner":"spirit", "cleric":"sacred", "druid":"nature", "monk":"chi",
-    "bard":"resonance", "necromancer":"death", "warlock":"abyssal", "alchemist":"alchemy",
-    "engineer":"magitech", "duelist":"dueling", "lancer":"dragon", "spellblade":"rune",
+_CLASS_SKILL_NAMES = {
+    "warrior": ["Power Strike", "Cleave", "Whirlwind", "Crushing Arc", "Second Wind", "Iron Guard", "Battle Cry", "Armor Sundering", "Open Wound", "Blazing Edge", "Concussion", "Warrior's Drain", "Battle Focus", "Swift Footwork", "Riposte", "Aegis Stance", "Weakpoint Slash", "Executioner's Cut", "Adamant Pierce", "Warlord's Verdict"],
+    "berserker": ["Raging Slash", "Savage Break", "Blood Cyclone", "Rupture", "Blood Recovery", "Frenzied Guard", "Rage Howl", "Bone Crusher", "Toxic Fury", "Inferno Rage", "Skull Freeze", "Blood Feast", "Rage Siphon", "Feral Step", "Fury Counter", "Berserker Hide", "Killing Instinct", "Execution", "Rage Piercer", "Worldbreaker"],
+    "knight": ["Shield Bash", "Crushing Blow", "Shield Sweep", "Bleeding Brand", "Knight's Mending", "Fortress Oath", "Royal Command", "Armor Rend", "Toxic Edge", "Flame Brand", "Frost Shield", "Valor Drain", "Mana Seal", "Guardian Step", "Shield Counter", "Aegis Wall", "Judging Gaze", "Executioner's Verdict", "Holy Pierce", "Royal Verdict"],
+    "mage": ["Arcane Bolt", "Flame Burst", "Frost Nova", "Arcane Rupture", "Mana Mend", "Prismatic Ward", "Arcane Overcharge", "Spell Fracture", "Venom Mist", "Inferno", "Absolute Zero", "Life Conversion", "Mana Siphon", "Blink", "Spell Counter", "Arcane Barrier", "Expose Core", "Arcane Execution", "Void Lance", "Meteor Cataclysm"],
+    "rogue": ["Twin Strike", "Shadow Cut", "Blade Flurry", "Open Vein", "Quick Recovery", "Smoke Guard", "Adrenaline", "Sunder Cut", "Venom Edge", "Ember Knife", "Crippling Dart", "Blood Tap", "Energy Snatch", "Shadowstep", "Dirty Counter", "Smoke Barrier", "Marked Prey", "Finishing Cut", "Piercing Dagger", "Nightfall"],
+    "assassin": ["Killing Edge", "Venom Cut", "Phantom Step", "Hemorrhage", "Assassin's Recovery", "Veiled Guard", "Killer Instinct", "Armor Sever", "Deadly Venom", "Cinder Blade", "Nerve Freeze", "Blood Harvest", "Mana Theft", "Ghost Step", "Murderous Counter", "Void Veil", "Death Mark", "Silent Execution", "Void Pierce", "Death Sentence"],
+    "ranger": ["Aimed Shot", "Piercing Arrow", "Rain of Arrows", "Barbed Arrow", "Field Dressing", "Hunter's Guard", "Predator's Focus", "Armor-Piercing Shot", "Venom Arrow", "Flame Arrow", "Freezing Shot", "Blood Arrow", "Siphon Arrow", "Windstep", "Countershot", "Aegis Trap", "Hunter's Mark", "Execution Shot", "Star Arrow", "Heaven's Volley"],
+    "paladin": ["Holy Strike", "Crusader Blow", "Radiant Sweep", "Bleeding Judgment", "Divine Heal", "Sacred Guard", "Holy Might", "Consecrate", "Venom of Sin", "Sunfire", "Frost Verdict", "Life Tithe", "Faith Siphon", "Blessed Step", "Holy Counter", "Divine Barrier", "Condemn", "Final Judgment", "Seraph Pierce", "Heaven's Judgment"],
+    "summoner": ["Spirit Bolt", "Beast Assault", "Soul Link", "Spectral Wound", "Spirit Mend", "Guardian Spirit", "Primal Command", "Soul Shatter", "Venom Familiar", "Flame Familiar", "Frost Familiar", "Life Bond", "Mana Pact", "Spirit Step", "Beast Counter", "Spirit Barrier", "Soul Brand", "Predator's Finish", "Astral Pierce", "World Caller"],
+    "cleric": ["Holy Bolt", "Smite", "Radiant Wave", "Searing Wound", "Renew", "Blessed Ward", "Prayer of Might", "Sunder Sin", "Purifying Venom", "Sacred Flame", "Frost Prayer", "Life Drain", "Faith Siphon", "Grace Step", "Divine Counter", "Sanctuary", "Expose Heresy", "Last Rites", "Judgment Lance", "Divine Ascension"],
+    "druid": ["Thorn Lash", "Moonfire", "Wild Sweep", "Briar Wound", "Nature's Gift", "Barkskin", "Predatory Growth", "Root Rend", "Toxic Bloom", "Wildfire", "Winter Bloom", "Sap Drain", "Mana Root", "Leafstep", "Thorn Counter", "Ancient Bark", "Spirit Bloom", "Feral Execution", "Worldroot Spear", "Primal Tempest"],
+    "monk": ["Chi Strike", "Palm Break", "Flurry", "Bleeding Palm", "Inner Recovery", "Iron Body", "Fighting Spirit", "Pressure Point", "Venom Palm", "Burning Fist", "Frozen Knuckle", "Life Steal Palm", "Chi Siphon", "Wind Step", "Counter Palm", "Chi Barrier", "Open Meridian", "Dragon Finish", "Heaven Pierce", "Dragon Ascension"],
+    "bard": ["Sonic Note", "Resonant Blast", "Battle Chord", "Discordant Wound", "Healing Melody", "Protective Verse", "War Anthem", "Armor-Shattering Chord", "Poisonous Refrain", "Flame Overture", "Frozen Ballad", "Vampiric Aria", "Mana Melody", "Swift Rhythm", "Counter Chorus", "Barrier Symphony", "Weakness Verse", "Finale", "Piercing Crescendo", "Mythic Performance"],
+    "necromancer": ["Soul Bolt", "Bone Spear", "Death Wave", "Grave Wound", "Dark Renewal", "Bone Armor", "Dark Empowerment", "Soul Rend", "Plague Mist", "Hellfire", "Grave Freeze", "Soul Feast", "Mana Reap", "Ghostwalk", "Bone Counter", "Death Barrier", "Curse of Frailty", "Soul Execution", "Oblivion Lance", "Eternal Night"],
+    "warlock": ["Shadow Bolt", "Chaos Brand", "Abyssal Burst", "Hemorrhaging Hex", "Pact Renewal", "Demon Hide", "Dark Empowerment", "Armor Curse", "Plague Hex", "Hellfire", "Frost Hex", "Life Siphon", "Pact Drain", "Void Step", "Demon Counter", "Abyssal Barrier", "Vulnerability Hex", "Doom", "Nether Lance", "Void Apocalypse"],
+    "alchemist": ["Acid Flask", "Bomb Toss", "Catalyst Burst", "Corrosive Cut", "Rejuvenation", "Reactive Mixture", "Battle Tonic", "Armor Dissolver", "Toxic Compound", "Incendiary Flask", "Cryo Flask", "Life Elixir", "Mana Elixir", "Quickstep Tonic", "Counter Mixture", "Barrier Compound", "Weakness Serum", "Execution Bomb", "Piercing Compound", "Grand Transmutation"],
+    "engineer": ["Arc Shot", "Siege Burst", "Drone Volley", "Bleeding Shrapnel", "Repair Drone", "Plated Frame", "Overclock", "Armor Breaker", "Toxic Payload", "Incendiary Round", "Cryo Round", "Leech Drone", "Energy Reclaimer", "Thruster Dash", "Counter Turret", "Energy Barrier", "Target Lock", "Finisher Cannon", "Rail Pierce", "Omega Protocol"],
+    "duelist": ["Riposte", "Lunge", "Blade Dance", "Crimson Feint", "Second Wind", "Perfect Guard", "Tempo Surge", "Guard Break", "Poisoned Point", "Flashing Edge", "Frost Feint", "Life-Stealing Lunge", "Tempo Siphon", "Flash Step", "Perfect Counter", "Duelist Barrier", "Opening Cut", "Final Thrust", "True Edge", "Absolute Duel"],
+    "lancer": ["Spear Thrust", "Vault", "Dragon Dive", "Bleeding Impale", "Combat Recovery", "Spear Guard", "Resolve Surge", "Armor Skewer", "Venom Spear", "Flame Dive", "Frost Lance", "Blood Lance", "Resolve Siphon", "Skystep", "Counter Thrust", "Dragon Ward", "Weakpoint Impale", "Heavenfall", "Dragon Pierce", "Dragon Emperor"],
+    "spellblade": ["Arcane Slash", "Elemental Edge", "Rune Flurry", "Bleeding Rune", "Ether Renewal", "Mana Guard", "Arcane Might", "Rune Break", "Venom Rune", "Inferno Edge", "Frost Edge", "Soul Edge", "Mana Siphon", "Blink Blade", "Runic Counter", "Ether Barrier", "Expose Rune", "Ether Execution", "Astral Edge", "Reality Break"],
 }
+
+_CLASS_FLAVOUR = {k:k for k in _CLASS_SKILL_NAMES}
 
 
 def _build_class_skills():
     result = {}
-    for class_name, base_names in CLASS_SKILL_NAMES.items():
-        names = list(base_names) + list(ADVANCED_SKILLS.get(class_name, ()))
-        # Preserve the original ten names first.
-        generated_names = list(names)
-        flavour = _CLASS_FLAVOUR.get(class_name, class_name)
-        for suffix in _SKILL_NAME_SUFFIXES:
-            generated_names.append(f"{flavour.title()} {suffix}")
-        skills = []
-        for i in range(50):
-            name = generated_names[i] if i < len(generated_names) else f"{flavour.title()} Technique {i+1}"
-            effect, mechanic_name, mechanic_desc = SKILL_MECHANICS[i]
-            # Keep class identity visible in the first core skills as well as in
-            # the later specialized techniques.
-            if class_name in HEAL_CLASSES and i in {2,4,8}:
-                effect, mechanic_name, mechanic_desc = ("heal", "Restoration", "Restores HP and is especially effective for support-oriented classes.")
-            elif class_name in {"knight","warrior","paladin"} and i in {5,6}:
-                effect, mechanic_name, mechanic_desc = ("def_buff", "Guarding stance", "Raises defense and reduces incoming damage for several turns.")
-            elif class_name in {"assassin","rogue","duelist"} and i in {2,8}:
-                effect, mechanic_name, mechanic_desc = ("crit", "Precision burst", "Temporarily raises critical chance before striking.")
-            elif class_name in {"necromancer","warlock"} and i in {4,8}:
-                effect, mechanic_name, mechanic_desc = ("lifesteal", "Soul drain", "Deals damage and converts part of it into HP.")
-            # Scale carefully: damage growth is bounded by combat caps below.
-            mult = round(0.82 + min(1.58, i * 0.035), 3)
-            if effect in {"heal", "recovery", "team_heal"}:
-                mult = round(0.20 + min(0.35, i * 0.006), 3)
-            desc = mechanic_desc
+    for class_name in CLASSES:
+        names = _CLASS_SKILL_NAMES.get(class_name, [f"{class_name.title()} Skill {i}" for i in range(1, 21)])
+        skills=[]
+        for i, (effect, mechanic_name, mechanic_desc) in enumerate(SKILL_ARCHETYPES):
+            name = names[i]
+            # Damage multipliers are intentionally moderate; equipment and
+            # matchup bonuses remain meaningful instead of skills deleting foes.
+            mult = round(0.78 + i * 0.035, 3)
+            if effect == "heavy": mult = 1.18
+            elif effect == "multi": mult = 0.48
+            elif effect in {"heal", "def_buff", "attack_buff", "dodge", "counter", "barrier"}: mult = 0.35
+            elif effect in {"true_damage", "execute"}: mult = 1.05 + i * 0.01
+            elif effect == "ultimate": mult = 1.48
+            buff_text = {
+                "def_buff": "+18% DEF for 3 turns",
+                "attack_buff": "+15% ATK for 3 turns",
+                "dodge": "+20% evasion for 3 turns",
+                "counter": "counter the next incoming attack",
+                "barrier": "65% damage reduction for the next 2 hits",
+            }.get(effect, "None")
+            debuff_text = {
+                "bleed": "Bleed: 3 turns",
+                "armor_break": "-18% DEF for 3 turns",
+                "poison": "Poison: 4 turns",
+                "burn": "Burn: 3 turns",
+                "freeze": "Slow: 2 turns",
+                "vulnerability": "+20% damage taken for 2 turns",
+            }.get(effect, "None")
+            heal_pct = {"heal": .24, "lifesteal": .28, "ultimate": .08}.get(effect, 0)
+            damage_cap = .28 if effect not in {"heavy", "execute", "ultimate"} else .34
             skills.append({
-                "key": f"skill_{i+1}",
-                "name": name,
-                "cost": SKILL_COSTS[i],
-                "mult": mult,
-                "effect": effect,
-                "cooldown": SKILL_COOLDOWNS[i],
-                "unlock": SKILL_UNLOCK_LEVELS[i],
-                "mechanic": mechanic_name,
-                "desc": desc,
+                "key": f"skill_{i+1}", "name": name, "cost": SKILL_COSTS[i], "mult": mult,
+                "effect": effect, "cooldown": SKILL_COOLDOWNS[i], "unlock": SKILL_UNLOCK_LEVELS[i],
+                "mechanic": mechanic_name, "desc": mechanic_desc, "buff_text": buff_text,
+                "debuff_text": debuff_text, "heal_pct": heal_pct, "damage_cap": damage_cap,
             })
-        result[class_name] = skills
+        result[class_name]=skills
     return result
 
 
@@ -865,12 +840,17 @@ class RPGService:
                 "stat_points": "INTEGER NOT NULL DEFAULT 0", "talent_points": "INTEGER NOT NULL DEFAULT 0",
                 "kingdom_name": "TEXT NOT NULL DEFAULT ''", "kingdom_role": "TEXT NOT NULL DEFAULT ''",
                 "area_key": "TEXT NOT NULL DEFAULT 'horizon_village'",
+                "last_gather": "REAL NOT NULL DEFAULT 0", "last_mine": "REAL NOT NULL DEFAULT 0", "last_fish": "REAL NOT NULL DEFAULT 0",
             }
             cur = await db.execute("PRAGMA table_info(rpg_players)")
             existing = {row[1] for row in await cur.fetchall()}
             for column, definition in migrations.items():
                 if column not in existing:
                     await db.execute(f"ALTER TABLE rpg_players ADD COLUMN {column} {definition}")
+            cur = await db.execute("PRAGMA table_info(rpg_bounties)")
+            bounty_existing = {row[1] for row in await cur.fetchall()}
+            if "target_id" not in bounty_existing:
+                await db.execute("ALTER TABLE rpg_bounties ADD COLUMN target_id INTEGER DEFAULT 0")
             # Pet migrations keep existing companions valid while adding their
             # passive stats and battle ability.
             cur = await db.execute("PRAGMA table_info(rpg_pets)")
@@ -885,6 +865,11 @@ class RPGService:
             for column, definition in pet_migrations.items():
                 if column not in pet_existing:
                     await db.execute(f"ALTER TABLE rpg_pets ADD COLUMN {column} {definition}")
+            # New progression starts with exactly three active skills. Remove the
+            # old fourth starter slot from characters created by earlier versions;
+            # skill 4 remains unlockable normally at level 6.
+            await db.execute("DELETE FROM rpg_skill_loadout WHERE slot=4")
+
             # Preserve an existing single-pet character while upgrading to a true
             # pet inventory. The old rpg_pets table remains as a compatibility cache.
             cur = await db.execute("SELECT guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability FROM rpg_pets")
@@ -899,7 +884,7 @@ class RPGService:
                 count_cur = await db.execute("SELECT COUNT(*) FROM rpg_skill_loadout WHERE guild_id=? AND user_id=?", (guild_id,user_id))
                 count = (await count_cur.fetchone())[0]
                 if count == 0:
-                    for slot, skill_key in enumerate(("skill_1","skill_2","skill_3","skill_4"),1):
+                    for slot, skill_key in enumerate(("skill_1","skill_2","skill_3"),1):
                         await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)", (guild_id,user_id,slot,skill_key))
             await db.commit()
 
@@ -940,7 +925,7 @@ class RPGService:
                              (guild_id,user_id,name[:32],race,class_name,s["max_hp"],s["max_hp"],s["max_mp"],s["max_mp"],s["atk"],s["defense"],s["speed"],s["crit"]))
             for item, qty in (("life_potion",3),("mana_potion",2),("iron_sword",1),("iron_armor",1)):
                 await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?)", (guild_id,user_id,item,qty))
-            for slot,skill_key in enumerate(("skill_1","skill_2","skill_3","skill_4"),1):
+            for slot,skill_key in enumerate(("skill_1","skill_2","skill_3"),1):
                 await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)",(guild_id,user_id,slot,skill_key))
             await db.commit()
         return True, f"Hero **{name}** created as a **{race.title()} {class_name.title()}**."
@@ -1485,13 +1470,29 @@ class RPGService:
     async def gather(self,guild_id,user_id,kind="gather"):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
+        kind=str(kind or "gather").lower()
+        settings={
+            "gather": ("last_gather", 30, [("herb", .45),("wolf_pelt", .30),("iron_ore", .15),("arcane_shard", .10)], "Gathering"),
+            "mine": ("last_mine", 45, [("iron_ore", .50),("arcane_shard", .18),("wolf_pelt", .12),("herb", .20)], "Mining"),
+            "fish": ("last_fish", 40, [("food_grilled_fish", .55),("arcane_shard", .08),("herb", .20),("wolf_pelt", .17)], "Fishing"),
+        }
+        field,cooldown,pool,label=settings.get(kind,settings["gather"])
+        remaining=await self._cooldown(p,field,cooldown)
+        if remaining>0:
+            return False,f"⏳ **{label}** is on cooldown. Try again in **{int(remaining)+1}s**."
         if p["stamina"]<10:return False,"You are exhausted. Use `!rpg rest`."
-        item=random.choice(["herb","iron_ore","wolf_pelt","herb"] if kind!="fish" else ["herb","wolf_pelt"])
+        roll=random.random(); acc=0.0; item=pool[-1][0]
+        for key,chance in pool:
+            acc+=chance
+            if roll<=acc:
+                item=key; break
+        if item not in ITEMS:item="herb"
         qty=random.randint(1,2)
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET stamina=stamina-10 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
-        await self.add_item(guild_id,user_id,item,qty); await self.progress_quests(guild_id,user_id,"gather",1)
-        return True,f"You gathered **{ITEMS[item]['name']} ×{qty}**. Stamina remaining: **{max(0,p['stamina']-10)}**."
+            await db.execute(f"UPDATE rpg_players SET stamina=stamina-10, {field}=? WHERE guild_id=? AND user_id=?",(time.time(),guild_id,user_id)); await db.commit()
+        await self.add_item(guild_id,user_id,item,qty)
+        await self.progress_quests(guild_id,user_id,"gather",1)
+        return True,f"**{label} successful!** You obtained **{ITEMS[item]['name']} ×{qty}**. Next {label.lower()} ready in **{cooldown}s**. Stamina: **{max(0,p['stamina']-10)}**."
 
     async def rest(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
@@ -2301,18 +2302,40 @@ class RPGService:
             await db.execute("UPDATE rpg_players SET kingdom_name='',kingdom_role='',title='Adventurer' WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
         return True,f"You left **{k[1]}**."
 
-    async def bounty_post(self,guild_id,user_id,target_name,reward):
+    async def bounty_post(self,guild_id,user_id,target_name,reward,target_id=0):
         if reward<100:return False,"Bounties must be at least 100 gold."
         p=await self.player(guild_id,user_id)
         if not p or p["gold"]<reward:return False,"You don't have enough gold."
+        if int(target_id or 0)==int(user_id):return False,"You can't place a bounty on yourself."
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(reward,guild_id,user_id))
-            await db.execute("INSERT INTO rpg_bounties(guild_id,poster_id,target_name,reward,created_at) VALUES(?,?,?,?,?)",(guild_id,user_id,target_name[:64],reward,time.time())); await db.commit()
-        return True,f"Bounty posted on **{target_name}** for **{reward} gold**."
+            await db.execute("INSERT INTO rpg_bounties(guild_id,poster_id,target_name,target_id,reward,created_at) VALUES(?,?,?,?,?,?)",(guild_id,user_id,target_name[:64],int(target_id or 0),reward,time.time())); await db.commit()
+        target_note=f" on <@{target_id}>" if target_id else f" on **{target_name}**"
+        return True,f"Bounty posted{target_note} for **{reward} gold**. Use `!rpg bounty claim <id>` when the target is defeated/eligible."
 
     async def bounties(self,guild_id):
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT id,target_name,reward,poster_id FROM rpg_bounties WHERE guild_id=? AND status='open' ORDER BY reward DESC LIMIT 20",(guild_id,)); return await cur.fetchall()
+            cur=await db.execute("SELECT id,target_name,reward,poster_id,status,target_id FROM rpg_bounties WHERE guild_id=? AND status='open' ORDER BY reward DESC LIMIT 20",(guild_id,)); return await cur.fetchall()
+
+    async def bounty_claim(self,guild_id,user_id,bounty_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id,target_name,target_id,reward,poster_id,status FROM rpg_bounties WHERE guild_id=? AND id=?",(guild_id,bounty_id)); row=await cur.fetchone()
+            if not row:return False,"Bounty not found."
+            bid,target_name,target_id,reward,poster_id,status=row
+            if status!="open":return False,"That bounty has already been claimed or closed."
+            if int(poster_id)==int(user_id):return False,"You cannot claim your own bounty."
+            target_id=int(target_id or 0)
+            if target_id and target_id==int(user_id):
+                return False,"You are the target of this bounty, so you cannot claim it yourself."
+            # A claim closes the bounty and pays the hunter. Member-targeted
+            # bounties are safer because the target is recorded explicitly; the
+            # actual defeat can be verified by the server's PvP/event rules.
+            await db.execute("UPDATE rpg_bounties SET status='claimed' WHERE id=? AND status='open'",(bid,))
+            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(reward,guild_id,user_id))
+            await db.commit()
+        return True,f"🎯 Bounty **#{bid}** claimed for **+{reward} gold** against **{target_name}**."
 
     async def start_duel(self,guild_id,user_id,target_id):
         a=await self.player(guild_id,user_id); b=await self.player(guild_id,target_id)
@@ -2412,6 +2435,14 @@ class RPGService:
         state["log"].extend(extra_log)
         winner=state["players"][winner_id]; loser=state["players"][loser_id]
         await self.add_rewards(guild_id,winner_id,80,120)
+        # Completing a player-targeted bounty through PvP immediately pays the
+        # hunter. The separate `bounty claim` command remains available for
+        # text/name bounties and manually verified events.
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id FROM rpg_bounties WHERE guild_id=? AND target_id=? AND status='open' ORDER BY reward DESC",(guild_id,loser_id))
+            bounty_ids=[int(r[0]) for r in await cur.fetchall()]
+        for bounty_id in bounty_ids:
+            await self.bounty_claim(guild_id,winner_id,bounty_id)
         # PvP doesn't delete a character's progress; it simply leaves the loser at 1 HP.
         persisted={}
         for uid,data in state["players"].items():

@@ -1722,7 +1722,7 @@ def _combat_embed(state, result=None):
         skill=next((x for x in SKILLS.get(state.get("class_name", ""),[]) if x["key"]==key),None)
         if not skill: continue
         cd=skill_cds.get(skill["key"],0)
-        skill_lines.append(f"**{skill['name']}** · {skill['cost']} MP · {skill['mechanic']}" + (f" · CD {cd}" if cd else ""))
+        skill_lines.append(f"**{skill['name']}** · {skill['cost']} MP · CD {skill['cooldown']}t · {skill['mechanic']} · {skill.get('buff_text','No buff')} · {skill.get('debuff_text','No debuff')}" + (f" · READY" if not cd else f" · CD {cd}"))
     desc=(f"**{mode}{floor}** · Turn **{state.get('turn',1)}**\n\n"
           f"👹 **{enemy['name']}** · Lv **{enemy['level']}**\n"
           f"❤️ `{_bar(ehp,enemy['hp'])}` **{ehp}/{enemy['hp']} HP**\n"
@@ -1761,7 +1761,8 @@ class RPGCombatSkillView(discord.ui.View):
                 continue
             cd=int(cooldowns.get(skill["key"],0))
             status=f"CD {cd}" if cd else (f"{skill['cost']} MP" if mp>=skill["cost"] else f"Need {skill['cost']} MP")
-            options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {skill['desc']}"[:100]))
+            dmg=f"~{int(max(1,battle_view.state.get('combat_stats',{}).get('atk',10))*float(skill.get('mult',0))*.92)}–{int(max(1,battle_view.state.get('combat_stats',{}).get('atk',10))*float(skill.get('mult',0))*1.08)} dmg" if skill.get("effect") not in {"heal","counter","barrier"} else (f"~{int(battle_view.state.get('combat_stats',{}).get('max_hp',100)*skill.get('heal_pct',0))} HP" if skill.get("effect")=="heal" else "utility")
+            options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {dmg} • {skill.get('buff_text','No buff')} • {skill.get('debuff_text','No debuff')}"[:100]))
         select=discord.ui.Select(placeholder="Choose a skill...",min_values=1,max_values=1,options=options)
         select.callback=self.choose
         self.add_item(select)
@@ -1820,7 +1821,8 @@ class RPGPvPSkillView(discord.ui.View):
             if int(data.get("level",1)) < int(skill.get("unlock",1)):
                 continue
             cd=int(data.get("skill_cooldowns",{}).get(skill["key"],0)); status=f"CD {cd}" if cd else f"{skill['cost']} MP"
-            options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {skill['desc']}"[:100]))
+            dmg=f"~{int(max(1,battle_view.state.get('combat_stats',{}).get('atk',10))*float(skill.get('mult',0))*.92)}–{int(max(1,battle_view.state.get('combat_stats',{}).get('atk',10))*float(skill.get('mult',0))*1.08)} dmg" if skill.get("effect") not in {"heal","counter","barrier"} else (f"~{int(battle_view.state.get('combat_stats',{}).get('max_hp',100)*skill.get('heal_pct',0))} HP" if skill.get("effect")=="heal" else "utility")
+            options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {dmg} • {skill.get('buff_text','No buff')} • {skill.get('debuff_text','No debuff')}"[:100]))
         select=discord.ui.Select(placeholder="Choose your skill...",min_values=1,max_values=1,options=options); select.callback=self.choose; self.add_item(select)
     async def choose(self,interaction):
         if interaction.user.id!=self.user_id:
@@ -1991,7 +1993,7 @@ async def rpg_help(ctx):
     await _rpg_delete(ctx)
     pages=[
         _rpg_embed("🌌 Horizon RPG — Start Here", "**Create & preview**\n`!rpg races` — browse races + matchup strengths/weaknesses\n`!rpg race <name>` — full race preview\n`!rpg classes` — browse classes + starter skills\n`!rpg class <name>` — full class preview + skill progression\n`!rpg start <name> <race> <class>` — create your hero\n`!rpg profile` — full character sheet\n\n**Important:** changing race/class/subrace/subclass/path/evolution always asks for confirmation first."),
-        _rpg_embed("⚔️ Horizon RPG — Combat", "`!rpg adventure` — live battle\n`!rpg dungeon [name]` — multi-floor battle\n`!rpg battle @player` — PvP duel\n\n**Battle buttons:** Attack • Skills • Pet Assist • Potion/Food • Defend • Flee\n\n**Skills:** every class has **50 skills**. They unlock by level, have different mechanics and MP costs, and only **4 can be active**.\n`!rpg skills` — browse all 50\n`!rpg equip-skill <skill_key> <1-4>` — change active loadout\n\nMatchup bonuses are deliberately small so counters matter without hard-locking a build."),
+        _rpg_embed("⚔️ Horizon RPG — Combat", "`!rpg adventure` — live battle\n`!rpg dungeon [name]` — multi-floor battle\n`!rpg battle @player` — PvP duel\n\n**Battle buttons:** Attack • Skills • Pet Assist • Potion/Food • Defend • Flee\n\n**Skills:** every class has **20 distinct skills**. Start with **3**, then unlock new skills every several levels. Each skill shows damage/healing, MP, cooldown, buffs and debuffs. Only **4 can be active**.\n`!rpg skills` — browse all 20\n`!rpg equip-skill <skill_key> <1-4>` — change active loadout\n\nMatchup bonuses are deliberately small so counters matter without hard-locking a build."),
         _rpg_embed("🎒 Horizon RPG — Items & Gear", "`!rpg inventory` — your owned items\n`!rpg items [category] [page]` — classified item codex\n`!rpg iteminfo <item_key>` — detailed item inspection\n`!rpg equip <item_key>` — equip gear\n`!rpg use [item_key] [qty]` — consume food/potions\n\nThe world now contains **1,000+ generated items** across weapons, armor, offhands, accessories, rings, amulets, relics, consumables, food, materials, eggs and chests. High-tier gear has level requirements and small percentage bonuses capped per item."),
         _rpg_embed("✨ Horizon RPG — Enchanting & Gacha", "`!rpg gacha` — view rates, pity and Gems\n`!rpg gacha 1` — single pull\n`!rpg gacha 10` — ten-pull\n`!rpg open-chest <key>` — open a gacha chest\n`!rpg enchantments` — see enchant types\n`!rpg enchant <slot> <item> <enchant>` — upgrade equipped gear\n\nGacha uses earned in-game Gems and published rates. Pity guarantees Epic+ at the configured threshold and Mythic at the higher threshold."),
         _rpg_embed("🐾 Horizon RPG — Pets", "`!rpg pets` — full pet inventory\n`!rpg pet` — equipped companion\n`!rpg equip-pet <pet_id>` — switch companions\n`!rpg unequip-pet` — store the active companion\n`!rpg adopt <name>` — starter companion\n`!rpg eggs` — owned eggs\n`!rpg hatch <egg> <name>` — hatch an egg\n`!rpg rename <name>` — rename equipped pet\n`!rpg release` — release equipped pet\n\nPets are now stored as a collection, so switching pets does **not** require releasing the others. Each pet shows its actual ability and passive stats."),
@@ -2035,7 +2037,7 @@ async def rpg_class_info(ctx, *, class_name: str = ""):
           f"❤️ HP +{data['hp']} • 💧 MP +{data['mp']} • ⚔️ ATK +{data['atk']} • 🛡️ DEF +{data['def']} • 💨 SPD +{data['spd']} • 🎯 Crit +{data['crit']}%\n\n"
           f"**Strengths:** {', '.join(strong) or 'No hard counter; flexible matchup.'}\n"
           f"**Weaker against:** {', '.join(weak) or 'No hard counter.'}\n\n"
-          "**Skill progression:** 50 skills total. Skills unlock by level and only 4 can be active at once.\n"
+          "**Skill progression:** 20 distinct skills total. Start with 3; later skills unlock at Lv 6, 11, 16 and onward. Only 4 can be active at once.\n"
           + "\n".join(f"`{sk['key']}` · **{sk['name']}** · Lv {sk['unlock']} · {sk['cost']} MP · {sk['mechanic']} — {sk['desc']}" for sk in skills[:12])
           + "\n\nUse `!rpg skills` to browse all unlocked skills and `!rpg equip-skill <skill_key> <slot>` to choose your four active skills.")
     e=_rpg_embed(f"⚔️ {key.title()} — Full Class Preview",body); e.set_image(url=_rpg_image_url("character",key)); await _rpg_panel(ctx,[e])
@@ -2601,7 +2603,7 @@ async def rpg_kingdom_leave(ctx):
 async def rpg_bounty(ctx):
     await _rpg_delete(ctx)
     rows=await bot.rpg.bounties(ctx.guild.id)
-    pages=_rpg_pages("Bounty Board",rows,page_size=8,icon="🎯",formatter=lambda x:f"`#{x[0]}` — **{x[1]}**\nReward: **{x[2]} gold** • Posted by <@{x[3]}>")
+    pages=_rpg_pages("Bounty Board",rows,page_size=8,icon="🎯",formatter=lambda x:f"`#{x[0]}` — **{x[1]}**\nReward: **{x[2]} gold** • Posted by <@{x[3]}> • **{x[4].title()}**")
     await _rpg_panel(ctx,pages)
 
 @rpg_bounty.command(name="list")
@@ -2612,15 +2614,27 @@ async def rpg_bounty_list(ctx): await rpg_bounty.callback(ctx)
 async def rpg_bounty_post(ctx, *, target_and_reward: str = ""):
     await _rpg_delete(ctx)
     parts=target_and_reward.strip().rsplit(maxsplit=1)
-    reward=0; target=""
+    reward=0; target=""; target_id=0
     if len(parts)==2 and parts[-1].isdigit():
         target,reward=parts[0],int(parts[-1])
     elif len(parts)==2 and parts[0].isdigit():
         reward,target=int(parts[0]),parts[1]
+    if ctx.message.mentions:
+        target_id=ctx.message.mentions[0].id
+        target=ctx.message.mentions[0].display_name
     if not target or reward<=0:
-        await _rpg_action_panel(ctx,"Bounty","Use `!rpg bounty post <target> <gold>`.",False); return
-    ok,msg=await bot.rpg.bounty_post(ctx.guild.id,ctx.author.id,target,reward)
+        await _rpg_action_panel(ctx,"Bounty","Use `!rpg bounty post @player <gold>` or `!rpg bounty post <name> <gold>`." ,False); return
+    ok,msg=await bot.rpg.bounty_post(ctx.guild.id,ctx.author.id,target,reward,target_id)
     await _rpg_action_panel(ctx, "Bounty", msg, ok)
+
+
+@rpg_bounty.command(name="claim")
+async def rpg_bounty_claim(ctx, bounty_id:int=0):
+    await _rpg_delete(ctx)
+    if not bounty_id:
+        await _rpg_action_panel(ctx,"Bounty Claim","Use `!rpg bounty claim <bounty_id>` after completing the bounty.",False); return
+    ok,msg=await bot.rpg.bounty_claim(ctx.guild.id,ctx.author.id,bounty_id)
+    await _rpg_action_panel(ctx,"Bounty Claim",msg,ok)
 
 
 @rpg_root.command(name="dungeon")
@@ -2652,10 +2666,18 @@ async def rpg_skills(ctx, page: int = 1):
     loadout=await bot.rpg.skill_loadout(ctx.guild.id,ctx.author.id); active={slot:skill["key"] for slot,skill in loadout if skill}
     def fmt(x):
         unlocked=p["level"]>=x["unlock"]; slots=[str(slot) for slot,key in active.items() if key==x["key"]]
-        return (f"`{x['key']}` **{x['name']}** · Lv **{x['unlock']}** · **{x['cost']} MP** · CD {x['cooldown']}\n"
+        atk=max(1,int(p.get("atk",10))); mult=float(x.get("mult",0)); effect=x.get("effect")
+        if effect=="heal": damage_text="Damage: —"
+        elif effect in {"counter","barrier"}: damage_text="Damage: utility"
+        else: damage_text=f"Damage: ~{int(atk*mult*.92)}–{int(atk*mult*1.08)} base"
+        heal=x.get("heal_pct",0)
+        heal_text=f"Heal: ~{int(p.get('max_hp',100)*heal)} HP" if heal else "Heal: —"
+        return (f"`{x['key']}` **{x['name']}** · Unlock Lv **{x['unlock']}** · **{x['cost']} MP** · CD **{x['cooldown']}t**\n"
+                f"{damage_text} • {heal_text}\n"
+                f"Buff: **{x.get('buff_text','None')}** • Debuff: **{x.get('debuff_text','None')}**\n"
                 f"{x['mechanic']}: {x['desc']}\n"
                 f"{'✅ UNLOCKED' if unlocked else '🔒 LOCKED'}" + (f" · Active slot {slots[0]}" if slots else ""))
-    pages=_rpg_pages(f"{p['class_name'].title()} Skills — 50 Total",rows,page_size=4,icon="✨",formatter=fmt)
+    pages=_rpg_pages(f"{p['class_name'].title()} Skills — 20 Distinct Skills",rows,page_size=4,icon="✨",formatter=fmt)
     # Add loadout overview to the first page.
     if pages:
         active_text="\n".join(f"**Slot {slot}:** {skill['name']}" for slot,skill in loadout if skill) or "No active skills."

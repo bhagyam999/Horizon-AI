@@ -266,7 +266,7 @@ This release builds on the complete v10.7 project; it is not a reduced rewrite.
 - 1,400+ classified RPG items generated from weapon, armor, offhand, accessory, ring, amulet, relic, consumable, food, material, egg and chest families.
 - High-tier gear has level requirements, item abilities, enchantment slots and small percentage bonuses. Percentage bonuses are deliberately capped at 10% per stat aggregate.
 - 12 equipment enchantments with persistent per-slot levels.
-- Every class now has exactly 50 skills with distinct mechanics, level unlocks, MP costs, cooldowns and descriptions.
+- Every class now has exactly 20 distinct skills. Characters start with 3 active skills, then unlock additional skills at larger level gaps (Lv 6, 11, 16, 22, 28, etc.). Each skill has its own mechanic, MP cost, cooldown, damage/healing information and buff/debuff details; a fourth active slot can be filled later.
 - Players can have many unlocked skills but only 4 active skills at once using `!rpg equip-skill <skill_key> <1-4>`.
 - Race abilities and class/race matchup modifiers are shown before selection and are intentionally mild so counters do not hard-lock builds.
 - Race/class/subrace/subclass/path/evolution changes now require an explicit Confirm/Cancel interaction before gold is spent.
@@ -282,3 +282,13 @@ This release builds on the complete v10.7 project; it is not a reduced rewrite.
 - Speaker names and IDs remain attached to indexed messages so Horizon can distinguish members discussing one another.
 - AI history backfill defaults are now 50 public channels × 250 messages per channel, still excluding private/staff channels and bot messages.
 - Gemini's default model is now `gemini-2.5-flash`; an explicitly configured `GEMINI_MODEL` remains respected and the provider still performs model discovery/failover.
+
+
+### v10.9 RPG progression changes
+- Added `!rpg bounty claim <id>` and member-targeted bounty posting with `@player`. PvP defeats can automatically complete eligible player-targeted bounties.
+- Added separate cooldowns: Gathering 30s, Mining 45s, Fishing 40s.
+- Characters now start with exactly 3 skills; the old fourth starter slot is removed during migration.
+- Skill catalogue reduced from 50 repetitive generated entries to 20 distinct combat mechanics per class.
+- Skill unlocks are spaced across the level curve rather than every 1-2 levels.
+- Skill views now show approximate damage/healing, MP cost, cooldown, buff and debuff information.
+- Existing progression, gear, pets, gacha, quests, economy, website and AI systems are preserved.
