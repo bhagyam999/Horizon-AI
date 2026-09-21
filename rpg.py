@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -547,7 +549,6 @@ ENCHANTMENTS = {
 # separate progression layer; none are baked into an item's name or base stats.
 ENCHANTMENT_COMPATIBILITY = {
     "weapon": {"sharpness", "precision", "vampiric", "flamebrand", "frostbind", "hunter", "swiftness", "soulbound"},
-    "helm": {"fortitude", "bulwark", "precision", "manaweave", "swiftness", "warding", "soulbound", "hunter"},
     "armor": {"fortitude", "bulwark", "swiftness", "manaweave", "frostbind", "warding", "soulbound"},
     "offhand": {"fortitude", "bulwark", "precision", "manaweave", "swiftness", "warding", "soulbound"},
     "accessory": {"sharpness", "fortitude", "precision", "manaweave", "swiftness", "warding", "soulbound", "hunter", "vampiric"},
@@ -735,35 +736,6 @@ def _build_expanded_items():
                     "enchant_slots":1+min(4,list(RARITIES).index(rarity)), "family":family,
                 }
 
-    # --- Helms -----------------------------------------------------------
-    # Headgear is a true equipment slot, separate from body armor.
-    helm_bases = [
-        ("circlet", "Arcane Circlet", 5, 10), ("warhelm", "War Helm", 8, 8),
-        ("greathelm", "Greathelm", 11, 5), ("hood", "Runed Hood", 4, 13),
-        ("crown", "Battle Crown", 7, 9), ("mask", "Shadow Mask", 5, 14),
-        ("visor", "Dragon Visor", 10, 7), ("diadem", "Astral Diadem", 6, 16),
-    ]
-    helm_families = ["Ashenvale", "Dawnwatch", "Ebonmarch", "Frostmere", "Goldcrest",
-                     "Ironroot", "Moonspire", "Ravenmark", "Silverpine", "Stormkeep",
-                     "Sunreach", "Thornwall", "Westfall", "Windscar", "Wyrmhold", "Starfall"]
-    for m_i, (mat_key, mat_name, rarity, mult) in enumerate(materials):
-        for h_i, (key, label, base_def, base_mp) in enumerate(helm_bases):
-            family = helm_families[(m_i * 5 + h_i * 3) % len(helm_families)]
-            for v, suffix in enumerate(("", "Ascendant")):
-                item_key = f"{mat_key}_{key}_{'helm' if v == 0 else 'helm_asc'}"
-                name = f"{family} {mat_name} {label}" + (f" {suffix}" if suffix else "")
-                generated[item_key] = {
-                    "name": name, "slot": "helm", "rarity": rarity,
-                    "def": int(base_def * mult) + 1 + v * 2,
-                    "hp": int(base_def * mult * 1.15) + 4 + m_i + v * 4,
-                    "mp": int(base_mp * mult) if key in {"circlet", "hood", "diadem"} else int(base_mp * mult * 0.35),
-                    "crit": 1 if key in {"mask", "diadem", "circlet"} else 0,
-                    "price": int(145 * base_def * mult) + m_i * 35 + v * 180,
-                    "level_req": {"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
-                    "enchant_slots": 1 + min(4, list(RARITIES).index(rarity)),
-                    "family": family, "design": suffix or "Standard",
-                }
-
     # --- Offhands --------------------------------------------------------
     offhands=[("buckler","Buckler",6),("kite_shield","Kite Shield",9),("tower_shield","Tower Shield",12),
               ("mirror_shield","Mirror Shield",10),("greatshield","Greatshield",15),("spellbook","Spellbook",4),
@@ -909,7 +881,7 @@ def _build_expanded_items():
     ITEMS.setdefault("dragon_trophy", {"name":"Dragon Trophy","slot":"material","rarity":"legendary","price":1000})
 
     # Give every equipment item a sensible number of empty enchantment slots.
-    equipment_slots={"weapon","helm","armor","offhand","accessory","ring","amulet","relic"}
+    equipment_slots={"weapon","armor","offhand","accessory","ring","amulet","relic"}
     for data in ITEMS.values():
         if data.get("slot") in equipment_slots:
             rarity=data.get("rarity","common")
@@ -934,6 +906,54 @@ RECIPES = {
     "steel_blade": {"iron_ore": 5, "arcane_shard": 1},
     "guardian_shield": {"iron_ore": 7, "wolf_pelt": 2},
 }
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Economy / gear progression
+# ---------------------------------------------------------------------------
+# Set bonuses are intentionally modest. A set should reward commitment without
+# making mixed builds obsolete.
+SET_FOCUS = {
+    "atk": "Attack", "defense": "Defense", "hp": "Vitality", "speed": "Speed", "crit": "Critical Chance"
+}
+UPGRADE_MAX = 15
+UPGRADE_COST_BASE = 350
+UPGRADE_MATERIALS = {
+    "common": ("iron_ore", 1), "uncommon": ("iron_ore", 2), "rare": ("arcane_shard", 2),
+    "epic": ("arcane_shard", 4), "legendary": ("dragon_trophy", 2), "mythic": ("dragon_trophy", 4),
+}
+
+
+def _intrinsic_count(rarity: str) -> int:
+    return {"common": 1, "uncommon": 1, "rare": 2, "epic": 2, "legendary": 3, "mythic": 3}.get(rarity, 1)
+
+
+def _roll_intrinsics(item: dict[str, Any]) -> dict[str, Any]:
+    """Roll per-instance properties once; they are never re-rolled by upgrades."""
+    rarity = item.get("rarity", "common")
+    pool = [
+        ("atk_pct", random.randint(1, 3), "% ATK"),
+        ("def_pct", random.randint(1, 3), "% DEF"),
+        ("hp_pct", random.randint(1, 4), "% HP"),
+        ("speed_pct", random.randint(1, 3), "% SPD"),
+        ("crit_flat", random.randint(1, 2), "Crit"),
+    ]
+    random.shuffle(pool)
+    chosen = pool[:_intrinsic_count(rarity)]
+    return {key: value for key, value, _ in chosen}
+
+
+def _set_key_for_item(item: dict[str, Any], item_key: str) -> str:
+    family = str(item.get("family", "")).strip().lower()
+    if family:
+        return f"{family}_set"
+    return ""
+
+
+def _set_focus(set_key: str) -> str:
+    if not set_key:
+        return "atk"
+    return ("atk", "defense", "hp", "speed", "crit")[sum(ord(c) for c in set_key) % 5]
 
 ENEMIES = [
     {"name": "Slime", "level": 1, "hp": 45, "atk": 7, "def": 2, "xp": 35, "gold": 25, "drops": ["herb"]},
@@ -1088,8 +1108,24 @@ class RPGService:
             );
             CREATE TABLE IF NOT EXISTS rpg_equipment (
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot TEXT NOT NULL, item_key TEXT NOT NULL,
+                upgrade_level INTEGER NOT NULL DEFAULT 0, intrinsic_json TEXT NOT NULL DEFAULT '{}',
+                set_key TEXT NOT NULL DEFAULT '', instance_uid TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (guild_id, user_id, slot)
             );
+            CREATE TABLE IF NOT EXISTS rpg_equipment_storage (
+                instance_uid TEXT PRIMARY KEY, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                slot TEXT NOT NULL, item_key TEXT NOT NULL, upgrade_level INTEGER NOT NULL DEFAULT 0,
+                intrinsic_json TEXT NOT NULL DEFAULT '{}', set_key TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_equipment_storage_owner ON rpg_equipment_storage(guild_id,user_id,slot);
+            CREATE TABLE IF NOT EXISTS rpg_economy_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL, event_type TEXT NOT NULL, item_key TEXT NOT NULL DEFAULT '',
+                quantity INTEGER NOT NULL DEFAULT 0, gold_delta INTEGER NOT NULL DEFAULT 0,
+                balance_after INTEGER, metadata_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_economy_log_owner ON rpg_economy_log(guild_id,user_id,created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_rpg_economy_log_event ON rpg_economy_log(guild_id,event_type,created_at DESC);
             CREATE TABLE IF NOT EXISTS rpg_skill_loadout (
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot INTEGER NOT NULL, skill_key TEXT NOT NULL,
                 PRIMARY KEY (guild_id, user_id, slot)
@@ -1164,7 +1200,8 @@ class RPGService:
             );
             CREATE TABLE IF NOT EXISTS rpg_market (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, seller_id INTEGER NOT NULL,
-                item_key TEXT NOT NULL, quantity INTEGER NOT NULL, price_each INTEGER NOT NULL, created_at REAL NOT NULL
+                item_key TEXT NOT NULL, quantity INTEGER NOT NULL, price_each INTEGER NOT NULL, created_at REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open', buyer_id INTEGER DEFAULT 0, sold_at REAL DEFAULT 0, listing_token TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS rpg_trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
@@ -1244,6 +1281,40 @@ class RPGService:
             for column, definition in migrations.items():
                 if column not in existing:
                     await db.execute(f"ALTER TABLE rpg_players ADD COLUMN {column} {definition}")
+            cur = await db.execute("PRAGMA table_info(rpg_equipment)")
+            equipment_existing = {row[1] for row in await cur.fetchall()}
+            equipment_migrations = {
+                "upgrade_level": "INTEGER NOT NULL DEFAULT 0",
+                "intrinsic_json": "TEXT NOT NULL DEFAULT '{}'",
+                "set_key": "TEXT NOT NULL DEFAULT ''",
+                "instance_uid": "TEXT NOT NULL DEFAULT ''",
+            }
+            for column, definition in equipment_migrations.items():
+                if column not in equipment_existing:
+                    await db.execute(f"ALTER TABLE rpg_equipment ADD COLUMN {column} {definition}")
+            cur = await db.execute("PRAGMA table_info(rpg_market)")
+            market_existing = {row[1] for row in await cur.fetchall()}
+            market_migrations = {
+                "status": "TEXT NOT NULL DEFAULT 'open'", "buyer_id": "INTEGER DEFAULT 0",
+                "sold_at": "REAL DEFAULT 0", "listing_token": "TEXT NOT NULL DEFAULT ''",
+            }
+            for column, definition in market_migrations.items():
+                if column not in market_existing:
+                    await db.execute(f"ALTER TABLE rpg_market ADD COLUMN {column} {definition}")
+            await db.execute("UPDATE rpg_market SET listing_token='legacy-'||id WHERE listing_token='' OR listing_token IS NULL")
+            await db.execute("UPDATE rpg_equipment SET instance_uid='legacy-'||guild_id||'-'||user_id||'-'||slot WHERE instance_uid='' OR instance_uid IS NULL")
+            await db.execute("UPDATE rpg_equipment SET set_key='' WHERE set_key IS NULL")
+            # One-time migration for already-equipped legacy gear. Intrinsics are
+            # rolled only when the old row has no intrinsic payload, so restarts
+            # never reroll a player's gear.
+            cur = await db.execute("SELECT guild_id,user_id,slot,item_key,intrinsic_json,set_key FROM rpg_equipment")
+            legacy_gear = await cur.fetchall()
+            for gid, uid, slot, item_key, intrinsic_json, set_key in legacy_gear:
+                item = ITEMS.get(item_key, {})
+                intr = intrinsic_json if intrinsic_json not in (None, "", "{}") else json.dumps(_roll_intrinsics(item), separators=(",", ":"))
+                skey = set_key or _set_key_for_item(item, item_key)
+                await db.execute("UPDATE rpg_equipment SET intrinsic_json=?,set_key=? WHERE guild_id=? AND user_id=? AND slot=?",(intr,skey,gid,uid,slot))
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_rpg_market_open ON rpg_market(guild_id,status,created_at DESC)")
             cur = await db.execute("PRAGMA table_info(rpg_quests)")
             quest_existing = {row[1] for row in await cur.fetchall()}
             quest_migrations = {"chain_key": "TEXT NOT NULL DEFAULT ''", "chain_step": "INTEGER NOT NULL DEFAULT 0"}
@@ -1457,18 +1528,36 @@ class RPGService:
             "species": pet.get("species", "Companion"),
         }
 
-    async def add_item(self, guild_id, user_id, item_key, quantity=1):
+    async def _economy_log(self, db, guild_id, user_id, event_type, *, item_key="", quantity=0, gold_delta=0, balance_after=None, metadata=None):
+        await db.execute(
+            "INSERT INTO rpg_economy_log(event_id,guild_id,user_id,event_type,item_key,quantity,gold_delta,balance_after,metadata_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (uuid.uuid4().hex, int(guild_id), int(user_id), str(event_type), str(item_key or ""), int(quantity), int(gold_delta), balance_after,
+             json.dumps(metadata or {}, separators=(",", ":"), sort_keys=True), time.time())
+        )
+
+    async def add_item(self, guild_id, user_id, item_key, quantity=1, *, event_type="item_gain", metadata=None):
+        item_key=str(item_key).lower().strip(); quantity=int(quantity)
+        if quantity <= 0 or item_key not in ITEMS:
+            return False
         async with aiosqlite.connect(self.path) as db:
             await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity", (guild_id,user_id,item_key,quantity))
+            await self._economy_log(db,guild_id,user_id,event_type,item_key=item_key,quantity=quantity,metadata=metadata)
             await db.commit()
+        return True
 
-    async def remove_item(self, guild_id, user_id, item_key, quantity=1):
+    async def remove_item(self, guild_id, user_id, item_key, quantity=1, *, event_type="item_spend", metadata=None):
+        item_key=str(item_key).lower().strip(); quantity=int(quantity)
+        if quantity <= 0:
+            return False
         async with aiosqlite.connect(self.path) as db:
             cur = await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?", (guild_id,user_id,item_key))
             row = await cur.fetchone()
-            if not row or row[0] < quantity: return False
+            if not row or int(row[0]) < quantity:
+                return False
             await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?", (quantity,guild_id,user_id,item_key))
-            await db.commit(); return True
+            await self._economy_log(db,guild_id,user_id,event_type,item_key=item_key,quantity=-quantity,metadata=metadata)
+            await db.commit()
+            return True
 
     async def add_rewards(self, guild_id, user_id, xp=0, gold=0):
         async with aiosqlite.connect(self.path) as db:
@@ -1553,30 +1642,128 @@ class RPGService:
         p=await self.player(guild_id,user_id)
         if not p: return False,"Start a hero first."
         item_key=item_key.lower().strip(); item=ITEMS.get(item_key)
-        allowed={"weapon","helm","armor","offhand","accessory","ring","amulet","relic"}
+        allowed={"weapon","armor","offhand","accessory","ring","amulet","relic"}
         if not item or item.get("slot") not in allowed: return False,"That item cannot be equipped. Check `!rpg items <category>`."
         inv=dict(await self.inventory(guild_id,user_id))
         if inv.get(item_key,0)<1: return False,"You don't own that item."
         req=int(item.get("level_req",1))
-        if int(p["level"])<req:return False,f"**{item['name']}** requires level **{req}**. You are level **{p['level']}."
+        if int(p["level"])<req:return False,f"**{item['name']}** requires level **{req}**. You are level **{p['level']}**."
+        set_key=_set_key_for_item(item,item_key)
+        intrinsics=_roll_intrinsics(item)
+        uid=uuid.uuid4().hex
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key",(guild_id,user_id,item["slot"],item_key))
+            await db.execute("BEGIN IMMEDIATE")
+            # Re-check the stack while holding the transaction lock.
+            cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,item_key))
+            row=await cur.fetchone()
+            if not row or int(row[0])<1:
+                await db.rollback(); return False,"You don't own that item."
+            # Existing gear is returned to inventory before replacement. Its
+            # upgrades/intrinsics remain in the equipment row only while equipped;
+            # a future item-instance system can persist unequipped variants.
+            cur=await db.execute("SELECT item_key,upgrade_level,intrinsic_json,set_key,instance_uid FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,item["slot"]))
+            old=await cur.fetchone()
+            if old:
+                # Preserve the complete old gear instance instead of collapsing it
+                # back into a stack. This is the key anti-loss guarantee for Phase 2.
+                await db.execute("INSERT OR REPLACE INTO rpg_equipment_storage(instance_uid,guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(old[4] or uuid.uuid4().hex,guild_id,user_id,item["slot"],old[0],int(old[1]),old[2] or "{}",old[3] or "",time.time()))
+                await db.execute("DELETE FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,item["slot"]))
+            await db.execute("UPDATE rpg_inventory SET quantity=quantity-1 WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,item_key))
+            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,instance_uid) VALUES(?,?,?,?,0,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key,upgrade_level=0,intrinsic_json=excluded.intrinsic_json,set_key=excluded.set_key,instance_uid=excluded.instance_uid",(guild_id,user_id,item["slot"],item_key,json.dumps(intrinsics,separators=(",",":")),set_key,uid))
+            await self._economy_log(db,guild_id,user_id,"equip",item_key=item_key,quantity=-1,metadata={"slot":item["slot"],"instance_uid":uid,"intrinsics":intrinsics,"set_key":set_key})
             await db.commit()
-        return True,f"Equipped **{item['name']}** in **{item['slot']}**."
+        intrinsic_text=" • ".join(f"+{v}{('%' if k.endswith('_pct') else '')} {k.replace('_pct','').replace('_flat','').upper()}" for k,v in intrinsics.items())
+        set_text=f" • Set: {set_key.replace('_set','').title()}" if set_key else ""
+        return True,f"Equipped **{item['name']}** in **{item['slot']}**.\n✨ Intrinsics: {intrinsic_text}{set_text}"
 
-    async def unequip_equipment(self,guild_id,user_id,slot):
-        slot=str(slot).lower().strip()
-        allowed={"weapon","helm","armor","offhand","accessory","ring","amulet","relic"}
+    async def unequip_slot(self, guild_id, user_id, slot):
+        slot=str(slot or "").strip().lower()
+        allowed={"weapon","armor","offhand","accessory","ring","amulet","relic"}
         if slot not in allowed:
-            return False,"That is not a valid equipment slot."
+            return False, "That is not a valid equipment slot."
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT item_key FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+            await db.execute("BEGIN IMMEDIATE")
+            cur=await db.execute("SELECT item_key,upgrade_level,intrinsic_json,set_key,instance_uid FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,slot))
             row=await cur.fetchone()
             if not row:
-                return False,f"Nothing is equipped in the **{slot}** slot."
-            await db.execute("DELETE FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+                await db.rollback(); return False, f"Nothing is equipped in **{slot.title()}**."
+            # Preserve unique state in the gear vault. Basic unupgraded gear is
+            # also returned to the normal stack for backward compatibility.
+            unique=int(row[1])>0 or row[2] not in ("", "{}") or bool(row[4])
+            if unique:
+                await db.execute("INSERT OR REPLACE INTO rpg_equipment_storage(instance_uid,guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(row[4] or uuid.uuid4().hex,guild_id,user_id,slot,row[0],int(row[1]),row[2] or "{}",row[3] or "",time.time()))
+            else:
+                await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,1) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+1",(guild_id,user_id,row[0]))
+            await db.execute("DELETE FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,slot))
+            await db.execute("DELETE FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,slot))
+            await self._economy_log(db,guild_id,user_id,"unequip",item_key=row[0],quantity=1,metadata={"slot":slot,"instance_uid":row[4]})
             await db.commit()
-        return True,f"Unequipped **{ITEMS.get(row[0],{'name':row[0]}).get('name',row[0])}** from the **{slot}** slot."
+        return True, f"Unequipped **{ITEMS.get(row[0], {'name':row[0]}).get('name',row[0])}** from **{slot.title()}**."
+
+    async def equipment_details(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute("SELECT * FROM rpg_equipment WHERE guild_id=? AND user_id=? ORDER BY slot",(guild_id,user_id))
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def upgrade_equipment(self,guild_id,user_id,slot):
+        slot=str(slot or "").lower().strip()
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            cur=await db.execute("SELECT * FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+            gear=await cur.fetchone()
+            if not gear: await db.rollback(); return False,f"Nothing is equipped in **{slot.title()}**."
+            keys=[d[0] for d in cur.description]; gear=dict(zip(keys,gear))
+            current=int(gear.get("upgrade_level",0)); item=ITEMS.get(gear["item_key"],{})
+            if current>=UPGRADE_MAX: await db.rollback(); return False,f"**{item.get('name',gear['item_key'])}** is already +{UPGRADE_MAX}."
+            rarity=item.get("rarity","common"); mat,mat_need=UPGRADE_MATERIALS.get(rarity,UPGRADE_MATERIALS["common"])
+            gold_cost=UPGRADE_COST_BASE*(current+1)*max(1, list(RARITIES).index(rarity)+1)
+            cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,mat)); row=await cur.fetchone()
+            if not row or int(row[0])<mat_need: await db.rollback(); return False,f"Upgrade +{current+1} needs **{mat_need}× {ITEMS.get(mat,{'name':mat}).get('name',mat)}**."
+            if int(p["gold"])<gold_cost: await db.rollback(); return False,f"Upgrade +{current+1} costs **{gold_cost} gold**."
+            # Deterministic success: the cost scales instead of using frustrating
+            # destruction. Rare+ gear gets a small protection discount at high levels.
+            await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(mat_need,guild_id,user_id,mat))
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(gold_cost,guild_id,user_id))
+            new_level=current+1
+            await db.execute("UPDATE rpg_equipment SET upgrade_level=? WHERE guild_id=? AND user_id=? AND slot=?",(new_level,guild_id,user_id,slot))
+            await self._economy_log(db,guild_id,user_id,"equipment_upgrade",item_key=gear["item_key"],quantity=1,gold_delta=-gold_cost,metadata={"slot":slot,"from":current,"to":new_level,"material":mat,"material_qty":mat_need})
+            await self._economy_log(db,guild_id,user_id,"upgrade_material_spend",item_key=mat,quantity=-mat_need,metadata={"slot":slot,"upgrade":new_level})
+            await db.commit()
+        return True,f"⬆️ **{item.get('name',gear['item_key'])}** upgraded to **+{new_level}**.\nCost: {gold_cost} gold + {mat_need}× {ITEMS.get(mat,{'name':mat}).get('name',mat)}"
+
+    async def equipment_sets(self,guild_id,user_id):
+        details=await self.equipment_details(guild_id,user_id)
+        counts={}
+        for g in details:
+            if g.get("set_key"): counts[g["set_key"]]=counts.get(g["set_key"],0)+1
+        return [(k,c,_set_focus(k)) for k,c in sorted(counts.items(),key=lambda x:(-x[1],x[0]))]
+
+    async def gear_vault(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute("SELECT * FROM rpg_equipment_storage WHERE guild_id=? AND user_id=? ORDER BY created_at DESC",(guild_id,user_id))
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def equip_vault(self,guild_id,user_id,instance_uid):
+        instance_uid=str(instance_uid).strip()
+        if not instance_uid:return False,"Provide a gear vault ID. Use `!rpg vault`."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            cur=await db.execute("SELECT * FROM rpg_equipment_storage WHERE guild_id=? AND user_id=? AND instance_uid=?",(guild_id,user_id,instance_uid)); row=await cur.fetchone()
+            if not row: await db.rollback(); return False,"Gear vault item not found."
+            cols=[d[0] for d in cur.description]; data=dict(zip(cols,row)); slot=data["slot"]
+            cur=await db.execute("SELECT item_key,upgrade_level,intrinsic_json,set_key,instance_uid FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot)); old=await cur.fetchone()
+            if old:
+                await db.execute("INSERT OR REPLACE INTO rpg_equipment_storage(instance_uid,guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(old[4] or uuid.uuid4().hex,guild_id,user_id,slot,old[0],int(old[1]),old[2] or "{}",old[3] or "",time.time()))
+                await db.execute("DELETE FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,instance_uid) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key,upgrade_level=excluded.upgrade_level,intrinsic_json=excluded.intrinsic_json,set_key=excluded.set_key,instance_uid=excluded.instance_uid",(guild_id,user_id,slot,data["item_key"],int(data["upgrade_level"]),data["intrinsic_json"],data["set_key"],data["instance_uid"]))
+            await db.execute("DELETE FROM rpg_equipment_storage WHERE guild_id=? AND user_id=? AND instance_uid=?",(guild_id,user_id,instance_uid))
+            await self._economy_log(db,guild_id,user_id,"vault_equip",item_key=data["item_key"],quantity=1,metadata={"slot":slot,"instance_uid":instance_uid})
+            await db.commit()
+        return True,f"Equipped **{ITEMS.get(data['item_key'],{'name':data['item_key']}).get('name',data['item_key'])} +{data['upgrade_level']}** from the gear vault."
 
     def _progression_bonus(self, p):
         bonus={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
@@ -1602,13 +1789,35 @@ class RPGService:
         enchants=[]
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=dict(await cur.fetchall())
+            cur=await db.execute("SELECT slot,item_key,upgrade_level,intrinsic_json,set_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear_rows=await cur.fetchall()
+            gear_details={r[0]:r for r in gear_rows}
             cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=?",(guild_id,user_id)); enchants=await cur.fetchall()
         bonus=self._progression_bonus(p)
         pct={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
-        for key in gear.values():
+        set_counts={}
+        for slot,key in gear.items():
             item=ITEMS.get(key,{})
-            bonus["atk"]+=item.get("atk",0); bonus["defense"]+=item.get("def",0); bonus["hp"]+=item.get("hp",0); bonus["mp"]+=item.get("mp",0); bonus["speed"]+=item.get("spd",0); bonus["crit"]+=item.get("crit",0)
+            row=gear_details.get(slot)
+            upgrade=int(row[2]) if row else 0
+            bonus["atk"]+=item.get("atk",0)+upgrade*max(1,item.get("atk",0)//8)
+            bonus["defense"]+=item.get("def",0)+upgrade*max(1,item.get("def",0)//8)
+            bonus["hp"]+=item.get("hp",0)+upgrade*max(2,item.get("hp",0)//10)
+            bonus["mp"]+=item.get("mp",0)+upgrade*max(1,item.get("mp",0)//10)
+            bonus["speed"]+=item.get("spd",0)+upgrade//3
+            bonus["crit"]+=item.get("crit",0)+upgrade//4
             pct["atk"]+=min(10,int(item.get("pct_atk",0))); pct["defense"]+=min(10,int(item.get("pct_def",0))); pct["hp"]+=min(10,int(item.get("pct_hp",0))); pct["mp"]+=min(10,int(item.get("pct_mp",0))); pct["speed"]+=min(10,int(item.get("pct_speed",0))); pct["crit"]+=min(10,int(item.get("pct_crit",0)))
+            if row and row[4]:
+                try:
+                    intr=json.loads(row[3] or "{}")
+                except json.JSONDecodeError:
+                    intr={}
+                pct["atk"]+=int(intr.get("atk_pct",0)); pct["defense"]+=int(intr.get("def_pct",0)); pct["hp"]+=int(intr.get("hp_pct",0)); pct["speed"]+=int(intr.get("speed_pct",0)); bonus["crit"]+=int(intr.get("crit_flat",0))
+                set_counts[row[4]]=set_counts.get(row[4],0)+1
+        for set_key,count in set_counts.items():
+            focus=_set_focus(set_key)
+            if count>=2: pct[focus]+=2
+            if count>=4: pct[focus]+=5
+            if count>=6: pct[focus]+=8
         for slot,enchant_key,level in enchants:
             e=ENCHANTMENTS.get(enchant_key,{})
             stat=e.get("stat"); value=int(e.get("pct",0))*int(level)
@@ -2045,12 +2254,19 @@ class RPGService:
     async def craft(self,guild_id,user_id,item_key,quantity=1):
         item_key=item_key.lower(); recipe=RECIPES.get(item_key)
         if not recipe:return False,"Recipe not found. Use `!rpg recipes`."
-        quantity=max(1,min(quantity,10))
-        for mat,need in recipe.items():
-            inv=dict(await self.inventory(guild_id,user_id));
-            if inv.get(mat,0)<need*quantity:return False,f"Missing **{ITEMS[mat]['name']}** ×{need*quantity}."
-        for mat,need in recipe.items(): await self.remove_item(guild_id,user_id,mat,need*quantity)
-        await self.add_item(guild_id,user_id,item_key,quantity)
+        quantity=max(1,min(int(quantity),10))
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            for mat,need in recipe.items():
+                cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,mat)); row=await cur.fetchone()
+                if not row or int(row[0])<need*quantity:
+                    await db.rollback(); return False,f"Missing **{ITEMS[mat]['name']}** ×{need*quantity}."
+            for mat,need in recipe.items():
+                await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(need*quantity,guild_id,user_id,mat))
+                await self._economy_log(db,guild_id,user_id,"craft_material",item_key=mat,quantity=-(need*quantity),metadata={"output":item_key,"output_qty":quantity})
+            await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,user_id,item_key,quantity))
+            await self._economy_log(db,guild_id,user_id,"craft_output",item_key=item_key,quantity=quantity,metadata={"recipe":recipe})
+            await db.commit()
         return True,f"Crafted **{ITEMS[item_key]['name']} ×{quantity}**."
 
     async def gather(self,guild_id,user_id,kind="gather"):
@@ -2274,25 +2490,67 @@ class RPGService:
             cur=await db.execute("SELECT id,proposer_id,target_id,status,created_at,proposer_gold,target_gold,proposer_gems,target_gems FROM rpg_trades WHERE guild_id=? AND status='open' AND (proposer_id=? OR target_id=?) ORDER BY id DESC LIMIT 20",(guild_id,user_id,user_id)); return await cur.fetchall()
 
     async def create_market(self,guild_id,user_id,item_key,quantity,price):
+        item_key=str(item_key).lower().strip(); quantity=int(quantity); price=int(price)
+        if item_key not in ITEMS:return False,"Unknown item."
         if quantity<1 or price<1:return False,"Quantity and price must be positive."
-        if not await self.remove_item(guild_id,user_id,item_key.lower(),quantity):return False,"You don't own enough of that item."
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("INSERT INTO rpg_market(guild_id,seller_id,item_key,quantity,price_each,created_at) VALUES(?,?,?,?,?,?)",(guild_id,user_id,item_key.lower(),quantity,price,time.time())); mid=cur.lastrowid; await db.commit()
-        return True,f"Market listing `#{mid}` created."
+            await db.execute("BEGIN IMMEDIATE")
+            cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,item_key)); row=await cur.fetchone()
+            if not row or int(row[0])<quantity: await db.rollback(); return False,"You don't own enough of that item."
+            # Gear instances cannot yet be represented in the stack market.
+            if ITEMS[item_key].get("slot") in {"weapon","armor","offhand","accessory","ring","amulet","relic"}:
+                await db.rollback(); return False,"Use direct `!rpg trade` for unique gear. The player market is stack-safe for consumables/materials/items; unique gear marketplace support is coming with persistent item instances."
+            await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(quantity,guild_id,user_id,item_key))
+            token=uuid.uuid4().hex
+            cur=await db.execute("INSERT INTO rpg_market(guild_id,seller_id,item_key,quantity,price_each,created_at,status,listing_token) VALUES(?,?,?,?,?,?,?,?)",(guild_id,user_id,item_key,quantity,price,time.time(),"open",token)); mid=cur.lastrowid
+            await self._economy_log(db,guild_id,user_id,"market_list",item_key=item_key,quantity=-quantity,metadata={"listing_id":mid,"listing_token":token,"price_each":price})
+            await db.commit()
+        return True,f"Market listing `#{mid}` created and the items are now escrowed."
 
     async def market(self,guild_id):
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT id,seller_id,item_key,quantity,price_each FROM rpg_market WHERE guild_id=? ORDER BY id DESC LIMIT 20",(guild_id,)); return await cur.fetchall()
+            cur=await db.execute("SELECT id,seller_id,item_key,quantity,price_each FROM rpg_market WHERE guild_id=? AND status='open' ORDER BY id DESC LIMIT 50",(guild_id,)); return await cur.fetchall()
+
+    async def market_cancel(self,guild_id,user_id,listing_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            cur=await db.execute("SELECT seller_id,item_key,quantity,status FROM rpg_market WHERE guild_id=? AND id=?",(guild_id,int(listing_id))); row=await cur.fetchone()
+            if not row:return False,"Listing not found."
+            seller,item,qty,status=row
+            if int(seller)!=int(user_id): await db.rollback(); return False,"Only the seller can cancel this listing."
+            if status!="open": await db.rollback(); return False,"That listing is already closed."
+            await db.execute("UPDATE rpg_market SET status='cancelled' WHERE id=?",(int(listing_id),))
+            await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,user_id,item,qty))
+            await self._economy_log(db,guild_id,user_id,"market_cancel",item_key=item,quantity=qty,metadata={"listing_id":int(listing_id)})
+            await db.commit()
+        return True,f"Listing `#{listing_id}` cancelled and **{ITEMS.get(item,{'name':item}).get('name',item)} ×{qty}** returned."
 
     async def market_buy(self,guild_id,user_id,listing_id):
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT seller_id,item_key,quantity,price_each FROM rpg_market WHERE guild_id=? AND id=?",(guild_id,listing_id)); row=await cur.fetchone()
-            if not row:return False,"Listing not found."
-            seller,item,qty,price=row; total=qty*price
-            p=await self.player(guild_id,user_id)
-            if p["gold"]<total:return False,f"You need {total} gold."
-            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(total,guild_id,user_id)); await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(total,guild_id,seller)); await db.execute("DELETE FROM rpg_market WHERE id=?",(listing_id,)); await db.commit()
-        await self.add_item(guild_id,user_id,item,qty); return True,f"Bought **{ITEMS.get(item,{'name':item})['name']} ×{qty}** for **{total} gold**."
+            await db.execute("BEGIN IMMEDIATE")
+            cur=await db.execute("SELECT seller_id,item_key,quantity,price_each,status,listing_token FROM rpg_market WHERE guild_id=? AND id=?",(guild_id,int(listing_id))); row=await cur.fetchone()
+            if not row: await db.rollback(); return False,"Listing not found."
+            seller,item,qty,price,status,token=row
+            if status!="open": await db.rollback(); return False,"That listing is no longer available."
+            if int(seller)==int(user_id): await db.rollback(); return False,"You cannot buy your own listing."
+            total=int(qty)*int(price)
+            cur=await db.execute("SELECT gold FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id)); p=await cur.fetchone()
+            if not p or int(p[0])<total: await db.rollback(); return False,f"You need {total} gold."
+            cur=await db.execute("SELECT user_id FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,seller));
+            if not await cur.fetchone(): await db.rollback(); return False,"Seller no longer has a valid RPG character."
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(total,guild_id,user_id))
+            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(total,guild_id,seller))
+            await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,user_id,item,qty))
+            await db.execute("UPDATE rpg_market SET status='sold',buyer_id=?,sold_at=? WHERE id=? AND status='open'",(user_id,time.time(),int(listing_id)))
+            await self._economy_log(db,guild_id,user_id,"market_buy",item_key=item,quantity=qty,gold_delta=-total,metadata={"listing_id":int(listing_id),"seller_id":int(seller),"listing_token":token})
+            await self._economy_log(db,guild_id,seller,"market_sale",item_key=item,quantity=qty,gold_delta=total,metadata={"listing_id":int(listing_id),"buyer_id":int(user_id),"listing_token":token})
+            await db.commit()
+        return True,f"Bought **{ITEMS.get(item,{'name':item}).get('name',item)} ×{qty}** for **{total} gold**."
+
+    async def economy_log(self,guild_id,user_id,limit=20):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT created_at,event_type,item_key,quantity,gold_delta,balance_after,metadata_json FROM rpg_economy_log WHERE guild_id=? AND user_id=? ORDER BY id DESC LIMIT ?",(guild_id,user_id,max(1,min(int(limit),50))))
+            return await cur.fetchall()
 
     async def dungeon(self,guild_id,user_id,name=None):
         p=await self.player(guild_id,user_id)
@@ -2639,15 +2897,25 @@ class RPGService:
         talent_bonus=self._talent_bonuses(p,talent_ranks)
         stats=self._combat_stats(p,pet_bonus,talent_bonus)
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=await cur.fetchall()
+            cur=await db.execute("SELECT slot,item_key,upgrade_level,intrinsic_json,set_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=await cur.fetchall()
             cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=?",(guild_id,user_id)); enchants=await cur.fetchall()
         pct={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
-        for _slot,key in gear:
+        set_counts={}
+        for _slot,key,upgrade,intrinsic_json,set_key in gear:
             item=ITEMS.get(key,{})
-            stats["max_hp"]+=item.get("hp",0); stats["hp"]+=item.get("hp",0)
-            stats["max_mp"]+=item.get("mp",0); stats["mp"]+=item.get("mp",0)
-            stats["atk"]+=item.get("atk",0); stats["defense"]+=item.get("def",0); stats["speed"]+=item.get("spd",0); stats["crit"]+=item.get("crit",0)
+            stats["max_hp"]+=item.get("hp",0)+int(upgrade)*max(2,item.get("hp",0)//10); stats["hp"]+=item.get("hp",0)+int(upgrade)*max(2,item.get("hp",0)//10)
+            stats["max_mp"]+=item.get("mp",0)+int(upgrade)*max(1,item.get("mp",0)//10); stats["mp"]+=item.get("mp",0)+int(upgrade)*max(1,item.get("mp",0)//10)
+            stats["atk"]+=item.get("atk",0)+int(upgrade)*max(1,item.get("atk",0)//8); stats["defense"]+=item.get("def",0)+int(upgrade)*max(1,item.get("def",0)//8); stats["speed"]+=item.get("spd",0)+int(upgrade)//3; stats["crit"]+=item.get("crit",0)+int(upgrade)//4
             pct["atk"]+=min(10,int(item.get("pct_atk",0))); pct["defense"]+=min(10,int(item.get("pct_def",0))); pct["hp"]+=min(10,int(item.get("pct_hp",0))); pct["mp"]+=min(10,int(item.get("pct_mp",0))); pct["speed"]+=min(10,int(item.get("pct_speed",0))); pct["crit"]+=min(10,int(item.get("pct_crit",0)))
+            try: intr=json.loads(intrinsic_json or "{}")
+            except json.JSONDecodeError: intr={}
+            pct["atk"]+=int(intr.get("atk_pct",0)); pct["defense"]+=int(intr.get("def_pct",0)); pct["hp"]+=int(intr.get("hp_pct",0)); pct["speed"]+=int(intr.get("speed_pct",0)); stats["crit"]+=int(intr.get("crit_flat",0))
+            if set_key: set_counts[set_key]=set_counts.get(set_key,0)+1
+        for set_key,count in set_counts.items():
+            focus=_set_focus(set_key)
+            if count>=2: pct[focus]+=2
+            if count>=4: pct[focus]+=5
+            if count>=6: pct[focus]+=8
         for _slot,enchant_key,level in enchants:
             e=ENCHANTMENTS.get(enchant_key,{})
             stat=e.get("stat"); val=int(e.get("pct",0))*int(level)

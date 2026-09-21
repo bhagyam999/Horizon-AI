@@ -362,3 +362,14 @@ Phase 1 connects the existing RPG systems into a more active MMORPG-style world 
 ## v10.14.1 hotfix
 - Fixed duplicate `!rpg dungeons` command registration that caused Discord.py `CommandRegistrationError` at startup.
 - Retained the Phase 1 dungeon atlas command with aliases and boss information.
+
+## v10.14.2 — Interactive Equipment Loadout
+
+- Added `!rpg equipment` with aliases `!rpg gear`, `!rpg loadout`, and `!rpg equipui`.
+- Each visible equipment slot has its own Discord dropdown populated from the player's owned equipment for that slot.
+- Supports Weapon, Armor, Offhand, Accessory, Ring, Amulet, and Relic slots.
+- Selecting an item equips it immediately and keeps the loadout panel open.
+- Each slot includes an Unequip option.
+- Four equipment-slot dropdowns are shown per page with navigation for the remaining slots, respecting Discord's five action-row limit.
+- Existing `!rpg equip <item_key>` remains available as a direct fallback.
+- Preset loadouts are intentionally left for the next progression/economy phase.
