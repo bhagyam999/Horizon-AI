@@ -1216,6 +1216,12 @@ class RPGService:
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot TEXT NOT NULL, enchant_key TEXT NOT NULL,
                 level INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (guild_id,user_id,slot,enchant_key)
             );
+            CREATE TABLE IF NOT EXISTS rpg_combat_sessions (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                state_json TEXT NOT NULL, updated_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_combat_sessions_updated ON rpg_combat_sessions(updated_at);
             CREATE TABLE IF NOT EXISTS rpg_quests (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL,
                 description TEXT NOT NULL, level_req INTEGER NOT NULL DEFAULT 1, target INTEGER NOT NULL DEFAULT 1,
@@ -3368,11 +3374,34 @@ class RPGService:
         enemy["drops"]=[d for d in drops if d in ITEMS] or ["herb"]
         return enemy
 
+    async def _load_combat_session(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT state_json,updated_at FROM rpg_combat_sessions WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
+            if not row:return None
+            if time.time()-float(row[1])>60*45:
+                await db.execute("DELETE FROM rpg_combat_sessions WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit(); return None
+            try:return json.loads(row[0])
+            except (TypeError,json.JSONDecodeError):
+                await db.execute("DELETE FROM rpg_combat_sessions WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit(); return None
+
+    async def _persist_combat_session(self,guild_id,user_id,state):
+        payload=json.dumps(state,separators=(",",":"),default=str)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO rpg_combat_sessions(guild_id,user_id,state_json,updated_at) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id) DO UPDATE SET state_json=excluded.state_json,updated_at=excluded.updated_at",(guild_id,user_id,payload,time.time())); await db.commit()
+
+    async def _delete_combat_session(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("DELETE FROM rpg_combat_sessions WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
+
     async def start_combat(self,guild_id,user_id,mode="adventure",dungeon_name=None):
         p=await self.player(guild_id,user_id)
         if not p:return {"error":"Create a hero first."}
         key=(guild_id,user_id)
         if key in self.active_combats:return {"error":"You are already in a battle. Finish it first."}
+        persisted=await self._load_combat_session(guild_id,user_id)
+        if persisted:
+            self.active_combats[key]=persisted
+            return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
         if p["hp"]<=0:return {"error":"You are down. Use `!rpg rest` first."}
         pet_bonus=await self._pet_bonus(guild_id,user_id)
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus)
@@ -3403,6 +3432,7 @@ class RPGService:
             base["player_stamina"]=max(0,p["stamina"]-stamina_cost)
             state={"mode":"dungeon","enemy":enemy,"enemy_hp":enemy["hp"],"floor":1,"floors":floors,"name":n,"reward_xp":xp,"reward_gold":gold,"log":[f"**Floor 1/{floors}** — {enemy['name']} blocks your path."],"started":time.time(),**base}
         self.active_combats[key]=state
+        await self._persist_combat_session(guild_id,user_id,state)
         return {"state":state,"stats":stats,"pet":pet}
 
     def _skill(self, class_name, skill_key):
@@ -3672,7 +3702,7 @@ class RPGService:
         elif action=="flee":
             if state["mode"]=="dungeon" and state["floor"]>1:return {"error":"You cannot flee after the first dungeon floor."}
             if random.random()<0.65:
-                self.active_combats.pop(key,None); await self._save_combat_hp(guild_id,user_id,state)
+                self.active_combats.pop(key,None); await self._save_combat_hp(guild_id,user_id,state); await self._delete_combat_session(guild_id,user_id)
                 return {"finished":True,"win":False,"fled":True,"log":[*state["log"],"🏃 You escaped the battle."]}
             log.append("You failed to escape!")
         else:return {"error":"Choose Attack, Skill, Potion, Pet, Defend or Flee."}
@@ -3706,7 +3736,7 @@ class RPGService:
             if state["mode"]=="dungeon":
                 await self.progress_quests(guild_id,user_id,"dungeon",1)
                 if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
-            await self.check_achievements(guild_id,user_id); self.active_combats.pop(key,None)
+            await self.check_achievements(guild_id,user_id); self.active_combats.pop(key,None); await self._delete_combat_session(guild_id,user_id)
             return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"state":state,"level_before":old_level,"level_after":new_level}
         # Enemy turn. Defensive/slow/evasion effects are bounded so no skill can
         # create a permanent lock or make damage disappear.
@@ -3759,7 +3789,7 @@ class RPGService:
         state["shield_turns"]=max(0,int(state.get("shield_turns",0))-1)
         state["turn"]+=1
         if state["player_hp"]<=0:
-            state["player_hp"]=1; await self._set_hp(guild_id,user_id,1); self.active_combats.pop(key,None)
+            state["player_hp"]=1; await self._set_hp(guild_id,user_id,1); self.active_combats.pop(key,None); await self._delete_combat_session(guild_id,user_id)
             return {"finished":True,"win":False,"state":state,"defeated":True}
         await self._save_combat_hp(guild_id,user_id,state)
         async with aiosqlite.connect(self.path) as db: await db.execute("UPDATE rpg_players SET mp=? WHERE guild_id=? AND user_id=?",(state["player_mp"],guild_id,user_id)); await db.commit()
@@ -3771,6 +3801,8 @@ class RPGService:
         bonus_hp=int(state.get("player_max_hp",p["max_hp"]))-int(p["max_hp"])
         stored=max(1,min(int(p["max_hp"]),int(state.get("player_hp",1))-bonus_hp))
         await self._set_hp(guild_id,user_id,stored)
+        if (guild_id,user_id) in self.active_combats:
+            await self._persist_combat_session(guild_id,user_id,state)
 
     async def _set_hp(self,guild_id,user_id,hp):
         async with aiosqlite.connect(self.path) as db:
@@ -3783,14 +3815,25 @@ class RPGService:
     async def travel(self,guild_id,user_id,area_key):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
-        area=AREAS.get(area_key.lower())
+        area_key=area_key.lower().strip(); area=AREAS.get(area_key)
         if not area:return False,"Unknown area. Use `!rpg areas`."
-        if p["level"]<area["level"]:return False,f"That area requires level **{area['level']}**."
+        if p["level"]<int(area["level"]):return False,f"That area requires level **{area['level']}**."
+        current=p.get("area_key","horizon_village") or "horizon_village"
+        if area_key!=current:
+            async with aiosqlite.connect(self.path) as db:
+                cur=await db.execute("SELECT 1 FROM rpg_area_discoveries WHERE guild_id=? AND user_id=? AND area_key=?",(guild_id,user_id,area_key)); discovered=await cur.fetchone()
+            adjacent=area_key in AREA_CONNECTIONS.get(current,[])
+            if not discovered and not adjacent:
+                return False,f"You cannot travel directly from **{AREAS.get(current,{'name':current})['name']}** to **{area['name']}**. Discover an adjacent route first with `!rpg explore`."
+        distance_level=max(0,int(area["level"])-int(AREAS.get(current,area).get("level",1)))
+        stamina_cost=min(20,5+distance_level//5) if area_key!=current else 0
+        if stamina_cost and int(p.get("stamina",0))<stamina_cost:return False,f"You need **{stamina_cost} stamina** to travel there. Use `!rpg rest`."
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET area_key=?,location=? WHERE guild_id=? AND user_id=?",(area_key.lower(),area["name"],guild_id,user_id))
-            await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(guild_id,user_id,area_key.lower(),time.time(),"travel")); await db.commit()
+            await db.execute("UPDATE rpg_players SET area_key=?,location=?,stamina=max(0,stamina-?) WHERE guild_id=? AND user_id=?",(area_key,area["name"],stamina_cost,guild_id,user_id))
+            await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(guild_id,user_id,area_key,time.time(),"travel")); await db.commit()
         await self.progress_quests(guild_id,user_id,"explore",1)
-        return True,f"You traveled to **{area['name']}**. {area['desc']}"
+        cost_text=f" • −{stamina_cost} stamina" if stamina_cost else ""
+        return True,f"🧭 You traveled to **{area['name']}**.{cost_text}\n{area['desc']}"
 
     async def egg_hatch(self,guild_id,user_id,egg_key,name="Spirit"):
         p=await self.player(guild_id,user_id)

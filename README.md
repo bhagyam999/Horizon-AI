@@ -1,5 +1,8 @@
 # Horizon AI — Log Horizon Legendary RPG
 
+## v11 — Phases 1–4 Completion Pass
+See `PHASE1_4_PROGRESS.md` for the current completion work. This update preserves existing RPG data and does not perform another fresh start.
+
 A persistent multiplayer RPG system for the Log Horizon Discord server.
 
 ## What this version adds

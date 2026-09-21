@@ -1,0 +1,220 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import random
+import time
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+import aiosqlite
+import discord
+
+
+RACES = {
+    "human": {"hp": 0, "atk": 0, "def": 0, "spd": 0, "crit": 2, "desc": "Balanced. Humans adapt to almost any build."},
+    "elf": {"hp": -5, "atk": 2, "def": 0, "spd": 3, "crit": 5, "desc": "Fast and precise. Higher critical chance."},
+    "dwarf": {"hp": 20, "atk": 1, "def": 5, "spd": -2, "crit": 0, "desc": "Tough and sturdy. Excellent defense and health."},
+    "orc": {"hp": 10, "atk": 5, "def": -1, "spd": -1, "crit": 0, "desc": "Brutal strength. More attack, less finesse."},
+    "kitsune": {"hp": -5, "atk": 3, "def": 0, "spd": 2, "crit": 3, "desc": "Trickster spirit. Fast with strong crit potential."},
+}
+
+CLASSES = {
+    "warrior": {"hp": 30, "mp": 5, "atk": 7, "def": 7, "spd": 0, "crit": 2, "resource": "Rage", "desc": "Front-line fighter with strong defense."},
+    "mage": {"hp": 0, "mp": 35, "atk": 9, "def": 1, "spd": 1, "crit": 3, "resource": "Mana", "desc": "High magical damage and powerful skills."},
+    "rogue": {"hp": 5, "mp": 10, "atk": 7, "def": 2, "spd": 7, "crit": 8, "resource": "Energy", "desc": "Fast striker built around crits and evasion."},
+    "ranger": {"hp": 10, "mp": 15, "atk": 8, "def": 3, "spd": 5, "crit": 5, "resource": "Focus", "desc": "Reliable ranged damage and speed."},
+    "paladin": {"hp": 35, "mp": 20, "atk": 5, "def": 8, "spd": -1, "crit": 1, "resource": "Faith", "desc": "Tanky hybrid with healing utility."},
+    "summoner": {"hp": 5, "mp": 30, "atk": 6, "def": 3, "spd": 2, "crit": 3, "resource": "Mana", "desc": "Controls summoned companions and sustained damage."},
+}
+
+RARITIES = {
+    "common": (1.00, "Common"),
+    "uncommon": (1.20, "Uncommon"),
+    "rare": (1.50, "Rare"),
+    "epic": (2.00, "Epic"),
+    "legendary": (3.00, "Legendary"),
+    "mythic": (4.50, "Mythic"),
+}
+
+ITEMS = {
+    "iron_sword": {"name": "Iron Sword", "slot": "weapon", "rarity": "common", "atk": 8, "price": 120},
+    "oak_staff": {"name": "Oak Staff", "slot": "weapon", "rarity": "common", "atk": 7, "mp": 10, "price": 130},
+    "hunter_bow": {"name": "Hunter Bow", "slot": "weapon", "rarity": "common", "atk": 7, "crit": 3, "price": 130},
+    "steel_blade": {"name": "Steel Blade", "slot": "weapon", "rarity": "rare", "atk": 18, "price": 420},
+    "apprentice_robe": {"name": "Apprentice Robe", "slot": "armor", "rarity": "common", "def": 4, "mp": 15, "price": 150},
+    "iron_armor": {"name": "Iron Armor", "slot": "armor", "rarity": "common", "def": 9, "hp": 15, "price": 180},
+    "shadow_cloak": {"name": "Shadow Cloak", "slot": "armor", "rarity": "rare", "def": 6, "spd": 7, "crit": 4, "price": 420},
+    "guardian_shield": {"name": "Guardian Shield", "slot": "offhand", "rarity": "rare", "def": 14, "hp": 20, "price": 450},
+    "life_potion": {"name": "Life Potion", "slot": "consumable", "rarity": "common", "heal": 35, "price": 50},
+    "mana_potion": {"name": "Mana Potion", "slot": "consumable", "rarity": "common", "mana": 30, "price": 55},
+    "wolf_pelt": {"name": "Wolf Pelt", "slot": "material", "rarity": "common", "price": 18},
+    "iron_ore": {"name": "Iron Ore", "slot": "material", "rarity": "common", "price": 20},
+    "herb": {"name": "Moon Herb", "slot": "material", "rarity": "common", "price": 15},
+    "arcane_shard": {"name": "Arcane Shard", "slot": "material", "rarity": "rare", "price": 120},
+}
+
+
+# ---------------------------------------------------------------------------
+# Expanded world data.  The catalog is generated from themed templates so the
+# game has hundreds of usable, searchable items without a giant hand-written
+# wall of repetitive dictionaries.
+# ---------------------------------------------------------------------------
+RACES.update({
+    "halfling": {"hp": -8, "atk": 1, "def": 0, "spd": 5, "crit": 5, "desc": "Small, lucky and exceptionally nimble."},
+    "tiefling": {"hp": 0, "atk": 4, "def": -1, "spd": 2, "crit": 4, "desc": "Infernal-blooded spellblade with natural power."},
+    "dragonkin": {"hp": 20, "atk": 5, "def": 3, "spd": -1, "crit": 2, "desc": "Draconic blood grants power and resilience."},
+    "beastfolk": {"hp": 5, "atk": 2, "def": 1, "spd": 4, "crit": 4, "desc": "Animal traits sharpen senses and movement."},
+    "fae": {"hp": -10, "atk": 3, "def": 0, "spd": 6, "crit": 6, "desc": "Fey-born and elusive, with strong magical affinity."},
+    "vampire": {"hp": 15, "atk": 5, "def": 2, "spd": 3, "crit": 5, "desc": "A cursed immortal race that thrives at night."},
+    "golem": {"hp": 45, "atk": 4, "def": 9, "spd": -5, "crit": 0, "desc": "Living stone built to endure devastating punishment."},
+})
+
+SUBRACES = {
+    "high_elf": ("elf", {"hp": 0, "atk": 2, "def": 0, "spd": 1, "crit": 2}),
+    "wood_elf": ("elf", {"hp": 5, "atk": 1, "def": 0, "spd": 3, "crit": 1}),
+    "dark_elf": ("elf", {"hp": -2, "atk": 4, "def": -1, "spd": 2, "crit": 3}),
+    "mountain_dwarf": ("dwarf", {"hp": 12, "atk": 1, "def": 3, "spd": -1, "crit": 0}),
+    "hill_dwarf": ("dwarf", {"hp": 18, "atk": 0, "def": 2, "spd": -2, "crit": 0}),
+    "forest_dwarf": ("dwarf", {"hp": 6, "atk": 2, "def": 1, "spd": 0, "crit": 1}),
+    "high_orc": ("orc", {"hp": 8, "atk": 3, "def": 1, "spd": -1, "crit": 0}),
+    "half_orc": ("orc", {"hp": 4, "atk": 2, "def": 2, "spd": 1, "crit": 1}),
+    "red_kitsune": ("kitsune", {"hp": 0, "atk": 4, "def": -1, "spd": 2, "crit": 4}),
+    "white_kitsune": ("kitsune", {"hp": 3, "atk": 1, "def": 1, "spd": 3, "crit": 3}),
+    "dragonborn": ("dragonkin", {"hp": 10, "atk": 3, "def": 2, "spd": 0, "crit": 1}),
+    "drakeborn": ("dragonkin", {"hp": 15, "atk": 4, "def": 1, "spd": -1, "crit": 2}),
+    "catfolk": ("beastfolk", {"hp": 0, "atk": 2, "def": 0, "spd": 5, "crit": 3}),
+    "wolfkin": ("beastfolk", {"hp": 6, "atk": 3, "def": 1, "spd": 3, "crit": 2}),
+    "foxkin": ("beastfolk", {"hp": -2, "atk": 3, "def": 0, "spd": 4, "crit": 5}),
+    "spring_fae": ("fae", {"hp": 0, "atk": 2, "def": 1, "spd": 3, "crit": 3}),
+    "night_fae": ("fae", {"hp": -2, "atk": 5, "def": -1, "spd": 4, "crit": 5}),
+    "blood_vampire": ("vampire", {"hp": 10, "atk": 3, "def": 2, "spd": 2, "crit": 3}),
+    "noble_vampire": ("vampire", {"hp": 5, "atk": 5, "def": 1, "spd": 3, "crit": 4}),
+    "iron_golem": ("golem", {"hp": 25, "atk": 2, "def": 5, "spd": -2, "crit": 0}),
+    "crystal_golem": ("golem", {"hp": 10, "atk": 5, "def": 3, "spd": -1, "crit": 1}),
+    "storm_human": ("human", {"hp": 0, "atk": 2, "def": 0, "spd": 3, "crit": 3}),
+    "desert_human": ("human", {"hp": 5, "atk": 1, "def": 2, "spd": 1, "crit": 1}),
+}
+
+CLASSES.update({
+    "berserker": {"hp": 45, "mp": 5, "atk": 11, "def": 3, "spd": 1, "crit": 5, "resource": "Rage", "desc": "High-risk melee fighter that trades defense for explosive damage."},
+    "knight": {"hp": 40, "mp": 10, "atk": 7, "def": 10, "spd": -1, "crit": 1, "resource": "Valor", "desc": "Armored protector built to survive and guard allies."},
+    "assassin": {"hp": 0, "mp": 15, "atk": 10, "def": 1, "spd": 10, "crit": 12, "resource": "Energy", "desc": "Extreme speed and critical-hit specialist."},
+    "cleric": {"hp": 20, "mp": 35, "atk": 5, "def": 5, "spd": 0, "crit": 2, "resource": "Faith", "desc": "Support caster with healing and holy damage."},
+    "druid": {"hp": 15, "mp": 30, "atk": 7, "def": 4, "spd": 2, "crit": 3, "resource": "Nature", "desc": "Nature caster who shifts between offense and support."},
+    "monk": {"hp": 20, "mp": 15, "atk": 8, "def": 5, "spd": 8, "crit": 6, "resource": "Chi", "desc": "Martial artist focused on speed, combos and counterattacks."},
+    "bard": {"hp": 10, "mp": 30, "atk": 6, "def": 3, "spd": 5, "crit": 5, "resource": "Inspiration", "desc": "Battle musician who buffs allies and disrupts foes."},
+    "necromancer": {"hp": 0, "mp": 45, "atk": 10, "def": 0, "spd": 1, "crit": 4, "resource": "Soul", "desc": "Dark caster who commands the dead."},
+    "warlock": {"hp": 10, "mp": 40, "atk": 11, "def": 1, "spd": 2, "crit": 5, "resource": "Pact", "desc": "Forbidden magic specialist powered by risky bargains."},
+    "alchemist": {"hp": 10, "mp": 25, "atk": 6, "def": 3, "spd": 4, "crit": 4, "resource": "Catalyst", "desc": "Potion, bomb and transmutation expert."},
+    "engineer": {"hp": 20, "mp": 20, "atk": 7, "def": 6, "spd": 2, "crit": 3, "resource": "Charge", "desc": "Uses gadgets, turrets and mechanical weapons."},
+    "duelist": {"hp": 15, "mp": 10, "atk": 9, "def": 4, "spd": 7, "crit": 8, "resource": "Tempo", "desc": "One-on-one specialist who grows stronger through perfect timing."},
+    "lancer": {"hp": 25, "mp": 10, "atk": 9, "def": 6, "spd": 5, "crit": 3, "resource": "Resolve", "desc": "Mobile spear fighter with powerful gap-closing attacks."},
+    "spellblade": {"hp": 20, "mp": 30, "atk": 9, "def": 4, "spd": 4, "crit": 5, "resource": "Arcana", "desc": "Hybrid fighter weaving weapon and magic together."},
+})
+
+# Matchups are intentionally mild (+/- 10%) so counters matter without making
+# a build unwinnable. These are shown before selection and applied only in PvP.
+RACE_MATCHUPS = {
+    "human": {"vampire": 1.08, "golem": 0.96},
+    "elf": {"orc": 1.08, "golem": 0.94},
+    "dwarf": {"golem": 1.08, "dragonkin": 0.96},
+    "orc": {"dwarf": 1.06, "elf": 0.96},
+    "kitsune": {"golem": 0.94, "vampire": 1.05},
+    "fae": {"golem": 0.94, "orc": 1.07},
+    "vampire": {"fae": 1.06, "human": 0.92},
+    "golem": {"orc": 1.06, "elf": 1.06},
+    "dragonkin": {"golem": 1.04, "dwarf": 1.04},
+}
+RACE_ABILITIES = {
+    "human": ("Adaptability", "Gain a small balanced bonus to all core combat stats."),
+    "elf": ("Keen Sight", "Higher critical chance and precision."),
+    "dwarf": ("Stonebody", "Defense percentage is increased."),
+    "orc": ("Bloodrage", "Attack rises when below half HP."),
+    "kitsune": ("Trickster Step", "Improved evasion and speed."),
+    "halfling": ("Lucky", "Higher critical chance and lucky outcomes."),
+    "tiefling": ("Infernal Blood", "Attack is stronger against holy builds, but holy counters it slightly."),
+    "dragonkin": ("Dragonhide", "Extra defense and HP resilience."),
+    "beastfolk": ("Predator Instinct", "Speed and critical chance are improved."),
+    "fae": ("Feystep", "Improved evasion and magic mobility."),
+    "vampire": ("Blood Hunger", "A small life-steal effect in combat; holy matchups counter it."),
+    "golem": ("Stoneform", "Large HP/defense resilience at the cost of speed."),
+}
+
+CLASS_MATCHUPS = {
+    "paladin": {"necromancer": 1.10, "warlock": 1.08},
+    "cleric": {"necromancer": 1.10, "vampire": 1.06},
+    "necromancer": {"druid": 1.08, "paladin": 0.92},
+    "warlock": {"cleric": 1.08, "paladin": 0.94},
+    "mage": {"knight": 1.06, "berserker": 0.96},
+    "assassin": {"mage": 1.08, "knight": 0.94},
+    "ranger": {"summoner": 1.06, "berserker": 0.96},
+    "monk": {"mage": 1.05, "ranger": 0.97},
+    "duelist": {"mage": 1.05, "knight": 0.97},
+    "spellblade": {"warlock": 1.05, "berserker": 0.97},
+}
+
+def matchup_multiplier(attacker_race, attacker_class, defender_race, defender_class):
+    value=float(RACE_MATCHUPS.get(attacker_race,{}).get(defender_race,1.0))
+    value*=float(CLASS_MATCHUPS.get(attacker_class,{}).get(defender_class,1.0))
+    return max(.90,min(1.10,value))
+
+SUBCLASSES = {
+    "vanguard": ("warrior", "Durable frontline specialist", {"hp": 20, "def": 3}),
+    "blade_master": ("warrior", "Weapon mastery specialist", {"atk": 4, "spd": 2}),
+    "berserk_lord": ("berserker", "Uncontrolled damage dealer", {"atk": 6, "crit": 3}),
+    "iron_guardian": ("knight", "Defensive protector", {"hp": 30, "def": 5}),
+    "arcane_knight": ("knight", "Magic-infused tank", {"mp": 15, "atk": 3}),
+    "fire_mage": ("mage", "Destructive elemental caster", {"atk": 6, "crit": 3}),
+    "frost_mage": ("mage", "Control-focused caster", {"def": 2, "mp": 20}),
+    "battle_mage": ("mage", "Close-range spell fighter", {"hp": 15, "atk": 4}),
+    "shadow_assassin": ("assassin", "Stealth and critical specialist", {"spd": 4, "crit": 5}),
+    "nightblade": ("rogue", "Dark dual-wielder", {"atk": 4, "crit": 4}),
+    "sniper": ("ranger", "Long-range precision", {"atk": 5, "crit": 5}),
+    "beast_master": ("ranger", "Pet-focused ranger", {"hp": 15, "atk": 3}),
+    "holy_priest": ("cleric", "Healing and protection", {"mp": 25, "def": 3}),
+    "battle_cleric": ("cleric", "Holy frontline fighter", {"hp": 20, "atk": 4}),
+    "storm_druid": ("druid", "Lightning and storm magic", {"atk": 5, "spd": 2}),
+    "wild_druid": ("druid", "Transformation specialist", {"hp": 25, "def": 2}),
+    "dragon_monk": ("monk", "Explosive martial arts", {"atk": 5, "crit": 3}),
+    "shadow_monk": ("monk", "Evasive martial artist", {"spd": 5, "crit": 3}),
+    "minstrel": ("bard", "Party support", {"mp": 20, "def": 2}),
+    "war_chanter": ("bard", "Offensive support", {"atk": 4, "crit": 3}),
+    "bone_lord": ("necromancer", "Army-of-undead specialist", {"mp": 30, "def": 1}),
+    "soul_reaper": ("necromancer", "Single-target dark magic", {"atk": 7, "crit": 4}),
+    "demon_pact": ("warlock", "High-damage pact magic", {"atk": 6, "mp": 15}),
+    "void_caller": ("warlock", "Reality-warping caster", {"crit": 5, "mp": 20}),
+    "bombardier": ("alchemist", "Explosive alchemist", {"atk": 6, "crit": 3}),
+    "transmuter": ("alchemist", "Resource-efficient crafter", {"def": 3, "mp": 20}),
+    "artificer": ("engineer", "Construct specialist", {"atk": 4, "def": 4}),
+    "machinist": ("engineer", "Ranged gadget fighter", {"atk": 5, "spd": 3}),
+    "fencer": ("duelist", "Precision swordplay", {"spd": 3, "crit": 4}),
+    "champion": ("duelist", "Arena specialist", {"hp": 20, "atk": 3}),
+    "dragoon": ("lancer", "Aerial spear fighter", {"atk": 5, "spd": 3}),
+    "templar": ("lancer", "Holy spear knight", {"def": 4, "hp": 15}),
+    "spellbreaker": ("spellblade", "Anti-magic duelist", {"atk": 4, "def": 3}),
+    "arcane_fencer": ("spellblade", "Magic sword specialist", {"mp": 20, "crit": 3}),
+}
+
+
+# ---------------------------------------------------------------------------
+# Combat skills. Each class has a small, readable kit so battles are about
+# choosing the right action instead of pressing one "Skill" button forever.
+# Keys are stable so old characters automatically receive their class kit.
+# ---------------------------------------------------------------------------
+CLASS_SKILL_NAMES = {
+    "warrior": ("Power Strike", "Guard Break", "Whirlwind", "Iron Will"),
+    "berserker": ("Raging Slash", "Blood Rush", "Rampage", "Berserker Fury"),
+    "knight": ("Shield Bash", "Crushing Blow", "Guardian Wall", "Royal Verdict"),
+    "mage": ("Arcane Bolt", "Flame Burst", "Frost Nova", "Meteor"),
+    "rogue": ("Twin Strike", "Poison Edge", "Shadow Step", "Assassinate"),
+    "assassin": ("Killing Edge", "Venom Cut", "Phantom Step", "Death Mark"),
+    "ranger": ("Aimed Shot", "Piercing Arrow", "Rain of Arrows", "Hunter's Mark"),
+    "paladin": ("Holy Strike", "Radiant Shield", "Divine Light", "Judgment"),
+    "summoner": ("Spirit Bolt", "Beast Assault", "Soul Link", "Primal Storm"),
+    "cleric": ("Holy Bolt", "Smite", "Renew", "Divine Grace"),
+    "druid": ("Thorn Lash", "Moonfire", "Nature's Gift", "Wild Tempest"),
+    "monk": ("Chi Strike", "Flurry", "Inner Focus", "Dragon Fist"),
+    "bard": ("Sonic Note", "Battle Anthem", "Healing Melody", "Finale"),
+    "necromancer": ("Soul Bolt", "Bone Spear", "Dark Pact", "Soul Requiem"),
