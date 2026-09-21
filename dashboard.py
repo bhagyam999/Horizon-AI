@@ -533,7 +533,7 @@ class Dashboard:
             "contents":[{"parts":parts}],
             "generationConfig":{
                 "responseModalities":["IMAGE"],
-                "responseFormat":{"image":{"aspectRatio":"16:9","imageSize":"1K"}},
+                "imageConfig":{"aspectRatio":"16:9","imageSize":"2K"},
             },
         }
         url=f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
