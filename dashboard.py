@@ -1,4 +1,3 @@
-import asyncio
 import base64
 import hashlib
 import hmac
@@ -25,9 +24,6 @@ class Dashboard:
         self.base_dir = Path(__file__).resolve().parent
         self.site_dir = self.base_dir / "website"
         self.dist_dir = self.site_dir / "dist"
-        self.rpg_art_cache = self.base_dir / "data" / "rpg_art_cache"
-        self.rpg_art_tasks = {}
-        self._rpg_style_reference_b64 = None
 
     async def start(self):
         app = web.Application(client_max_size=5 * 1024 * 1024)
@@ -149,7 +145,7 @@ class Dashboard:
             raise web.HTTPNotFound()
         return web.FileResponse(path)
 
-    async def _rpg_art_fallback(self, request):
+    async def rpg_art(self, request):
         """Render deterministic, high-detail RPG art as PNG for Discord embeds.
 
         This is deliberately generated from the identity seed instead of using a
@@ -430,231 +426,6 @@ class Dashboard:
 
         out=io.BytesIO(); im.convert("RGB").save(out,format="PNG",optimize=True)
         return web.Response(body=out.getvalue(),content_type="image/png",headers={"Cache-Control":"public, max-age=86400"})
-
-    def _rpg_art_cache_key(self, kind, seed):
-        return hashlib.sha256(f"v5|{kind}|{seed}".encode("utf-8")).hexdigest()
-
-    def _rpg_art_labels(self, kind, seed):
-        bits=[x.strip().replace("_", " ") for x in seed.split("|") if x.strip()]
-        if kind == "character":
-            return {
-                "name": bits[0].title() if bits else "Horizon Hero",
-                "race": bits[0].title() if bits else "Human",
-                "class_name": bits[2].title() if len(bits)>2 else "Warrior",
-                "path": bits[3].title() if len(bits)>3 else "Adventurer",
-                "evolution": bits[4].title() if len(bits)>4 else "Base Evolution",
-            }
-        if kind == "pet":
-            return {"name": bits[0].title() if bits else "Companion", "level": bits[1] if len(bits)>1 else "1", "ability": bits[2].title() if len(bits)>2 else "Companion Bond", "rarity": bits[3].title() if len(bits)>3 else "Rare"}
-        if kind == "mob":
-            return {"name": bits[0].title() if bits else "World Enemy", "level": bits[1] if len(bits)>1 else "?", "region": bits[2].title() if len(bits)>2 else "Wilds", "element": bits[3].title() if len(bits)>3 else "Arcane", "role": bits[4].title() if len(bits)>4 else "Beast", "type": bits[5].title() if len(bits)>5 else "Monster"}
-        return {"name": " ".join(bits).title() if bits else "Mystery Relic", "rarity": "Legendary"}
-
-    def _rpg_art_prompt(self, kind, labels):
-        # The supplied reference is used only for broad visual presentation.
-        # The generated subject, pose, setting and details are always original.
-        style=(
-            "dark fantasy MMORPG gameplay key art, cinematic painterly digital illustration, "
-            "semi-realistic anime-fantasy character design, extremely detailed materials and textures, "
-            "dramatic rim lighting, volumetric fog, atmospheric depth, rich environment storytelling, "
-            "dynamic composition, realistic anatomy, detailed face and eyes, detailed hair/fur, layered "
-            "armor and cloth, glowing magic particles, subtle film grain, high-end game concept art, "
-            "16:9 widescreen composition, premium RPG promotional artwork."
-        )
-        avoid=(
-            "No text, no title, no logo, no watermark, no UI, no game menu, no random avatar, no flat vector art, "
-            "no simple geometric shapes, no chibi style, no blank background, no close-up floating head."
-        )
-        if kind == "character":
-            return (
-                f"Create original {style} Show a full-body hero in a dramatic gameplay scene. "
-                f"Identity: race {labels['race']}, class {labels['class_name']}, path/subclass {labels['path']}, "
-                f"evolution {labels['evolution']}. Give the race unmistakable physical traits, the class a distinctive "
-                "signature weapon, believable layered equipment, class-specific magic, and a visually coherent silhouette. "
-                "Place the hero in a location that matches the class and race, with foreground particles and a deep "
-                "background containing ruins, terrain, enemies, structures or magical phenomena. The hero must be the "
-                "clear focal point and occupy roughly the center-right of the frame, posed as if actively adventuring. "
-                f"{avoid}"
-            )
-        if kind == "pet":
-            return (
-                f"Create original {style} Show a full-body fantasy companion in a living environment. "
-                f"Species {labels['name']}, level {labels['level']}, ability theme {labels['ability']}, rarity {labels['rarity']}. "
-                "Give the creature distinctive anatomy, expressive eyes, believable fur/scales/feathers/skin, unique "
-                "markings, small equipment or magical accessories where appropriate, and an environment that reinforces "
-                "its species and ability. It should look like a real collectible MMORPG companion rather than a generic "
-                f"animal avatar. {avoid}"
-            )
-        if kind == "mob":
-            return (
-                f"Create original {style} Show a full-body enemy encounter, not a portrait. "
-                f"Enemy: {labels['name']}; level {labels['level']}; region {labels['region']}; element {labels['element']}; "
-                f"combat role {labels['role']}; creature type {labels['type']}. Design a memorable monster with a strong "
-                "silhouette, anatomy suited to its role, visible scars/armor/horns/claws/ritual markings as appropriate, "
-                "elemental effects, and a dangerous environment. Add scale cues such as ruins, smaller creatures, weapons, "
-                "or terrain. The creature should feel like a named RPG enemy/boss from a large fantasy world. "
-                f"{avoid}"
-            )
-        return (
-            f"Create original {style} as a premium MMORPG inventory item showcase. "
-            f"Item: {labels['name']}; rarity {labels['rarity']}. Render the complete object with believable materials, "
-            "fine engravings, wear, gemstones, magical energy and construction details. Put it on a dramatic fantasy "
-            "altar/armory/background with depth and lighting that matches its rarity. Make the object immediately readable "
-            f"as a specific piece of gear rather than an abstract icon. {avoid}"
-        )
-
-    def _rpg_style_reference(self):
-        if self._rpg_style_reference_b64 is not None:
-            return self._rpg_style_reference_b64
-        path=self.base_dir / "assets" / "rpg_art_style_reference.jpg"
-        try:
-            self._rpg_style_reference_b64=base64.b64encode(path.read_bytes()).decode("ascii")
-        except Exception:
-            self._rpg_style_reference_b64=""
-        return self._rpg_style_reference_b64
-
-    async def _generate_rpg_ai_art(self, kind, seed, cache_path):
-        api_key=os.getenv("GEMINI_API_KEY", "").strip()
-        if not api_key:
-            return False
-        model=os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image").strip() or "gemini-3.1-flash-image"
-        labels=self._rpg_art_labels(kind, seed)
-        prompt=self._rpg_art_prompt(kind, labels)
-        parts=[{"text":prompt}]
-        ref=self._rpg_style_reference()
-        if ref:
-            parts.append({"inline_data":{"mime_type":"image/jpeg","data":ref}})
-            parts[0]["text"] += (
-                " Use the supplied reference only as a broad visual presentation reference: cinematic dark-fantasy "
-                "MMORPG composition, painterly rendering, dramatic lighting and dense environmental detail. Do not copy "
-                "its characters, text, logo, UI, exact layout or exact artwork."
-            )
-        payload={
-            "contents":[{"parts":parts}],
-            "generationConfig":{
-                "responseModalities":["IMAGE"],
-                "imageConfig":{"aspectRatio":"16:9","imageSize":"2K"},
-            },
-        }
-        url=f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
-        timeout=aiohttp.ClientTimeout(total=float(os.getenv("RPG_ART_AI_TIMEOUT", "35")))
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url,headers={"x-goog-api-key":api_key,"Content-Type":"application/json"},json=payload) as resp:
-                    raw=await resp.read()
-                    if resp.status >= 400:
-                        log.warning("RPG AI art request failed: HTTP %s: %s",resp.status,raw[:500])
-                        return False
-                    data=json.loads(raw.decode("utf-8"))
-            image_b64=None
-            for cand in data.get("candidates",[]):
-                for part in cand.get("content",{}).get("parts",[]):
-                    inline=part.get("inlineData") or part.get("inline_data")
-                    if inline and inline.get("data"):
-                        image_b64=inline["data"]
-                        break
-                if image_b64: break
-            if not image_b64:
-                log.warning("RPG AI art response contained no image data for %s",seed)
-                return False
-            from PIL import Image, ImageOps
-            import io
-            image=Image.open(io.BytesIO(base64.b64decode(image_b64))).convert("RGB")
-            image=ImageOps.fit(image,(1536,864),method=Image.Resampling.LANCZOS,centering=(0.5,0.48))
-            image.save(cache_path,"PNG",optimize=True)
-            return True
-        except Exception:
-            log.exception("RPG AI art generation failed for %s",seed)
-            return False
-
-    async def _rpg_art_ai_background(self, kind, seed, cache_path):
-        key=f"{kind}|{seed}"
-        try:
-            await self._generate_rpg_ai_art(kind,seed,cache_path)
-        finally:
-            self.rpg_art_tasks.pop(key,None)
-
-    def _rpg_hud(self, image, kind, labels):
-        from PIL import Image, ImageDraw, ImageFont, ImageFilter
-        W,H=image.size
-        im=image.convert("RGBA")
-        overlay=Image.new("RGBA",(W,H),(0,0,0,0)); d=ImageDraw.Draw(overlay)
-        try:
-            title=ImageFont.truetype("DejaVuSans-Bold.ttf",30)
-            sub=ImageFont.truetype("DejaVuSans.ttf",17)
-            small=ImageFont.truetype("DejaVuSans.ttf",14)
-        except Exception:
-            title=sub=small=None
-        accent=(74,220,255,225); panel=(5,10,19,190); white=(245,248,255,240); muted=(188,199,220,220)
-        # Subtle cinematic vignette, then restrained HUD inspired by modern MMORPG combat screens.
-        vignette=Image.new("RGBA",(W,H),(0,0,0,0)); vd=ImageDraw.Draw(vignette)
-        for i in range(9):
-            pad=i*28
-            vd.rectangle((pad,pad,W-pad,H-pad),outline=(0,0,0,12+i*8),width=28)
-        vignette=vignette.filter(ImageFilter.GaussianBlur(16)); im=Image.alpha_composite(im,vignette)
-        d=ImageDraw.Draw(im)
-        d.rounded_rectangle((26,22,610,104),18,fill=panel,outline=(80,220,255,95),width=2)
-        d.text((48,38),labels.get("name","Horizon"),font=title,fill=white)
-        if kind=="character":
-            subtxt=f"{labels.get('race','Human')}  •  {labels.get('class_name','Warrior')}  •  {labels.get('path','Adventurer')}"
-        elif kind=="mob":
-            subtxt=f"Lv {labels.get('level','?')}  •  {labels.get('element','Arcane')}  •  {labels.get('role','Beast')}"
-        elif kind=="pet":
-            subtxt=f"Lv {labels.get('level','1')}  •  {labels.get('rarity','Rare')}  •  {labels.get('ability','Companion Bond')}"
-        else:
-            subtxt=f"{labels.get('rarity','Legendary')}  •  HORIZON INVENTORY"
-        d.text((50,76),subtxt,font=sub,fill=muted)
-        # Bottom combat strip; intentionally transparent so the generated artwork remains dominant.
-        d.rounded_rectangle((26,H-112,1510,H-24),20,fill=(4,8,16,155),outline=(74,220,255,75),width=2)
-        if kind=="character":
-            d.text((50,H-92),"HP",font=small,fill=(255,255,255,220)); d.rounded_rectangle((84,H-88,390,H-68),8,fill=(65,25,35,210)); d.rounded_rectangle((84,H-88,382,H-68),8,fill=(210,48,56,230))
-            d.text((420,H-92),"MP",font=small,fill=(255,255,255,220)); d.rounded_rectangle((454,H-88,760,H-68),8,fill=(26,47,72,210)); d.rounded_rectangle((454,H-88,690,H-68),8,fill=(62,150,235,230))
-            for i in range(5):
-                x=870+i*112; d.rounded_rectangle((x,H-98,x+82,H-36),14,fill=(10,18,31,205),outline=(74,220,255,95),width=2); d.ellipse((x+25,H-86,x+57,H-54),fill=(74,220,255,110))
-        elif kind=="mob":
-            d.text((50,H-92),"THREAT",font=small,fill=(255,255,255,220)); d.rounded_rectangle((120,H-88,650,H-68),8,fill=(62,24,30,220)); d.rounded_rectangle((120,H-88,580,H-68),8,fill=(220,55,70,230)); d.text((700,H-92),"ENCOUNTER",font=small,fill=(255,190,110,220))
-        elif kind=="pet":
-            d.text((50,H-92),"COMPANION",font=small,fill=(255,255,255,220)); d.text((180,H-92),labels.get("ability","Companion Bond"),font=sub,fill=(120,235,190,230))
-        else:
-            d.text((50,H-92),"RARITY",font=small,fill=(255,255,255,220)); d.text((120,H-92),labels.get("rarity","Legendary"),font=sub,fill=(255,196,95,240)); d.text((390,H-92),"TRADEABLE",font=small,fill=(120,235,190,230))
-        return im.convert("RGB")
-
-    async def rpg_art(self, request):
-        """Serve cinematic AI-generated RPG artwork, with deterministic fallback/cache."""
-        kind=request.query.get("kind","character").lower().strip()
-        seed=request.query.get("seed","unknown").strip()[:500]
-        if kind not in {"character","pet","mob","item"}:
-            kind="character"
-        self.rpg_art_cache.mkdir(parents=True,exist_ok=True)
-        cache_key=self._rpg_art_cache_key(kind,seed)
-        cache_path=self.rpg_art_cache / f"{cache_key}.png"
-        labels=self._rpg_art_labels(kind,seed)
-        if cache_path.exists():
-            return web.FileResponse(cache_path,headers={"Cache-Control":"public, max-age=604800"})
-
-        ai_enabled=os.getenv("RPG_ART_AI", "1").strip().lower() not in {"0","false","off","no"}
-        task_key=f"{kind}|{seed}"
-        if ai_enabled and os.getenv("GEMINI_API_KEY","").strip() and task_key not in self.rpg_art_tasks:
-            task=asyncio.create_task(self._rpg_art_ai_background(kind,seed,cache_path))
-            self.rpg_art_tasks[task_key]=task
-            # Give the first request a short chance to receive the premium render.
-            try:
-                await asyncio.wait_for(asyncio.shield(task),timeout=float(os.getenv("RPG_ART_FIRST_WAIT", "20")))
-            except (asyncio.TimeoutError,Exception):
-                pass
-            if cache_path.exists():
-                return web.FileResponse(cache_path,headers={"Cache-Control":"public, max-age=604800"})
-
-        # AI generation may still be running. The deterministic renderer is returned
-        # immediately rather than making Discord wait; future requests reuse the AI cache.
-        fallback=await self._rpg_art_fallback(request)
-        body=fallback.body or b""
-        from PIL import Image
-        import io
-        image=Image.open(io.BytesIO(body)).convert("RGB")
-        image=self._rpg_hud(image,kind,labels)
-        out=io.BytesIO(); image.save(out,"PNG",optimize=True)
-        return web.Response(body=out.getvalue(),content_type="image/png",headers={"Cache-Control":"public, max-age=300"})
 
     async def health(self, request):
         return web.json_response({
