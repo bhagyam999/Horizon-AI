@@ -300,3 +300,11 @@ This release builds on the complete v10.7 project; it is not a reduced rewrite.
 - Skill mastery gives small bounded scaling improvements rather than replacing level-based unlocks.
 - RPG battle/profile art now uses a deterministic full-body PNG renderer based on race, subrace, class, subclass/evolution, mob identity and pet identity instead of random face-only avatars.
 - The RPG art renderer requires Pillow.
+
+## v10.11 RPG trading and art overhaul
+- Added a secure direct player-to-player trading system with atomic transfer for item stacks, weapons, armor, offhands, accessories, relics, eggs/chests, pets, Gold and Diamonds (the existing RPG Gems currency).
+- Trade flow: `!rpg trade @player` → add assets with `tradeadd`, `tradepet`, `tradegold`, `tradediamonds` → inspect with `tradeview` → the target accepts with `tradeaccept`. Either participant can cancel; `tradeclear` clears that participant's side.
+- Trading validates ownership again at acceptance time and performs the entire exchange in one SQLite transaction, preventing partial transfers. Equipped pets must be unequipped first. If the final copy of equipped gear is traded away, its stale equipment/enchantment reference is removed safely.
+- Added persistent trade tables and indexes; existing RPG databases migrate automatically through `CREATE TABLE IF NOT EXISTS` during startup.
+- Replaced the previous simple procedural RPG art with a larger 1024×1024 identity renderer featuring layered lighting, gradients, particles, magic circles, armor/weapon silhouettes, race traits, class-specific weapons, pet archetypes, mob roles/elements and dedicated gear/item renders. The renderer remains deterministic so the same identity stays visually consistent.
+- RPG art URLs now include a renderer version so Discord can refresh previously cached images after deployment.

@@ -1375,7 +1375,7 @@ def _prefix_help_text(category: str | None = None):
     pages = {
         "ai": "**AI**\n`!ai <message>` — chat with Horizon\n`!ask <question>` — ask Horizon\n`!aistatus` — AI provider status\n`!aimodels` — available models\n`!personality <text>` — server personality (staff)\n`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
         "games": "**Games**\n`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — hidden-role lobby\n`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf\n`!rps <rock|paper|scissors>` — RPS\n`!stop` — stop the current game",
-        "rpg": "**🌌 Horizon RPG**\n`!rpg` — RPG hub\n`!rpg start <name> <race> <class>` — create hero\n`!rpg profile` / `!rpg stats` — character sheet\n`!rpg adventure` / `!rpg dungeon` — PvE\n`!rpg quests` / `!rpg quest accept <id>` / `!rpg quest claim <id>`\n`!rpg party create/join/dungeon` — team play\n`!rpg guild create/join/members/deposit/upgrade` — guild system\n`!rpg shop/buy/sell/craft/market` — economy\n`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
+        "rpg": "**🌌 Horizon RPG**\n`!rpg` — RPG hub\n`!rpg start <name> <race> <class>` — create hero\n`!rpg profile` / `!rpg stats` — character sheet\n`!rpg adventure` / `!rpg dungeon` — PvE\n`!rpg quests` / `!rpg quest accept <id>` / `!rpg quest claim <id>`\n`!rpg party create/join/dungeon` — team play\n`!rpg guild create/join/members/deposit/upgrade` — guild system\n`!rpg shop/buy/sell/craft/market` — economy\n`!rpg trade @player` — secure direct trading\n`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
         "moderation": "**Moderation**\n`!warn @user [reason]`\n`!warnings @user`\n`!mod on|off`\n`!modaction log|warn|timeout`\n`!clear <1-100>`\n`!timeout @user <minutes> [reason]`\n`!kick @user [reason]`\n`!ban @user [reason]`",
         "announcements": "**Announcements**\n`!announce <type> <ping> [#channel] | <title> | <message>`\nTypes: `general`, `event`, `tournament`, `game`, `community`, `update`, `important`, `warning`, `maintenance`, `giveaway`, `news`\nPing: `none`, `@here`, `@everyone`, a role mention, or a member mention.\nExample: `!announce tournament @Tournament #events | Anigame Tournament | Sign-ups open Saturday at 8 PM IST.`",
         "server": "**Server**\n`!config show`\n`!config welcome #channel`\n`!config logs #channel`\n`!config personality <text>`\n`!serverinfo`\n`!permissions`\n`!userinfo @user`\n`!avatar @user`\n`!channelinfo`",
@@ -1521,7 +1521,7 @@ def _rpg_image_url(kind, seed):
     # from race/class/species identity. DiceBear remains a safe fallback.
     base=os.getenv("SITE_URL", "").strip().rstrip("/")
     if base:
-        return f"{base}/api/rpg/art?kind={quote(kind, safe='')}&seed={quote(seed, safe='')}"
+        return f"{base}/api/rpg/art?kind={quote(kind, safe='')}&seed={quote(seed, safe='')}&v=3"
     style = {"character": "adventurer", "mob": "notionists", "pet": "notionists"}.get(kind, "adventurer")
     return f"https://api.dicebear.com/9.x/{style}/png?seed={quote(seed, safe='')}&backgroundColor=b6e3f4,c0aede,d1d4f9"
 
@@ -2001,7 +2001,7 @@ async def rpg_help(ctx):
         _rpg_embed("🎒 Horizon RPG — Items & Gear", "`!rpg inventory` — your owned items\n`!rpg items [category] [page]` — classified item codex\n`!rpg iteminfo <item_key>` — detailed item inspection\n`!rpg equip <item_key>` — equip gear\n`!rpg use [item_key] [qty]` — consume food/potions\n\nThe world now contains **1,000+ generated items** across weapons, armor, offhands, accessories, rings, amulets, relics, consumables, food, materials, eggs and chests. High-tier gear has level requirements and small percentage bonuses capped per item."),
         _rpg_embed("✨ Horizon RPG — Enchanting & Gacha", "`!rpg gacha` — view rates, pity and Gems\n`!rpg gacha 1` — single pull\n`!rpg gacha 10` — ten-pull\n`!rpg open-chest <key>` — open a gacha chest\n`!rpg enchantments` — see enchant types\n`!rpg enchant <slot> <item> <enchant>` — upgrade equipped gear\n\nGacha uses earned in-game Gems and published rates. Pity guarantees Epic+ at the configured threshold and Mythic at the higher threshold."),
         _rpg_embed("🐾 Horizon RPG — Pets", "`!rpg pets` — full pet inventory\n`!rpg pet` — equipped companion\n`!rpg equip-pet <pet_id>` — switch companions\n`!rpg unequip-pet` — store the active companion\n`!rpg adopt <name>` — starter companion\n`!rpg eggs` — owned eggs\n`!rpg hatch <egg> <name>` — hatch an egg\n`!rpg rename <name>` — rename equipped pet\n`!rpg release` — release equipped pet\n\nPets are now stored as a collection, so switching pets does **not** require releasing the others. Each pet shows its actual ability and passive stats."),
-        _rpg_embed("🗺️ Horizon RPG — World & Progression", "`!rpg areas` — world atlas\n`!rpg travel <area_key>` — travel\n`!rpg quests` — quest board\n`!rpg daily` — daily reward\n`!rpg rest` — recover\n`!rpg shop` / `buy` / `sell` / `craft` / `market` — economy\n`!rpg party ...` / `guild ...` / `kingdom ...` — multiplayer systems\n\nThe world now has dozens of additional areas. Level XP scales increasingly with level, so late-game progression takes substantially more XP than early progression."),
+        _rpg_embed("🗺️ Horizon RPG — World & Progression", "`!rpg areas` — world atlas\n`!rpg travel <area_key>` — travel\n`!rpg quests` — quest board\n`!rpg daily` — daily reward\n`!rpg rest` — recover\n`!rpg shop` / `buy` / `sell` / `craft` / `market` — economy\n`!rpg trade @player` — direct trading of gear, items, pets, Gold and Diamonds\n`!rpg trades` / `tradeview` / `tradeadd` / `tradepet` / `tradegold` / `tradediamonds` / `tradeaccept` / `tradecancel` — trade controls\n`!rpg party ...` / `guild ...` / `kingdom ...` — multiplayer systems\n\nThe world now has dozens of additional areas. Level XP scales increasingly with level, so late-game progression takes substantially more XP than early progression."),
     ]
     await _rpg_panel(ctx,pages)
 
@@ -2864,9 +2864,115 @@ async def rpg_market(ctx):
 async def rpg_market_buy(ctx,listing_id:int=0):
     await _rpg_delete(ctx); ok,msg=await bot.rpg.market_buy(ctx.guild.id,ctx.author.id,listing_id); await _rpg_action_panel(ctx, "Market Purchase", msg, ok)
 
-
 # Keep the older top-level RPG shortcuts working, but route them through the real RPG engine.
-@bot.command(name="profile")
+@rpg_root.command(name="trade")
+async def rpg_trade(ctx, member: discord.Member = None):
+    await _rpg_delete(ctx)
+    if not member:
+        await _rpg_action_panel(ctx,"🤝 Direct Trading","Use `!rpg trade @player` to open a secure trade. Then add assets with `tradeadd`, `tradepet`, `tradegold`, or `tradediamonds`.",False); return
+    ok,result=await bot.rpg.trade_create(ctx.guild.id,ctx.author.id,member.id)
+    if not ok:
+        await _rpg_action_panel(ctx,"🤝 Trade",result,False); return
+    await _rpg_action_panel(ctx,"🤝 Trade Created",f"Trade **#{result}** opened with **{member.display_name}**.\n\nAdd your assets:\n`!rpg tradeadd {result} <item_key> <quantity>`\n`!rpg tradepet {result} <pet_id>`\n`!rpg tradegold {result} <amount>`\n`!rpg tradediamonds {result} <amount>`\n\n**{member.display_name}** can add their side too. When both sides look right, they can run `!rpg tradeaccept {result}`.",True)
+
+@rpg_root.command(name="trades", aliases=["trade-list"])
+async def rpg_trades(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.trade_list(ctx.guild.id,ctx.author.id)
+    if not rows:
+        await _rpg_action_panel(ctx,"🤝 Open Trades","You have no open trades. Start one with `!rpg trade @player`.",True); return
+    lines=[]
+    for tid,proposer,target,status,created,pg,tg,pd,gd in rows:
+        role="Outgoing" if int(proposer)==ctx.author.id else "Incoming"
+        other=target if role=="Outgoing" else proposer
+        lines.append(f"**#{tid} · {role}** with <@{other}>\n💰 Offer: {pg if role=='Outgoing' else tg} Gold · 💎 {pd if role=='Outgoing' else gd} Diamonds\nView: `!rpg tradeview {tid}`")
+    await _rpg_panel(ctx,[_rpg_embed("🤝 Your Open Trades","\n\n".join(lines))])
+
+async def _render_trade(ctx, trade_id, title="🤝 Trade"):
+    data=await bot.rpg.trade_details(ctx.guild.id,trade_id)
+    if not data:return await _rpg_action_panel(ctx,title,"Trade not found.",False)
+    t=data["trade"]; uid=ctx.author.id
+    if uid not in {int(t["proposer_id"]),int(t["target_id"])}:return await _rpg_action_panel(ctx,title,"You are not part of that trade.",False)
+    names={int(t["proposer_id"]):"Proposer",int(t["target_id"]):"Target"}
+    sections=[]
+    for side,owner in (("proposer",int(t["proposer_id"])),("target",int(t["target_id"]))):
+        item_lines=[]
+        for x in data["items"]:
+            if x["side"]==side:item_lines.append(f"📦 {ITEMS.get(x['item_key'],{'name':x['item_key']})['name']} ×{x['quantity']}")
+        for x in data["pets"]:
+            if x["side"]==side:
+                pets=await bot.rpg.pet_inventory(ctx.guild.id,owner); p=next((p for p in pets if int(p["pet_id"])==int(x["pet_id"])),None)
+                item_lines.append(f"🐾 {p['name']} ({p['species']}) `#{x['pet_id']}`" if p else f"🐾 Pet `#{x['pet_id']}`")
+        gold=int(t[f"{side}_gold"]); gems=int(t[f"{side}_gems"])
+        item_lines.append(f"💰 {gold:,} Gold") if gold else None
+        item_lines.append(f"💎 {gems:,} Diamonds") if gems else None
+        sections.append(f"**{names[int(owner)]} — <@{owner}>**\n"+"\n".join(item_lines or ["_Nothing offered yet._"]))
+    state="OPEN" if t["status"]=="open" else t["status"].upper()
+    body=f"**Status:** {state}\n\n"+"\n\n".join(sections)
+    if t["status"]=="open":body+=f"\n\n**Commands**\n`!rpg tradeadd {trade_id} <item_key> <qty>`\n`!rpg tradepet {trade_id} <pet_id>`\n`!rpg tradegold {trade_id} <amount>`\n`!rpg tradediamonds {trade_id} <amount>`\n`!rpg tradeclear {trade_id}`\n`!rpg tradeaccept {trade_id}` — target only\n`!rpg tradecancel {trade_id}`"
+    await _rpg_panel(ctx,[_rpg_embed(title,body)])
+
+@rpg_root.command(name="tradeview", aliases=["trade-info"])
+async def rpg_trade_view(ctx,trade_id:int=0):
+    await _rpg_delete(ctx)
+    await _render_trade(ctx,trade_id)
+
+@rpg_root.command(name="tradeadd")
+async def rpg_trade_add(ctx,trade_id:int=0,item_key:str="",quantity:int=1):
+    await _rpg_delete(ctx)
+    if not trade_id or not item_key:
+        await _rpg_action_panel(ctx,"Trade Item","Use `!rpg tradeadd <trade_id> <item_key> <quantity>`.",False); return
+    ok,msg=await bot.rpg.trade_add_item(ctx.guild.id,ctx.author.id,trade_id,item_key,quantity)
+    if not ok: await _rpg_action_panel(ctx,"Trade Item",msg,False); return
+    await _render_trade(ctx,trade_id,"🤝 Trade Updated")
+
+@rpg_root.command(name="tradepet")
+async def rpg_trade_pet(ctx,trade_id:int=0,pet_id:int=0):
+    await _rpg_delete(ctx)
+    if not trade_id or not pet_id:
+        await _rpg_action_panel(ctx,"Trade Pet","Use `!rpg tradepet <trade_id> <pet_id>`. Unequip the pet first.",False); return
+    ok,msg=await bot.rpg.trade_add_pet(ctx.guild.id,ctx.author.id,trade_id,pet_id)
+    if not ok: await _rpg_action_panel(ctx,"Trade Pet",msg,False); return
+    await _render_trade(ctx,trade_id,"🤝 Trade Updated")
+
+@rpg_root.command(name="tradegold")
+async def rpg_trade_gold(ctx,trade_id:int=0,amount:int=0):
+    await _rpg_delete(ctx)
+    if not trade_id:
+        await _rpg_action_panel(ctx,"Trade Gold","Use `!rpg tradegold <trade_id> <amount>`.",False); return
+    ok,msg=await bot.rpg.trade_add_currency(ctx.guild.id,ctx.author.id,trade_id,"gold",amount)
+    if not ok: await _rpg_action_panel(ctx,"Trade Gold",msg,False); return
+    await _render_trade(ctx,trade_id,"🤝 Trade Updated")
+
+@rpg_root.command(name="tradediamonds", aliases=["tradegems","trade-diamonds"])
+async def rpg_trade_diamonds(ctx,trade_id:int=0,amount:int=0):
+    await _rpg_delete(ctx)
+    if not trade_id:
+        await _rpg_action_panel(ctx,"Trade Diamonds","Use `!rpg tradediamonds <trade_id> <amount>`.",False); return
+    ok,msg=await bot.rpg.trade_add_currency(ctx.guild.id,ctx.author.id,trade_id,"diamonds",amount)
+    if not ok: await _rpg_action_panel(ctx,"Trade Diamonds",msg,False); return
+    await _render_trade(ctx,trade_id,"🤝 Trade Updated")
+
+@rpg_root.command(name="tradeclear")
+async def rpg_trade_clear(ctx,trade_id:int=0):
+    await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.trade_remove_all(ctx.guild.id,ctx.author.id,trade_id)
+    await _rpg_action_panel(ctx,"Trade Clear",msg,ok)
+
+@rpg_root.command(name="tradeaccept")
+async def rpg_trade_accept(ctx,trade_id:int=0):
+    await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.trade_accept(ctx.guild.id,ctx.author.id,trade_id)
+    await _rpg_action_panel(ctx,"🤝 Trade Completed",msg,ok)
+
+@rpg_root.command(name="tradecancel")
+async def rpg_trade_cancel(ctx,trade_id:int=0):
+    await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.trade_cancel(ctx.guild.id,ctx.author.id,trade_id)
+    await _rpg_action_panel(ctx,"Trade Cancelled",msg,ok)
+
+
+# Keep@bot.command(name="profile")
 async def prefix_profile(ctx, nickname: str = None, *, preferences: str = None):
     if nickname or preferences:
         await _quiet_delete(ctx.message)

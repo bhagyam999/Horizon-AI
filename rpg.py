@@ -867,6 +867,26 @@ class RPGService:
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, seller_id INTEGER NOT NULL,
                 item_key TEXT NOT NULL, quantity INTEGER NOT NULL, price_each INTEGER NOT NULL, created_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS rpg_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                proposer_id INTEGER NOT NULL, target_id INTEGER NOT NULL,
+                proposer_gold INTEGER NOT NULL DEFAULT 0, target_gold INTEGER NOT NULL DEFAULT 0,
+                proposer_gems INTEGER NOT NULL DEFAULT 0, target_gems INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'open', created_at REAL NOT NULL, updated_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS rpg_trade_items (
+                trade_id INTEGER NOT NULL, side TEXT NOT NULL, item_key TEXT NOT NULL, quantity INTEGER NOT NULL,
+                PRIMARY KEY (trade_id, side, item_key),
+                FOREIGN KEY (trade_id) REFERENCES rpg_trades(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS rpg_trade_pets (
+                trade_id INTEGER NOT NULL, side TEXT NOT NULL, pet_id INTEGER NOT NULL,
+                PRIMARY KEY (trade_id, side, pet_id),
+                FOREIGN KEY (trade_id) REFERENCES rpg_trades(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_trades_parties ON rpg_trades(guild_id, proposer_id, target_id, status);
+            CREATE INDEX IF NOT EXISTS idx_rpg_trade_items_trade ON rpg_trade_items(trade_id, side);
+            CREATE INDEX IF NOT EXISTS idx_rpg_trade_pets_trade ON rpg_trade_pets(trade_id, side);
             CREATE TABLE IF NOT EXISTS rpg_kingdoms (
                 guild_id INTEGER NOT NULL, name TEXT NOT NULL, ruler_id INTEGER NOT NULL, level INTEGER NOT NULL DEFAULT 1,
                 treasury INTEGER NOT NULL DEFAULT 0, renown INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL,
@@ -1557,6 +1577,192 @@ class RPGService:
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE rpg_players SET hp=max_hp,mp=max_mp,stamina=100 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
         return True,"You rested at Horizon Village. HP, MP and stamina restored."
+
+    async def _trade_row(self, db, guild_id, trade_id):
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM rpg_trades WHERE guild_id=? AND id=?", (guild_id, int(trade_id)))
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+    async def trade_create(self, guild_id, proposer_id, target_id):
+        proposer_id, target_id = int(proposer_id), int(target_id)
+        if proposer_id == target_id:
+            return False, "You cannot trade with yourself."
+        if not await self.player(guild_id, proposer_id) or not await self.player(guild_id, target_id):
+            return False, "Both players need an RPG character before trading."
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT id FROM rpg_trades WHERE guild_id=? AND status='open' AND ((proposer_id=? AND target_id=?) OR (proposer_id=? AND target_id=?)) LIMIT 1",
+                (guild_id, proposer_id, target_id, target_id, proposer_id),
+            )
+            if await cur.fetchone():
+                return False, "You already have an open trade with that player. Finish or cancel it first."
+            now = time.time()
+            cur = await db.execute(
+                "INSERT INTO rpg_trades(guild_id,proposer_id,target_id,created_at,updated_at) VALUES(?,?,?,?,?)",
+                (guild_id, proposer_id, target_id, now, now),
+            )
+            trade_id = cur.lastrowid
+            await db.commit()
+        return True, trade_id
+
+    async def trade_add_item(self, guild_id, user_id, trade_id, item_key, quantity=1):
+        item_key = str(item_key).lower().strip()
+        quantity = int(quantity)
+        if quantity < 1:
+            return False, "Quantity must be at least 1."
+        if item_key not in ITEMS:
+            return False, "Unknown item. Use `!rpg items` or `!rpg iteminfo <item_key>`."
+        async with aiosqlite.connect(self.path) as db:
+            trade = await self._trade_row(db, guild_id, trade_id)
+            if not trade or trade["status"] != "open":
+                return False, "That trade is no longer open."
+            if int(user_id) not in {int(trade["proposer_id"]), int(trade["target_id"])}:
+                return False, "You are not a participant in that trade."
+            side = "proposer" if int(user_id) == int(trade["proposer_id"]) else "target"
+            cur = await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?", (guild_id,user_id,item_key))
+            inv = await cur.fetchone()
+            if not inv or int(inv[0]) < quantity:
+                return False, f"You only own **{int(inv[0]) if inv else 0}** of that item."
+            cur = await db.execute("SELECT COALESCE(SUM(quantity),0) FROM rpg_trade_items ti JOIN rpg_trades t ON t.id=ti.trade_id WHERE ti.side=? AND ti.item_key=? AND t.guild_id=? AND t.status='open' AND ((t.proposer_id=? ) OR (t.target_id=?)) AND ti.trade_id<>?", (side,item_key,guild_id,int(user_id),int(user_id),int(trade_id)))
+            reserved = int((await cur.fetchone())[0] or 0)
+            if reserved + quantity > int(inv[0]):
+                return False, f"You already have **{reserved}** of that item committed to another open trade."
+            await db.execute("INSERT INTO rpg_trade_items(trade_id,side,item_key,quantity) VALUES(?,?,?,?) ON CONFLICT(trade_id,side,item_key) DO UPDATE SET quantity=quantity+excluded.quantity", (int(trade_id),side,item_key,quantity))
+            await db.execute("UPDATE rpg_trades SET updated_at=? WHERE id=?", (time.time(),int(trade_id)))
+            await db.commit()
+        return True, f"Added **{ITEMS[item_key]['name']} ×{quantity}** to your side of trade `#{trade_id}`."
+
+    async def trade_add_pet(self, guild_id, user_id, trade_id, pet_id):
+        pet_id=int(pet_id)
+        async with aiosqlite.connect(self.path) as db:
+            trade=await self._trade_row(db,guild_id,trade_id)
+            if not trade or trade["status"]!="open": return False,"That trade is no longer open."
+            if int(user_id) not in {int(trade["proposer_id"]),int(trade["target_id"])}: return False,"You are not a participant in that trade."
+            side="proposer" if int(user_id)==int(trade["proposer_id"]) else "target"
+            cur=await db.execute("SELECT name,species,equipped FROM rpg_pet_inventory WHERE pet_id=? AND guild_id=? AND user_id=?",(pet_id,guild_id,user_id)); pet=await cur.fetchone()
+            if not pet:return False,"That pet does not belong to you."
+            if int(pet[2]):return False,"Unequip that pet first. Your active companion cannot be traded."
+            cur=await db.execute("SELECT 1 FROM rpg_trade_pets tp JOIN rpg_trades t ON t.id=tp.trade_id WHERE tp.pet_id=? AND t.status='open' AND t.id<>? LIMIT 1",(pet_id,int(trade_id)))
+            if await cur.fetchone():return False,"That pet is already reserved in another open trade."
+            await db.execute("INSERT OR IGNORE INTO rpg_trade_pets(trade_id,side,pet_id) VALUES(?,?,?)",(int(trade_id),side,pet_id))
+            await db.execute("UPDATE rpg_trades SET updated_at=? WHERE id=?",(time.time(),int(trade_id)))
+            await db.commit()
+        return True,f"Added pet **{pet[0]}** (`#{pet_id}`) to your side of trade `#{trade_id}`."
+
+    async def trade_add_currency(self, guild_id, user_id, trade_id, currency, amount):
+        currency=str(currency).lower().strip(); amount=int(amount)
+        column={"gold":"gold","gems":"gems","gem":"gems","diamond":"gems","diamonds":"gems"}.get(currency)
+        label="Gold" if column=="gold" else "Diamonds (Gems)"
+        if not column:return False,"Currency must be `gold` or `diamonds`."
+        if amount<0:return False,"Amount cannot be negative."
+        async with aiosqlite.connect(self.path) as db:
+            trade=await self._trade_row(db,guild_id,trade_id)
+            if not trade or trade["status"]!="open":return False,"That trade is no longer open."
+            if int(user_id) not in {int(trade["proposer_id"]),int(trade["target_id"])}:return False,"You are not a participant in that trade."
+            side="proposer" if int(user_id)==int(trade["proposer_id"]) else "target"
+            current=int((await (await db.execute(f"SELECT {column} FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id))).fetchone())[0] or 0)
+            cur=await db.execute(f"SELECT proposer_{column} FROM rpg_trades WHERE id=?",(int(trade_id),)) if side=="proposer" else await db.execute(f"SELECT target_{column} FROM rpg_trades WHERE id=?",(int(trade_id),))
+            already=int((await cur.fetchone())[0] or 0)
+            # Do not double-count this trade; other open trades are not reserved and are rechecked at acceptance.
+            if already+amount>current:return False,f"You have **{current} {label}** but are trying to offer **{already+amount}**."
+            field=f"{side}_{column}"
+            await db.execute(f"UPDATE rpg_trades SET {field}=?,updated_at=? WHERE id=?",(already+amount,time.time(),int(trade_id)))
+            await db.commit()
+        return True,f"Your trade offer now includes **{already+amount} {label}**."
+
+    async def trade_remove_all(self, guild_id, user_id, trade_id):
+        async with aiosqlite.connect(self.path) as db:
+            trade=await self._trade_row(db,guild_id,trade_id)
+            if not trade or trade["status"]!="open":return False,"That trade is no longer open."
+            if int(user_id) not in {int(trade["proposer_id"]),int(trade["target_id"])}:return False,"You are not a participant in that trade."
+            side="proposer" if int(user_id)==int(trade["proposer_id"]) else "target"
+            await db.execute("DELETE FROM rpg_trade_items WHERE trade_id=? AND side=?",(int(trade_id),side))
+            await db.execute("DELETE FROM rpg_trade_pets WHERE trade_id=? AND side=?",(int(trade_id),side))
+            await db.execute(f"UPDATE rpg_trades SET {side}_gold=0,{side}_gems=0,updated_at=? WHERE id=?",(time.time(),int(trade_id)))
+            await db.commit()
+        return True,f"Cleared your side of trade `#{trade_id}`."
+
+    async def trade_details(self, guild_id, trade_id):
+        async with aiosqlite.connect(self.path) as db:
+            trade=await self._trade_row(db,guild_id,trade_id)
+            if not trade:return None
+            cur=await db.execute("SELECT side,item_key,quantity FROM rpg_trade_items WHERE trade_id=? ORDER BY side,item_key",(int(trade_id),)); items=[dict(r) for r in await cur.fetchall()]
+            cur=await db.execute("SELECT side,pet_id FROM rpg_trade_pets WHERE trade_id=? ORDER BY side,pet_id",(int(trade_id),)); pets=[dict(r) for r in await cur.fetchall()]
+            return {"trade":trade,"items":items,"pets":pets}
+
+    async def trade_cancel(self, guild_id, user_id, trade_id):
+        async with aiosqlite.connect(self.path) as db:
+            trade=await self._trade_row(db,guild_id,trade_id)
+            if not trade:return False,"Trade not found."
+            if int(user_id) not in {int(trade["proposer_id"]),int(trade["target_id"])}:return False,"You are not a participant in that trade."
+            if trade["status"]!="open":return False,"That trade is already closed."
+            await db.execute("UPDATE rpg_trades SET status='cancelled',updated_at=? WHERE id=?",(time.time(),int(trade_id))); await db.commit()
+        return True,f"Trade `#{trade_id}` cancelled. Nothing was transferred."
+
+    async def trade_accept(self, guild_id, user_id, trade_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("PRAGMA foreign_keys=ON")
+            await db.execute("BEGIN IMMEDIATE")
+            trade=await self._trade_row(db,guild_id,trade_id)
+            if not trade:
+                await db.rollback(); return False,"Trade not found."
+            if trade["status"]!="open":
+                await db.rollback(); return False,"That trade is no longer open."
+            if int(user_id)!=int(trade["target_id"]):
+                await db.rollback(); return False,"Only the receiving player can accept this trade."
+            proposer,target=int(trade["proposer_id"]),int(trade["target_id"])
+            # Re-check every asset immediately before transfer.
+            for side,owner in (("proposer",proposer),("target",target)):
+                cur=await db.execute("SELECT item_key,quantity FROM rpg_trade_items WHERE trade_id=? AND side=?",(int(trade_id),side))
+                for item_key,qty in await cur.fetchall():
+                    cur2=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,owner,item_key)); row=await cur2.fetchone()
+                    if not row or int(row[0])<int(qty):
+                        await db.rollback(); return False,f"Trade cannot complete: <@{owner}> no longer has enough **{ITEMS.get(item_key,{'name':item_key})['name']}**."
+                cur=await db.execute("SELECT pet_id FROM rpg_trade_pets WHERE trade_id=? AND side=?",(int(trade_id),side))
+                for (pet_id,) in await cur.fetchall():
+                    cur2=await db.execute("SELECT equipped FROM rpg_pet_inventory WHERE pet_id=? AND guild_id=? AND user_id=?",(int(pet_id),guild_id,owner)); row=await cur2.fetchone()
+                    if not row:
+                        await db.rollback(); return False,f"Trade cannot complete: pet `#{pet_id}` is no longer owned by <@{owner}>."
+                    if int(row[0]):
+                        await db.rollback(); return False,f"Trade cannot complete: pet `#{pet_id}` is equipped. Unequip it first."
+            for side,owner,curcol in (("proposer",proposer,"proposer"),("target",target,"target")):
+                gold=int(trade[f"{curcol}_gold"]); gems=int(trade[f"{curcol}_gems"])
+                cur=await db.execute("SELECT gold,gems FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,owner)); row=await cur.fetchone()
+                if not row or int(row[0])<gold or int(row[1])<gems:
+                    await db.rollback(); return False,f"Trade cannot complete: <@{owner}> no longer has enough currency."
+            # Move item stacks.
+            for side,owner,receiver in (("proposer",proposer,target),("target",target,proposer)):
+                cur=await db.execute("SELECT item_key,quantity FROM rpg_trade_items WHERE trade_id=? AND side=?",(int(trade_id),side))
+                for item_key,qty in await cur.fetchall():
+                    await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(int(qty),guild_id,owner,item_key))
+                    cur_left=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,owner,item_key)); left_row=await cur_left.fetchone()
+                    if not left_row or int(left_row[0])<=0:
+                        # If the last copy of equipped gear is traded away, remove the stale equipment reference and its enchants.
+                        cur_slots=await db.execute("SELECT slot FROM rpg_equipment WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,owner,item_key)); slots=[r[0] for r in await cur_slots.fetchall()]
+                        await db.execute("DELETE FROM rpg_equipment WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,owner,item_key))
+                        for slot in slots:
+                            await db.execute("DELETE FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,owner,slot))
+                    await db.execute("INSERT INTO rpg_inventory(guild_id,user_id,item_key,quantity) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,receiver,item_key,int(qty)))
+            # Move unique pets.
+            for side,owner,receiver in (("proposer",proposer,target),("target",target,proposer)):
+                cur=await db.execute("SELECT pet_id FROM rpg_trade_pets WHERE trade_id=? AND side=?",(int(trade_id),side))
+                for (pet_id,) in await cur.fetchall():
+                    await db.execute("UPDATE rpg_pet_inventory SET user_id=? WHERE pet_id=? AND guild_id=? AND user_id=?",(receiver,int(pet_id),guild_id,owner))
+            # Keep the legacy single-pet compatibility cache synchronized.
+            await self._sync_legacy_pet_cache(db,guild_id,proposer)
+            await self._sync_legacy_pet_cache(db,guild_id,target)
+            # Currency exchange is simultaneous and atomic.
+            pg,gg=int(trade["proposer_gold"]),int(trade["target_gold"]); pd,gd=int(trade["proposer_gems"]),int(trade["target_gems"])
+            await db.execute("UPDATE rpg_players SET gold=gold-?+?,gems=gems-?+? WHERE guild_id=? AND user_id=?",(pg,gg,pd,gd,guild_id,proposer))
+            await db.execute("UPDATE rpg_players SET gold=gold-?+?,gems=gems-?+? WHERE guild_id=? AND user_id=?",(gg,pg,gd,pd,guild_id,target))
+            await db.execute("UPDATE rpg_trades SET status='completed',updated_at=? WHERE id=?",(time.time(),int(trade_id)))
+            await db.commit()
+        return True,f"Trade `#{trade_id}` completed successfully. Assets were transferred atomically."
+
+    async def trade_list(self, guild_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id,proposer_id,target_id,status,created_at,proposer_gold,target_gold,proposer_gems,target_gems FROM rpg_trades WHERE guild_id=? AND status='open' AND (proposer_id=? OR target_id=?) ORDER BY id DESC LIMIT 20",(guild_id,user_id,user_id)); return await cur.fetchall()
 
     async def create_market(self,guild_id,user_id,item_key,quantity,price):
         if quantity<1 or price<1:return False,"Quantity and price must be positive."

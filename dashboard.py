@@ -146,105 +146,283 @@ class Dashboard:
         return web.FileResponse(path)
 
     async def rpg_art(self, request):
-        """Render deterministic full-body RPG art as a PNG that Discord can display."""
+        """Render deterministic, high-detail RPG art as PNG for Discord embeds.
+
+        This is deliberately generated from the identity seed instead of using a
+        random avatar service: the same hero/pet/mob/item always keeps the same
+        visual identity while race/class/species/gear words change the design.
+        """
         import hashlib
         import io
+        import math
+        import random
         from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
         kind=request.query.get("kind","character").lower()
         seed=request.query.get("seed","unknown")
         bits=[x.strip().lower().replace("_"," ") for x in seed.split("|") if x.strip()]
         digest=hashlib.sha256(seed.encode()).digest()
+        rng=random.Random(int.from_bytes(digest[:16],"big"))
         def pick(values,offset=0): return values[digest[offset % len(digest)] % len(values)]
-        bg=pick([(12,20,39),(24,16,45),(10,31,42),(37,24,15),(18,28,25)],0)
-        accent=pick([(99,213,255),(192,132,252),(245,158,11),(244,63,94),(52,211,153),(229,231,235)],2)
-        skin=pick([(243,201,173),(220,174,139),(185,120,85),(240,208,189),(143,93,69)],4)
-        hair=pick([(17,24,39),(63,36,23),(124,45,18),(245,208,97),(229,231,235),(107,33,168)],6)
-        cloth=pick([(23,32,51),(59,29,43),(23,53,47),(41,32,68),(58,43,27)],8)
+        def clamp(v): return max(0,min(255,int(v)))
+        def mix(a,b,t): return tuple(clamp(a[i]*(1-t)+b[i]*t) for i in range(3))
 
-        W,H=900,620
-        im=Image.new("RGB",(W,H),bg)
+        W=1024; H=1024
+        bg1=pick([(8,13,28),(18,10,32),(8,24,34),(32,18,10),(12,29,22)],0)
+        bg2=pick([(20,39,68),(55,20,72),(11,64,74),(77,39,16),(20,66,46)],1)
+        accent=pick([(80,210,255),(192,120,255),(255,170,54),(255,75,105),(61,225,171),(230,235,255)],2)
+        accent2=pick([(124,90,255),(255,95,150),(62,230,220),(255,215,90),(110,255,140)],5)
+        skin=pick([(246,205,180),(224,175,140),(188,122,88),(239,211,193),(139,90,68)],4)
+        hair=pick([(12,18,30),(55,29,20),(125,40,17),(242,205,95),(225,229,238),(101,30,170),(178,35,65)],6)
+        dark=(9,13,24); ink=(4,8,16); white=(245,247,252); muted=(178,190,212)
+
+        # Gradient + subtle parchment/noise texture makes the art feel like a game card.
+        im=Image.new("RGB",(W,H))
+        px=im.load()
+        for y in range(H):
+            t=y/(H-1)
+            base=mix(bg1,bg2,t)
+            for x in range(W):
+                radial=1.0-math.hypot(x-W*.5,y-H*.43)/(W*.72)
+                c=tuple(clamp(base[i]+max(0,radial)*accent[i]*.08) for i in range(3))
+                n=rng.randint(-3,3)
+                px[x,y]=tuple(clamp(v+n) for v in c)
+        im=im.convert("RGBA")
         glow=Image.new("RGBA",(W,H),(0,0,0,0)); gd=ImageDraw.Draw(glow)
-        for r,a in [(240,20),(190,28),(135,38)]:
-            gd.ellipse((450-r,310-r,450+r,310+r),fill=(*accent,a))
-        glow=glow.filter(ImageFilter.GaussianBlur(20)); im=Image.alpha_composite(im.convert("RGBA"),glow)
+        for r,a in [(430,14),(330,22),(220,34),(120,45)]:
+            gd.ellipse((W//2-r,455-r,W//2+r,455+r),fill=(*accent,a))
+        glow=glow.filter(ImageFilter.GaussianBlur(32)); im=Image.alpha_composite(im,glow)
         d=ImageDraw.Draw(im)
-        try: font=ImageFont.truetype("DejaVuSans.ttf",24); small=ImageFont.truetype("DejaVuSans.ttf",16); tiny=ImageFont.truetype("DejaVuSans.ttf",13)
-        except Exception: font=small=tiny=None
-        def txt(xy,text,f,fill): d.text(xy,text,font=f,fill=fill)
-        txt((36,30),bits[0].title() + (" " + bits[2].title() if kind=="character" and len(bits)>2 else ""),font,(245,247,250))
+        try:
+            font=ImageFont.truetype("DejaVuSans-Bold.ttf",34)
+            subfont=ImageFont.truetype("DejaVuSans.ttf",19)
+            tiny=ImageFont.truetype("DejaVuSans.ttf",15)
+            statfont=ImageFont.truetype("DejaVuSans-Bold.ttf",16)
+        except Exception:
+            font=subfont=tiny=statfont=None
+        def txt(xy,text,f=font,fill=white,anchor=None): d.text(xy,text,font=f,fill=fill,anchor=anchor)
+        def rounded(box,r,fill,outline=None,width=1): d.rounded_rectangle(box,r,fill=fill,outline=outline,width=width)
+        def glow_line(points,fill,width=8,blur=14):
+            layer=Image.new("RGBA",(W,H),(0,0,0,0)); ld=ImageDraw.Draw(layer); ld.line(points,fill=(*fill,120),width=width+16,joint="curve"); layer=layer.filter(ImageFilter.GaussianBlur(blur)); im.alpha_composite(layer); ImageDraw.Draw(im).line(points,fill=fill,width=width,joint="curve")
+        def particle_field(count=90):
+            for _ in range(count):
+                x=rng.randint(30,W-30); y=rng.randint(100,H-120); r=rng.choice([1,1,2,2,3])
+                col=accent if rng.random()<.7 else accent2
+                d.ellipse((x-r,y-r,x+r,y+r),fill=(*col,rng.randint(70,190)))
+        def frame(title,subtitle):
+            rounded((24,24,W-24,H-24),28,fill=(3,7,15,65),outline=(*accent,120),width=2)
+            rounded((42,42,W-42,118),18,fill=(4,8,17,175),outline=(*accent2,65),width=1)
+            txt((66,62),title,font); txt((66,101),subtitle,subfont,muted)
+            particle_field(70)
+            # bottom stat plate
+            rounded((42,H-112,W-42,H-42),18,fill=(4,8,17,190),outline=(*accent,75),width=1)
+
         if kind=="character":
-            race=bits[0] if bits else "human"; cls=bits[2] if len(bits)>2 else "warrior"; sub=bits[3] if len(bits)>3 else ""
-            txt((36,62),f"{sub.title() or 'Adventurer'}  •  identity-based battle art",small,(184,196,216))
-            # cape/aura
-            d.ellipse((150,115,600,565),outline=(*accent,90),width=5)
-            # race traits behind body
+            race=bits[0] if bits else "human"; cls=bits[2] if len(bits)>2 else "warrior"; sub=bits[3] if len(bits)>3 else ""; evo=bits[4] if len(bits)>4 else ""
+            frame(f"{race.title()} {cls.title()}",f"{sub.title() or 'Adventurer'}  •  {evo.title() or 'Base Evolution'}  •  HERO IDENTITY")
+            # Backplate sigil / magic circle.
+            for rad in (275,250,225): d.ellipse((512-rad,555-rad,512+rad,555+rad),outline=(*accent,50),width=2)
+            for ang in range(0,360,30):
+                a=math.radians(ang); x1=512+250*math.cos(a); y1=555+250*math.sin(a); x2=512+275*math.cos(a); y2=555+275*math.sin(a); d.line((x1,y1,x2,y2),fill=(*accent2,80),width=3)
+            # Silhouette / cloak.
+            d.polygon([(350,475),(674,475),(760,800),(640,870),(384,870),(264,800)],fill=(8,14,27,230),outline=(*accent,170))
+            # Race traits.
             if race in {"fae"}:
-                d.polygon([(245,270),(70,190),(110,390),(275,320)],fill=(*accent,80))
-                d.polygon([(555,270),(830,190),(790,390),(525,320)],fill=(*accent,80))
-            if race in {"beastfolk","kitsune","dragonkin"}:
-                d.line((575,390,760,470,720,530),fill=accent,width=24,joint="curve")
-            # legs and boots
-            d.line((340,445,310,560),fill=(31,41,55),width=55)
-            d.line((455,445,490,560),fill=(31,41,55),width=55)
-            d.line((280,565,350,565),fill=(5,10,18),width=24)
-            d.line((455,565,525,565),fill=(5,10,18),width=24)
-            # torso + armor
-            d.polygon([(300,265),(500,265),(545,450),(450,485),(350,485),(255,450)],fill=cloth,outline=accent)
-            d.line((350,300,450,300),fill=accent,width=6)
-            # head
-            d.ellipse((305,120,495,300),fill=skin,outline=accent,width=4)
-            d.pieslice((305,105,495,300),180,355,fill=hair)
-            if race not in {"human","dwarf","golem"}:
-                d.polygon([(325,165),(250,120),(300,205)],fill=hair)
-                d.polygon([(475,165),(550,120),(500,205)],fill=hair)
+                d.polygon([(365,430),(145,250),(220,555),(395,500)],fill=(*accent,55),outline=(*accent,120))
+                d.polygon([(659,430),(879,250),(804,555),(629,500)],fill=(*accent,55),outline=(*accent,120))
+            if race in {"beastfolk","kitsune"}:
+                pts=[(635,610),(820,675),(755,760),(670,725)]
+                d.line(pts,fill=hair,width=42,joint="curve"); d.line(pts,fill=(*accent,130),width=5,joint="curve")
+            if race=="dragonkin":
+                d.polygon([(360,430),(285,285),(410,360)],fill=(skin),outline=(*accent,180)); d.polygon([(664,430),(739,285),(614,360)],fill=skin,outline=(*accent,180))
             if race in {"tiefling","vampire","dragonkin"}:
-                d.polygon([(345,145),(330,75),(385,125)],fill=(215,208,199))
-                d.polygon([(455,145),(470,75),(415,125)],fill=(215,208,199))
-            # eyes + face
-            eye=(15,23,42) if race not in {"vampire","fae"} else accent
-            d.ellipse((350,185,370,205),fill=eye); d.ellipse((430,185,450,205),fill=eye)
-            d.arc((380,205,420,235),0,180,fill=(127,29,29),width=4)
-            # weapon determined by class
-            if "lancer" in cls:
-                d.line((590,480,700,105),fill=(204,181,138),width=12); d.polygon([(700,85),(682,135),(718,135)],fill=accent)
+                d.polygon([(412,330),(375,235),(438,300)],fill=(213,205,199),outline=dark)
+                d.polygon([(612,330),(649,235),(586,300)],fill=(213,205,199),outline=dark)
+            # Legs + boots with highlights.
+            d.polygon([(400,735),(500,735),(490,890),(420,890)],fill=(31,41,58),outline=(*accent2,160))
+            d.polygon([(520,735),(620,735),(625,890),(555,890)],fill=(25,34,50),outline=(*accent2,160))
+            d.rounded_rectangle((370,875,485,925),18,fill=(5,9,17),outline=(*accent,160),width=3)
+            d.rounded_rectangle((545,875,660,925),18,fill=(5,9,17),outline=(*accent,160),width=3)
+            # Torso armor with layered plates.
+            torso=[(380,465),(644,465),(690,720),(512,775),(334,720)]
+            d.polygon(torso,fill=(35,45,64),outline=(*accent,210),width=4)
+            d.polygon([(392,490),(632,490),(653,615),(512,675),(371,615)],fill=(51,61,82),outline=(*accent2,140),width=3)
+            d.polygon([(410,500),(512,470),(614,500),(585,570),(512,600),(439,570)],fill=(66,75,96),outline=(*accent,120))
+            d.line((512,505,512,735),fill=(*accent,120),width=5)
+            for x in (405,619): d.line((x,535,x+(-28 if x<500 else 28),690),fill=(*accent2,100),width=5)
+            # Shoulder guards.
+            d.pieslice((285,470,410,600),180,355,fill=(54,65,86),outline=(*accent,170),width=4)
+            d.pieslice((614,470,739,600),185,360,fill=(54,65,86),outline=(*accent,170),width=4)
+            # Neck.
+            d.rectangle((470,380,554,480),fill=skin,outline=dark)
+            # Head, jaw, hair.
+            d.ellipse((372,215,652,485),fill=skin,outline=(*accent,180),width=4)
+            d.pieslice((370,195,654,470),180,355,fill=hair)
+            d.polygon([(390,290),(320,220),(365,375),(408,340)],fill=hair,outline=dark)
+            d.polygon([(634,290),(704,220),(659,375),(616,340)],fill=hair,outline=dark)
+            # Hair strands.
+            for i in range(9):
+                x=405+i*27; endx=x+rng.randint(-35,35); endy=rng.randint(170,250)
+                d.line((x,280,endx,endy),fill=mix(hair,white,.18),width=rng.randint(4,8))
+            # Eyes, brows, nose, mouth, facial highlight.
+            eye_col=accent2 if race not in {"human","dwarf","golem"} else pick([(60,120,255),(80,220,190),(255,190,70),(235,90,120)],8)
+            d.polygon([(425,332),(470,316),(480,335),(430,350)],fill=white)
+            d.polygon([(545,335),(555,316),(600,332),(595,350)],fill=white)
+            d.ellipse((443,323,467,346),fill=eye_col); d.ellipse((557,323,581,346),fill=eye_col)
+            d.ellipse((450,328,461,339),fill=ink); d.ellipse((564,328,575,339),fill=ink)
+            d.line((420,305,475,298),fill=dark,width=10); d.line((549,298,604,305),fill=dark,width=10)
+            d.line((512,345,498,385,518,391),fill=(130,80,65),width=4)
+            d.arc((475,390,550,430),0,180,fill=(105,35,50),width=5)
+            d.ellipse((405,260,445,295),fill=(255,255,255,35)); d.ellipse((585,260,625,295),fill=(255,255,255,35))
+            # Class weapon + class-specific magic.
+            if any(x in cls for x in ("mage","cleric","druid","summoner","warlock","necromancer","bard")):
+                d.line((720,810,785,245),fill=(197,162,115),width=18); d.ellipse((755,195,815,255),fill=accent,outline=white,width=3); glow_line([(785,195),(810,145),(770,105)],accent,width=5)
+            elif "lancer" in cls:
+                d.line((725,830,835,190),fill=(198,171,128),width=17); d.polygon([(835,145),(806,225),(864,225)],fill=accent,outline=white); d.line((760,620,820,555),fill=accent2,width=7)
             elif "ranger" in cls:
-                d.arc((565,150,735,480),70,290,fill=(204,181,138),width=13); d.line((650,155,650,470),fill=(229,231,235),width=4)
+                d.arc((675,245,905,700),65,300,fill=(205,170,110),width=15); d.line((790,245,790,700),fill=white,width=5); glow_line([(790,360),(880,300)],accent,width=4)
             elif "engineer" in cls:
-                d.rounded_rectangle((565,245,760,300),18,fill=(156,163,175),outline=accent,width=4); d.rectangle((625,295,675,390),fill=(75,85,99)); d.ellipse((700,255,730,285),fill=accent)
+                rounded((690,390,900,475),18,fill=(83,95,112),outline=accent,width=4); d.ellipse((835,405,875,445),fill=accent); d.rectangle((760,475,825,585),fill=(52,61,75),outline=accent2,width=3); glow_line([(875,430),(935,360)],accent,width=4)
             elif "rogue" in cls or "assassin" in cls:
-                d.polygon([(585,285),(750,215),(735,255),(590,315)],fill=(219,234,254)); d.rectangle((560,285,625,305),fill=(154,103,63))
-            elif any(x in cls for x in ("mage","cleric","druid","summoner","warlock","necromancer","bard")):
-                d.line((610,480,650,120),fill=(200,177,138),width=12); d.ellipse((625,90,685,150),fill=accent,outline=(245,247,250),width=3)
+                d.polygon([(720,470),(930,350),(912,405),(730,500)],fill=(226,235,250),outline=accent,width=3); d.polygon([(700,560),(885,450),(868,500),(710,590)],fill=(226,235,250),outline=accent2,width=3)
             else:
-                d.polygon([(630,90),(690,300),(630,485),(570,300)],fill=(219,234,254),outline=(245,247,250)); d.rectangle((585,295,675,320),fill=(183,121,63))
-            # identity card
-            d.rounded_rectangle((625,405,855,555),20,fill=(255,255,255,18),outline=accent,width=2)
-            txt((650,425),"IDENTITY",small,(245,247,250)); txt((650,452),race.title(),tiny,(184,196,216)); txt((650,476),cls.title(),tiny,(184,196,216)); txt((650,500),sub.title() or "Base",tiny,(184,196,216))
+                d.polygon([(750,190),(825,430),(770,690),(700,430)],fill=(225,232,244),outline=accent,width=4); d.rectangle((715,410,830,450),fill=(177,120,70),outline=dark,width=3)
+            # Magical motes / sparks around weapon.
+            for _ in range(28):
+                x=rng.randint(170,900); y=rng.randint(170,860); rr=rng.choice([2,3,4]); d.ellipse((x-rr,y-rr,x+rr,y+rr),fill=(*accent,rng.randint(80,220)))
+            txt((66,H-91),f"RACE  {race.upper()}",statfont,accent)
+            txt((300,H-91),f"CLASS  {cls.upper()}",statfont,accent2)
+            txt((560,H-91),f"PATH  {(sub or 'ADVENTURER').upper()}",statfont,white)
+            txt((66,H-62),"Stable visual identity • generated from character progression",tiny,muted)
+
         elif kind=="pet":
-            species=bits[0] if bits else "companion"; archetype=pick(["wolf","fox","cat","dragon","hawk","spirit","bear"],10)
-            txt((36,62),f"{archetype.title()} companion archetype  •  stable identity art",small,(184,196,216))
-            d.ellipse((230,145,670,565),fill=(*accent,28),outline=accent,width=5)
-            # ears/head/body
-            d.polygon([(300,255),(250,145),(350,205),(550,205),(650,145),(600,255)],fill=cloth,outline=accent)
-            d.ellipse((290,190,610,430),fill=cloth,outline=accent,width=6)
-            d.ellipse((360,285,405,330),fill=accent); d.ellipse((495,285,540,330),fill=accent)
-            d.polygon([(425,350),(450,370),(475,350)],fill=skin)
-            d.arc((400,355,500,425),0,180,fill=(10,15,25),width=12)
-            d.line((355,410,270,520),fill=cloth,width=55); d.line((545,410,630,520),fill=cloth,width=55)
-            d.ellipse((390,125,510,245),fill=(*accent,55),outline=accent,width=4)
-            txt((36,535),species.title(),font,(245,247,250))
-        else:
-            name=bits[0] if bits else "monster"; role=bits[4] if len(bits)>4 else "beast"; archetype=pick(["beast","undead","construct","elemental","demon","insect","humanoid"],14); eye=pick([(239,68,68),(245,158,11),(168,85,247),(34,211,238),(132,204,22)],16)
-            txt((36,62),f"{archetype.title()}  •  {role.title()}  •  persistent mob identity",small,(184,196,216))
-            d.ellipse((185,125,715,570),fill=(*eye,18),outline=accent,width=6)
-            d.polygon([(260,445),(210,275),(275,155),(450,100),(625,155),(690,275),(640,445),(450,510)],fill=cloth,outline=accent,width=7)
-            d.polygon([(310,185),(225,90),(345,145)],fill=cloth,outline=accent); d.polygon([(590,185),(675,90),(555,145)],fill=cloth,outline=accent)
-            d.ellipse((320,235,380,310),fill=eye); d.ellipse((520,235,580,310),fill=eye)
-            d.arc((350,315,550,425),0,180,fill=(5,10,18),width=24)
-            d.line((320,420,215,535),fill=cloth,width=65); d.line((580,420,685,535),fill=cloth,width=65)
-            d.ellipse((395,105,505,215),fill=(*accent,45),outline=accent,width=4)
-            txt((36,535),name.title(),font,(245,247,250))
+            species=bits[0] if bits else "companion"; ability=bits[2] if len(bits)>2 else "companion"; level=bits[1] if len(bits)>1 else "1"
+            frame(f"{species.title()} Companion",f"Level {level}  •  {ability.title()}  •  COMPANION IDENTITY")
+            # Ground shadow and aura.
+            d.ellipse((220,790,804,900),fill=(0,0,0,110))
+            d.ellipse((235,250,789,800),outline=(*accent,90),width=5)
+            archetype=species
+            if any(x in species for x in ("dragon","drake")): archetype="dragon"
+            elif any(x in species for x in ("wolf","hound")): archetype="wolf"
+            elif any(x in species for x in ("fox","kitsune")): archetype="fox"
+            elif "cat" in species: archetype="feline"
+            elif any(x in species for x in ("hawk","bird","falcon")): archetype="avian"
+            elif any(x in species for x in ("bear",)): archetype="bear"
+            elif any(x in species for x in ("spirit","slime","wraith")): archetype="spirit"
+            body=pick([(80,100,130),(112,75,90),(58,105,94),(125,95,55),(90,78,135)],11)
+            hi=mix(body,white,.28)
+            if archetype=="dragon":
+                d.ellipse((300,330,720,690),fill=body,outline=accent,width=6); d.polygon([(340,390),(220,220),(390,300)],fill=body,outline=accent); d.polygon([(680,390),(800,220),(630,300)],fill=body,outline=accent)
+                d.polygon([(355,560),(220,700),(405,650)],fill=hi,outline=accent2); d.polygon([(669,560),(804,700),(619,650)],fill=hi,outline=accent2)
+                d.polygon([(375,650),(280,825),(430,760),(512,835),(594,760),(744,825),(649,650)],fill=body,outline=accent,width=5)
+                d.polygon([(400,610),(512,690),(624,610),(575,720),(512,750),(449,720)],fill=skin,outline=accent2)
+                d.polygon([(380,420),(430,360),(475,420)],fill=accent); d.polygon([(549,420),(594,360),(644,420)],fill=accent)
+            elif archetype in {"wolf","fox","feline","bear"}:
+                d.ellipse((295,330,730,690),fill=body,outline=accent,width=6)
+                earfill=body
+                d.polygon([(350,405),(260,210),(430,320)],fill=earfill,outline=accent,width=5); d.polygon([(674,405),(764,210),(594,320)],fill=earfill,outline=accent,width=5)
+                if archetype=="fox": d.polygon([(330,270),(390,320),(350,390)],fill=(255,170,90)); d.polygon([(694,270),(634,320),(674,390)],fill=(255,170,90))
+                d.ellipse((365,455,430,520),fill=accent2); d.ellipse((595,455,660,520),fill=accent2); d.ellipse((390,478,416,504),fill=ink); d.ellipse((610,478,636,504),fill=ink)
+                d.polygon([(445,565),(512,610),(579,565),(560,655),(512,690),(464,655)],fill=skin,outline=accent2,width=4)
+                d.arc((430,600,594,730),0,180,fill=ink,width=12)
+                # paws/claws
+                for x in (345,610):
+                    d.ellipse((x,650,x+85,815),fill=body,outline=accent,width=5)
+                    for j in range(3): d.line((x+20+j*22,770,x+8+j*22,805),fill=white,width=4)
+                d.line((680,650,850,790),fill=body,width=48); d.line((690,650,850,790),fill=accent2,width=5)
+            elif archetype=="avian":
+                d.ellipse((330,350,690,700),fill=body,outline=accent,width=6); d.polygon([(360,470),(120,300),(300,610)],fill=body,outline=accent); d.polygon([(664,470),(904,300),(724,610)],fill=body,outline=accent)
+                d.polygon([(480,500),(512,545),(544,500),(530,570),(494,570)],fill=(255,195,70),outline=dark)
+                d.ellipse((420,440,455,475),fill=white); d.ellipse((569,440,604,475),fill=white); d.ellipse((430,450,448,468),fill=ink); d.ellipse((576,450,594,468),fill=ink)
+                for i in range(6): d.polygon([(390+i*45,610),(410+i*45,780),(430+i*45,610)],fill=hi,outline=accent2)
+            else: # spirit / unusual
+                d.ellipse((290,290,735,800),fill=(*accent,45),outline=accent,width=7)
+                for i in range(7):
+                    x=350+i*48; y=420+int(math.sin(i)*35); d.ellipse((x,y,x+70,y+70),fill=(*accent2,130))
+                d.ellipse((405,445,455,495),fill=white); d.ellipse((570,445,620,495),fill=white); d.ellipse((423,462,440,479),fill=ink); d.ellipse((587,462,604,479),fill=ink)
+            # Ability rune and companion badge.
+            rounded((70,730,330,840),18,fill=(4,8,17,190),outline=(*accent,100),width=2)
+            txt((92,755),"ABILITY",statfont,accent); txt((92,782),ability.title()[:22],subfont,white)
+            txt((66,H-91),f"SPECIES  {species.upper()}",statfont,accent)
+            txt((370,H-91),f"LEVEL  {str(level).upper()}",statfont,accent2)
+            txt((66,H-62),"Stable companion identity • species, ability and level shape the render",tiny,muted)
+
+        elif kind=="mob":
+            name=bits[0] if bits else "monster"; level=bits[1] if len(bits)>1 else "?"; region=bits[2] if len(bits)>2 else "wild"; element=bits[3] if len(bits)>3 else "arcane"; role=bits[4] if len(bits)>4 else "beast"
+            frame(name.title(),f"Lv {level}  •  {region.title()}  •  {element.title()}  •  {role.title()} MOB")
+            archetype=pick(["beast","undead","construct","elemental","demon","insect","humanoid"],14)
+            body=pick([(88,42,52),(50,70,95),(54,92,72),(90,76,45),(73,49,101),(102,53,35)],15)
+            eye=pick([(255,72,72),(255,190,60),(180,90,255),(40,225,235),(145,235,80)],16)
+            d.ellipse((200,250,824,860),fill=(0,0,0,90))
+            d.ellipse((210,200,814,820),outline=(*eye,75),width=8)
+            # Main monster body with asymmetry for a more creature-like silhouette.
+            d.polygon([(330,760),(235,550),(270,320),(390,220),(640,240),(755,365),(790,600),(690,785),(560,850),(420,840)],fill=body,outline=(*accent,210),width=7)
+            if archetype in {"beast","demon","insect"}:
+                d.polygon([(330,360),(170,185),(305,260)],fill=body,outline=accent,width=6); d.polygon([(694,360),(854,185),(719,260)],fill=body,outline=accent,width=6)
+            if archetype=="undead":
+                for i in range(7):
+                    x=310+i*62; d.line((x,380,x+(-20 if i%2 else 20),720),fill=(210,215,225),width=5)
+            if archetype=="construct":
+                for x,y in [(330,390),(650,420),(370,610),(620,640)]: d.rectangle((x,y,x+80,y+70),fill=(100,110,125),outline=accent2,width=4)
+            if archetype=="elemental":
+                for i in range(16):
+                    x=rng.randint(280,740); y=rng.randint(300,780); rr=rng.randint(8,24); d.ellipse((x-rr,y-rr,x+rr,y+rr),fill=(*accent,rng.randint(90,190)))
+            # Face.
+            d.polygon([(335,470),(430,425),(470,470),(430,515)],fill=eye); d.polygon([(554,470),(594,425),(689,470),(594,515)],fill=eye)
+            d.ellipse((390,455,430,495),fill=ink); d.ellipse((594,455,634,495),fill=ink)
+            d.polygon([(425,590),(512,650),(600,590),(570,700),(512,750),(455,700)],fill=(25,16,24),outline=accent2,width=4)
+            for x in range(460,570,22): d.polygon([(x,650),(x+10,690),(x+20,650)],fill=white)
+            # Element core + weapon-like appendage depending on role.
+            d.ellipse((455,530,569,644),fill=(*accent,80),outline=accent2,width=5)
+            if role in {"champion","guardian","knight"}:
+                d.line((690,750,900,250),fill=(190,165,120),width=22); d.polygon([(900,205),(872,300),(928,300)],fill=eye,outline=white)
+            elif role in {"caster","mage","support"}:
+                glow_line([(690,720),(830,330),(760,250)],accent,width=7); d.ellipse((735,220,800,285),fill=accent2,outline=white,width=3)
+            else:
+                d.line((690,650,875,800),fill=body,width=58); d.line((700,650,875,800),fill=accent,width=5)
+            txt((66,H-91),f"TYPE  {archetype.upper()}",statfont,accent)
+            txt((300,H-91),f"ELEMENT  {element.upper()}",statfont,accent2)
+            txt((570,H-91),f"ROLE  {role.upper()}",statfont,white)
+            txt((66,H-62),"Persistent enemy identity • region, role and element shape the design",tiny,muted)
+
+        else:  # item / gear art
+            key=" ".join(bits) if bits else "mystery item"
+            lower=key.lower()
+            rarity=pick(["common","uncommon","rare","epic","legendary","mythic"],17)
+            rarity_colors={"common":(180,190,205),"uncommon":(90,220,150),"rare":(90,170,255),"epic":(190,105,255),"legendary":(255,170,55),"mythic":(255,90,130)}
+            rc=rarity_colors[rarity]
+            frame(key.title(),f"{rarity.title()}  •  crafted relic render  •  ITEM IDENTITY")
+            d.ellipse((210,190,814,800),fill=(*rc,18),outline=(*rc,130),width=5)
+            # Detect broad equipment family from generated item names.
+            if any(x in lower for x in ("armor","robe","cloak","mail","plate","leather","scale","garb")):
+                # Chest armor / robe.
+                d.polygon([(390,260),(512,205),(634,260),(690,430),(620,730),(404,730),(334,430)],fill=(48,56,76),outline=rc,width=7)
+                d.polygon([(405,290),(512,245),(619,290),(590,390),(512,440),(434,390)],fill=mix((48,56,76),white,.15),outline=(*rc,160))
+                for y in range(390,680,52): d.line((390,y,634,y),fill=(*rc,70),width=4)
+                d.line((512,255,512,710),fill=(*rc,150),width=6)
+                for x in (410,614): d.ellipse((x,300,x+50,350),fill=(*accent,90),outline=rc,width=3)
+            elif any(x in lower for x in ("shield",)):
+                d.polygon([(512,210),(760,315),(710,640),(512,820),(314,640),(264,315)],fill=(48,58,78),outline=rc,width=8)
+                d.polygon([(512,270),(685,345),(648,590),(512,735),(376,590),(339,345)],fill=(65,77,99),outline=accent,width=5)
+                d.ellipse((460,430,564,534),fill=(*accent,85),outline=rc,width=5); d.line((512,330,512,635),fill=rc,width=7); d.line((410,480,614,480),fill=rc,width=7)
+            elif any(x in lower for x in ("bow",)):
+                d.arc((260,180,780,840),70,290,fill=(190,145,95),width=24); d.line((512,230,512,790),fill=white,width=5); glow_line([(512,300),(720,420)],rc,width=5)
+            elif any(x in lower for x in ("staff","wand")):
+                d.line((512,820,512,260),fill=(188,140,85),width=24); d.ellipse((448,170,576,298),fill=rc,outline=white,width=5); d.ellipse((475,197,549,271),fill=(*accent2,150))
+            elif any(x in lower for x in ("ring","amulet","necklace")):
+                d.ellipse((300,280,724,704),outline=rc,width=44); d.ellipse((365,345,659,639),outline=accent,width=12); d.polygon([(512,265),(585,405),(512,535),(439,405)],fill=rc,outline=white)
+            else:
+                # Blade / relic silhouette for weapons and unknown gear.
+                d.polygon([(512,160),(650,500),(565,720),(512,820),(459,720),(374,500)],fill=(222,229,240),outline=rc,width=7)
+                d.line((512,190,512,735),fill=accent,width=7)
+                d.rectangle((450,710,574,770),fill=(160,104,60),outline=rc,width=4)
+                d.ellipse((430,740,594,900),fill=(72,50,36),outline=accent,width=5)
+            # Rarity shards.
+            for i in range({"common":1,"uncommon":2,"rare":3,"epic":4,"legendary":5,"mythic":6}[rarity]):
+                a=math.radians(210+i*25); x=512+340*math.cos(a); y=520+340*math.sin(a); d.polygon([(x,y-16),(x+12,y),(x,y+16),(x-12,y)],fill=rc)
+            txt((66,H-91),f"RARITY  {rarity.upper()}",statfont,rc)
+            txt((360,H-91),"TRADEABLE GEAR",statfont,accent)
+            txt((66,H-62),"Stable item identity • generated from the item's name and type",tiny,muted)
 
         out=io.BytesIO(); im.convert("RGB").save(out,format="PNG",optimize=True)
         return web.Response(body=out.getvalue(),content_type="image/png",headers={"Cache-Control":"public, max-age=86400"})
