@@ -358,3 +358,7 @@ Phase 1 connects the existing RPG systems into a more active MMORPG-style world 
 - `!rpg objectives` shows current progress and rewards.
 - `!rpg objective <key>` claims a completed objective.
 - Hunt, exploration, dungeon, gathering and world-boss activity automatically advances the relevant objectives.
+
+## v10.14.1 hotfix
+- Fixed duplicate `!rpg dungeons` command registration that caused Discord.py `CommandRegistrationError` at startup.
+- Retained the Phase 1 dungeon atlas command with aliases and boss information.

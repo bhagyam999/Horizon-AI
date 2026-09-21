@@ -2729,11 +2729,6 @@ async def rpg_dungeon(ctx,*,name:str=""):
     view.message=await ctx.send(embed=_combat_embed(result["state"]),view=view)
 
 
-@rpg_root.command(name="dungeons")
-async def rpg_dungeons(ctx):
-    await _rpg_delete(ctx)
-    pages=_rpg_pages("Dungeon Atlas",DUNGEONS,page_size=4,icon="🏰",formatter=lambda x:f"**{x[0]}**\nLv **{x[1]}+** • **{x[2]} floors** • {x[3]} XP base • {x[4]}g base\n{x[5]}")
-    await _rpg_panel(ctx,pages)
 @rpg_root.command(name="stat")
 async def rpg_stat(ctx,stat:str=""):
     await _rpg_delete(ctx)
