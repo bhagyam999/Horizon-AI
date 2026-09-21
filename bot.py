@@ -1649,6 +1649,206 @@ class RPGPaginationView(discord.ui.View):
                 pass
 
 
+class RPGEquipmentView(discord.ui.View):
+    """Interactive equipment manager.
+
+    Discord only allows five component rows, so the equipment slots are split
+    across two pages. Each slot has its own Select containing the equipment the
+    player currently owns for that slot. Large inventories are paged inside the
+    individual slot selector, so the UI remains usable beyond Discord's
+    25-option select limit.
+    """
+    SLOT_ORDER = ("weapon", "helm", "armor", "offhand", "accessory", "ring", "amulet", "relic")
+    SLOT_LABELS = {
+        "weapon": "⚔️ Weapon",
+        "helm": "🪖 Helm",
+        "armor": "🛡️ Armor",
+        "offhand": "🛡️ Offhand",
+        "accessory": "💠 Accessory",
+        "ring": "💍 Ring",
+        "amulet": "📿 Amulet",
+        "relic": "🔮 Relic",
+    }
+    SLOTS_PER_PAGE = 4
+    ITEMS_PER_SELECT_PAGE = 23
+
+    def __init__(self, ctx, guild_id, user_id, owned_by_slot, equipped):
+        super().__init__(timeout=600)
+        self.ctx = ctx
+        self.guild_id = guild_id
+        self.user_id = user_id
+        self.owned_by_slot = {k: list(v) for k, v in owned_by_slot.items()}
+        self.equipped = dict(equipped)
+        self.page = 0
+        self.slot_item_pages = {slot: 0 for slot in self.SLOT_ORDER}
+        self.message = None
+        self._build_components()
+
+    @property
+    def page_count(self):
+        return 2
+
+    def _visible_slots(self):
+        start = self.page * self.SLOTS_PER_PAGE
+        return self.SLOT_ORDER[start:start + self.SLOTS_PER_PAGE]
+
+    def _slot_options(self, slot):
+        items = self.owned_by_slot.get(slot, [])
+        current = self.equipped.get(slot)
+        total_pages = max(1, (len(items) + self.ITEMS_PER_SELECT_PAGE - 1) // self.ITEMS_PER_SELECT_PAGE)
+        page = min(self.slot_item_pages.get(slot, 0), total_pages - 1)
+        self.slot_item_pages[slot] = page
+        start = page * self.ITEMS_PER_SELECT_PAGE
+        chunk = items[start:start + self.ITEMS_PER_SELECT_PAGE]
+        options = [discord.SelectOption(
+            label="Unequip current item",
+            value=f"{slot}|__unequip__",
+            description="Leave this equipment slot empty."[:100],
+            default=False,
+        )]
+        if page > 0:
+            options.append(discord.SelectOption(
+                label="← Previous equipment",
+                value=f"{slot}|__prev__",
+                description=f"Equipment {page * self.ITEMS_PER_SELECT_PAGE - self.ITEMS_PER_SELECT_PAGE + 1}–{page * self.ITEMS_PER_SELECT_PAGE}",
+            ))
+        for key, qty, data in chunk:
+            name = data.get("name", key)
+            marker = " • EQUIPPED" if key == current else ""
+            desc = f"{data.get('rarity','common').title()} • Lv {data.get('level_req',1)}+ • {qty} owned{marker}"
+            options.append(discord.SelectOption(
+                label=name[:100],
+                value=f"{slot}|{key}",
+                description=desc[:100],
+                default=(key == current),
+            ))
+        if page < total_pages - 1:
+            options.append(discord.SelectOption(
+                label="Next equipment →",
+                value=f"{slot}|__next__",
+                description=f"More {self.SLOT_LABELS[slot].split(' ',1)[-1].lower()} items ({page + 2}/{total_pages})",
+            ))
+        return options, total_pages, page
+
+    def _build_components(self):
+        self.clear_items()
+        for slot in self._visible_slots():
+            options, total_pages, page = self._slot_options(slot)
+            select = discord.ui.Select(
+                placeholder=f"{self.SLOT_LABELS[slot]} — choose equipment",
+                min_values=1,
+                max_values=1,
+                options=options[:25],
+                row=self._visible_slots().index(slot),
+            )
+            select.callback = self._make_slot_callback(slot)
+            self.add_item(select)
+        # Navigation occupies the fifth row.
+        first = discord.ui.Button(label="First", emoji="⏮️", style=discord.ButtonStyle.primary, row=4, disabled=self.page == 0)
+        prev = discord.ui.Button(label="Previous", emoji="◀️", style=discord.ButtonStyle.primary, row=4, disabled=self.page == 0)
+        nxt = discord.ui.Button(label="Next", emoji="▶️", style=discord.ButtonStyle.primary, row=4, disabled=self.page >= self.page_count - 1)
+        last = discord.ui.Button(label="Last", emoji="⏭️", style=discord.ButtonStyle.primary, row=4, disabled=self.page >= self.page_count - 1)
+        close = discord.ui.Button(label="Close", emoji="🗑️", style=discord.ButtonStyle.danger, row=4)
+        first.callback = self._first
+        prev.callback = self._previous
+        nxt.callback = self._next
+        last.callback = self._last
+        close.callback = self._close
+        for button in (first, prev, nxt, last, close):
+            self.add_item(button)
+
+    def _make_slot_callback(self, slot):
+        async def callback(interaction):
+            if not await self._check(interaction):
+                return
+            value = interaction.data.get("values", [""])[0]
+            _, key = value.split("|", 1)
+            if key == "__next__":
+                self.slot_item_pages[slot] += 1
+                self._build_components()
+                await interaction.response.edit_message(embed=await self._embed(), view=self)
+                return
+            if key == "__prev__":
+                self.slot_item_pages[slot] = max(0, self.slot_item_pages[slot] - 1)
+                self._build_components()
+                await interaction.response.edit_message(embed=await self._embed(), view=self)
+                return
+            if key == "__unequip__":
+                ok, msg = await bot.rpg.unequip_equipment(self.guild_id, self.user_id, slot)
+            else:
+                ok, msg = await bot.rpg.equip(self.guild_id, self.user_id, key)
+            await self._refresh_state()
+            self._build_components()
+            embed = await self._embed()
+            if ok:
+                embed.add_field(name="Updated", value=f"✅ {msg}", inline=False)
+            else:
+                embed.add_field(name="Could not equip", value=f"❌ {msg}", inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
+        return callback
+
+    async def _check(self, interaction):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This equipment panel belongs to another hero.", ephemeral=True)
+            return False
+        return True
+
+    async def _refresh_state(self):
+        rows = await bot.rpg.inventory(self.guild_id, self.user_id)
+        owned = []
+        for key, qty in rows:
+            data = ITEMS.get(key, {})
+            if qty > 0 and data.get("slot") in self.SLOT_ORDER:
+                owned.append((key, qty, data))
+        self.owned_by_slot = {slot: [] for slot in self.SLOT_ORDER}
+        for row in owned:
+            self.owned_by_slot[row[2].get("slot")].append(row)
+        for slot in self.owned_by_slot:
+            self.owned_by_slot[slot].sort(key=lambda x: (x[2].get("level_req", 1), x[2].get("rarity", "common"), x[2].get("name", x[0])))
+        async with aiosqlite.connect(bot.rpg.path) as db:
+            cur = await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?", (self.guild_id, self.user_id))
+            self.equipped = dict(await cur.fetchall())
+
+    async def _embed(self):
+        slot_lines=[]
+        for slot in self.SLOT_ORDER:
+            key=self.equipped.get(slot)
+            if key:
+                data=ITEMS.get(key,{})
+                slot_lines.append(f"{self.SLOT_LABELS[slot]} → **{data.get('name',key)}**")
+            else:
+                slot_lines.append(f"{self.SLOT_LABELS[slot]} → *Empty*")
+        page_slots = ", ".join(self.SLOT_LABELS[s] for s in self._visible_slots())
+        e=_rpg_embed("⚔️ Equipment Manager", "Choose equipment directly from the dropdown for each slot.\n\n" + "\n".join(slot_lines))
+        e.set_footer(text=f"Slot page {self.page+1}/2 • Showing {page_slots} • Owned equipment can be browsed inside each dropdown")
+        return e
+
+    async def _nav(self, interaction, page):
+        if not await self._check(interaction): return
+        self.page = max(0, min(self.page_count - 1, page))
+        self._build_components()
+        await interaction.response.edit_message(embed=await self._embed(), view=self)
+
+    async def _first(self, interaction): await self._nav(interaction, 0)
+    async def _previous(self, interaction): await self._nav(interaction, self.page - 1)
+    async def _next(self, interaction): await self._nav(interaction, self.page + 1)
+    async def _last(self, interaction): await self._nav(interaction, self.page_count - 1)
+
+    async def _close(self, interaction):
+        if not await self._check(interaction): return
+        await interaction.response.defer()
+        try: await interaction.message.delete()
+        except (discord.NotFound, discord.Forbidden): pass
+        self.stop()
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try: await self.message.edit(view=self)
+            except Exception: pass
+
+
 class RPGConfirmationView(discord.ui.View):
     def __init__(self, ctx, title, description, on_confirm):
         super().__init__(timeout=60)
@@ -2313,9 +2513,9 @@ async def rpg_inventory(ctx):
 async def rpg_items(ctx, category: str = "all", page: int = 1):
     await _rpg_delete(ctx)
     category=category.lower().strip() or "all"
-    allowed={"all","weapon","armor","offhand","consumable","food","material","egg","relic","accessory","ring","amulet","chest"}
+    allowed={"all","weapon","helm","armor","offhand","consumable","food","material","egg","relic","accessory","ring","amulet","chest"}
     if category not in allowed:
-        await _rpg_action_panel(ctx,"Item Codex","Categories: `all`, `weapon`, `armor`, `offhand`, `accessory`, `ring`, `amulet`, `consumable`, `food`, `material`, `egg`, `relic`, `chest`.\nExample: `!rpg items weapon 2`.",False); return
+        await _rpg_action_panel(ctx,"Item Codex","Categories: `all`, `weapon`, `helm`, `armor`, `offhand`, `accessory`, `ring`, `amulet`, `consumable`, `food`, `material`, `egg`, `relic`, `chest`.\nExample: `!rpg items weapon 2`.",False); return
     rows=[(k,v) for k,v in ITEMS.items() if category=="all" or v.get("slot")==category]
     rarity_order={r:i for i,r in enumerate(RARITIES)}
     rows.sort(key=lambda x:(rarity_order.get(x[1].get('rarity','common'),0),int(x[1].get('level_req',1)),x[1].get('name',x[0])))
@@ -2433,10 +2633,30 @@ async def rpg_use(ctx, item_key: str = "", quantity: int = 1):
     ok,msg=await bot.rpg.use_item(ctx.guild.id,ctx.author.id,item_key,quantity)
     await _rpg_action_panel(ctx,"Use Item",msg,ok)
 
+@rpg_root.command(name="equipment", aliases=["gear", "equip-ui"])
+async def rpg_equipment(ctx):
+    await _rpg_delete(ctx)
+    if not await _rpg_require(ctx): return
+    rows = await bot.rpg.inventory(ctx.guild.id, ctx.author.id)
+    slots = RPGEquipmentView.SLOT_ORDER
+    owned = {slot: [] for slot in slots}
+    for key, qty in rows:
+        data = ITEMS.get(key, {})
+        if qty > 0 and data.get("slot") in slots:
+            owned[data["slot"]].append((key, qty, data))
+    for slot in owned:
+        owned[slot].sort(key=lambda x: (x[2].get("level_req", 1), x[2].get("rarity", "common"), x[2].get("name", x[0])))
+    async with aiosqlite.connect(bot.rpg.path) as db:
+        cur = await db.execute("SELECT slot,item_key FROM rpg_equipment WHERE guild_id=? AND user_id=?", (ctx.guild.id, ctx.author.id))
+        equipped = dict(await cur.fetchall())
+    view = RPGEquipmentView(ctx, ctx.guild.id, ctx.author.id, owned, equipped)
+    view.message = await ctx.send(embed=await view._embed(), view=view)
+
 @rpg_root.command(name="equip")
 async def rpg_equip(ctx,item_key: str=""):
     await _rpg_delete(ctx)
-    if not item_key: await _rpg_action_panel(ctx,"Equipment","Use `!rpg equip <item_key>`.",False); return
+    if not item_key:
+        return await rpg_equipment.callback(ctx)
     ok,msg=await bot.rpg.equip(ctx.guild.id,ctx.author.id,item_key); await _rpg_action_panel(ctx, "Equipment", msg, ok)
 
 

@@ -547,6 +547,7 @@ ENCHANTMENTS = {
 # separate progression layer; none are baked into an item's name or base stats.
 ENCHANTMENT_COMPATIBILITY = {
     "weapon": {"sharpness", "precision", "vampiric", "flamebrand", "frostbind", "hunter", "swiftness", "soulbound"},
+    "helm": {"fortitude", "bulwark", "precision", "manaweave", "swiftness", "warding", "soulbound", "hunter"},
     "armor": {"fortitude", "bulwark", "swiftness", "manaweave", "frostbind", "warding", "soulbound"},
     "offhand": {"fortitude", "bulwark", "precision", "manaweave", "swiftness", "warding", "soulbound"},
     "accessory": {"sharpness", "fortitude", "precision", "manaweave", "swiftness", "warding", "soulbound", "hunter", "vampiric"},
@@ -734,6 +735,35 @@ def _build_expanded_items():
                     "enchant_slots":1+min(4,list(RARITIES).index(rarity)), "family":family,
                 }
 
+    # --- Helms -----------------------------------------------------------
+    # Headgear is a true equipment slot, separate from body armor.
+    helm_bases = [
+        ("circlet", "Arcane Circlet", 5, 10), ("warhelm", "War Helm", 8, 8),
+        ("greathelm", "Greathelm", 11, 5), ("hood", "Runed Hood", 4, 13),
+        ("crown", "Battle Crown", 7, 9), ("mask", "Shadow Mask", 5, 14),
+        ("visor", "Dragon Visor", 10, 7), ("diadem", "Astral Diadem", 6, 16),
+    ]
+    helm_families = ["Ashenvale", "Dawnwatch", "Ebonmarch", "Frostmere", "Goldcrest",
+                     "Ironroot", "Moonspire", "Ravenmark", "Silverpine", "Stormkeep",
+                     "Sunreach", "Thornwall", "Westfall", "Windscar", "Wyrmhold", "Starfall"]
+    for m_i, (mat_key, mat_name, rarity, mult) in enumerate(materials):
+        for h_i, (key, label, base_def, base_mp) in enumerate(helm_bases):
+            family = helm_families[(m_i * 5 + h_i * 3) % len(helm_families)]
+            for v, suffix in enumerate(("", "Ascendant")):
+                item_key = f"{mat_key}_{key}_{'helm' if v == 0 else 'helm_asc'}"
+                name = f"{family} {mat_name} {label}" + (f" {suffix}" if suffix else "")
+                generated[item_key] = {
+                    "name": name, "slot": "helm", "rarity": rarity,
+                    "def": int(base_def * mult) + 1 + v * 2,
+                    "hp": int(base_def * mult * 1.15) + 4 + m_i + v * 4,
+                    "mp": int(base_mp * mult) if key in {"circlet", "hood", "diadem"} else int(base_mp * mult * 0.35),
+                    "crit": 1 if key in {"mask", "diadem", "circlet"} else 0,
+                    "price": int(145 * base_def * mult) + m_i * 35 + v * 180,
+                    "level_req": {"common":1,"uncommon":8,"rare":18,"epic":32,"legendary":50,"mythic":72}[rarity],
+                    "enchant_slots": 1 + min(4, list(RARITIES).index(rarity)),
+                    "family": family, "design": suffix or "Standard",
+                }
+
     # --- Offhands --------------------------------------------------------
     offhands=[("buckler","Buckler",6),("kite_shield","Kite Shield",9),("tower_shield","Tower Shield",12),
               ("mirror_shield","Mirror Shield",10),("greatshield","Greatshield",15),("spellbook","Spellbook",4),
@@ -879,7 +909,7 @@ def _build_expanded_items():
     ITEMS.setdefault("dragon_trophy", {"name":"Dragon Trophy","slot":"material","rarity":"legendary","price":1000})
 
     # Give every equipment item a sensible number of empty enchantment slots.
-    equipment_slots={"weapon","armor","offhand","accessory","ring","amulet","relic"}
+    equipment_slots={"weapon","helm","armor","offhand","accessory","ring","amulet","relic"}
     for data in ITEMS.values():
         if data.get("slot") in equipment_slots:
             rarity=data.get("rarity","common")
@@ -1523,16 +1553,30 @@ class RPGService:
         p=await self.player(guild_id,user_id)
         if not p: return False,"Start a hero first."
         item_key=item_key.lower().strip(); item=ITEMS.get(item_key)
-        allowed={"weapon","armor","offhand","accessory","ring","amulet","relic"}
+        allowed={"weapon","helm","armor","offhand","accessory","ring","amulet","relic"}
         if not item or item.get("slot") not in allowed: return False,"That item cannot be equipped. Check `!rpg items <category>`."
         inv=dict(await self.inventory(guild_id,user_id))
         if inv.get(item_key,0)<1: return False,"You don't own that item."
         req=int(item.get("level_req",1))
-        if int(p["level"])<req:return False,f"**{item['name']}** requires level **{req}**. You are level **{p['level']}**."
+        if int(p["level"])<req:return False,f"**{item['name']}** requires level **{req}**. You are level **{p['level']}."
         async with aiosqlite.connect(self.path) as db:
             await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key",(guild_id,user_id,item["slot"],item_key))
             await db.commit()
         return True,f"Equipped **{item['name']}** in **{item['slot']}**."
+
+    async def unequip_equipment(self,guild_id,user_id,slot):
+        slot=str(slot).lower().strip()
+        allowed={"weapon","helm","armor","offhand","accessory","ring","amulet","relic"}
+        if slot not in allowed:
+            return False,"That is not a valid equipment slot."
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT item_key FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+            row=await cur.fetchone()
+            if not row:
+                return False,f"Nothing is equipped in the **{slot}** slot."
+            await db.execute("DELETE FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+            await db.commit()
+        return True,f"Unequipped **{ITEMS.get(row[0],{'name':row[0]}).get('name',row[0])}** from the **{slot}** slot."
 
     def _progression_bonus(self, p):
         bonus={"atk":0,"defense":0,"hp":0,"mp":0,"speed":0,"crit":0}
