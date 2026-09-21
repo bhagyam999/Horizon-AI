@@ -30,6 +30,16 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN is missing from .env")
+HORIZON_OWNER_ID = int(os.getenv("HORIZON_OWNER_ID", "0") or "0")
+
+
+def is_horizon_owner(ctx):
+    """Hard owner gate for RPG OP commands. Discord roles/Administrator do not bypass it."""
+    return bool(HORIZON_OWNER_ID) and int(ctx.author.id) == HORIZON_OWNER_ID
+
+
+def owner_only():
+    return commands.check(is_horizon_owner)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -3066,6 +3076,20 @@ async def rpg_enchant(ctx, slot: str = "", item_key: str = "", enchant_key: str 
         await _rpg_action_panel(ctx,"Enchant Gear","Use `!rpg enchant <slot> <item_key> <enchant_key>`.\nExample: `!rpg enchant weapon mithril_sword sharpness`.",False); return
     ok,msg=await bot.rpg.enchant_item(ctx.guild.id,ctx.author.id,slot,item_key,enchant_key); await _rpg_action_panel(ctx,"Enchant Gear",msg,ok)
 
+@rpg_root.command(name="titles")
+async def rpg_titles(ctx):
+    await _rpg_delete(ctx); rows=await bot.rpg.title_list(ctx.guild.id,ctx.author.id)
+    if not rows:
+        await _rpg_action_panel(ctx,"🏷️ Titles","No titles unlocked yet. Titles can be earned through progression and achievements.",False); return
+    await _rpg_panel(ctx,[_rpg_embed("🏷️ Unlocked Titles","\n".join(f"• **{k.replace('_',' ').title()}**" for k,_ in rows))])
+
+
+@rpg_root.command(name="housing")
+async def rpg_housing(ctx):
+    await _rpg_delete(ctx); h=await bot.rpg.housing(ctx.guild.id,ctx.author.id)
+    await _rpg_action_panel(ctx,"🏠 Your Housing",f"**{h['house_key'].replace('_',' ').title()}**\nLevel **{h['level']}** • XP **{h['xp']}**\nStorage bonus **+{h['storage_bonus']}** • Comfort **{h['comfort']}",True)
+
+
 @rpg_root.command(name="achievements", aliases=["achieve"])
 async def rpg_achievements(ctx):
     await _rpg_delete(ctx)
@@ -3159,6 +3183,95 @@ async def rpg_sets(ctx):
         if next_req: progress+=f" • next bonus at {next_req}"
         lines.append(f"**{name} Set** — {progress}\nFocus: **{focus}**\n" + (" • ".join(bonuses) if bonuses else "Equip 2 pieces to activate the first bonus."))
     await _rpg_panel(ctx,[_rpg_embed("🛡️ Equipment Set Bonuses","\n\n".join(lines))])
+
+
+@rpg_root.command(name="op")
+@owner_only()
+async def rpg_op(ctx, action: str = ""):
+    """Owner-only RPG admin console. This is intentionally independent of Discord Administrator permissions."""
+    await _rpg_delete(ctx)
+    action=action.lower().strip()
+    if not action:
+        await _rpg_action_panel(ctx,"🔐 Horizon Owner Console",
+            "**Only the configured HORIZON_OWNER_ID can use these commands.**\n\n"
+            "`!rpg op maxlevel [@user]` — level 100 + progression points\n"
+            "`!rpg op maxstats [@user]` — max combat/progression stats\n"
+            "`!rpg op item <item_key> [qty] [@user]` — grant any item\n"
+            "`!rpg op allitems [@user]` — grant one of every item\n"
+            "`!rpg op gold <amount> [@user]` — grant gold\n"
+            "`!rpg op gems <amount> [@user]` — grant gems\n"
+            "`!rpg op title <title_key> [@user]` — unlock a title\n"
+            "`!rpg op housing [@user]` — create/check a house\n"
+            "`!rpg op killboss` — instantly defeat the active world boss",False); return
+    await _rpg_action_panel(ctx,"🔐 Horizon Owner Console","Use the individual owner commands below the `op` command.",False)
+
+
+@rpg_root.command(name="op-maxlevel")
+@owner_only()
+async def rpg_op_maxlevel(ctx, member: discord.Member=None):
+    target=member or ctx.author
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.admin_set_level(ctx.guild.id,target.id,100); await _rpg_action_panel(ctx,"🔐 OP Max Level",f"<@{target.id}> — {msg}",ok)
+
+
+@rpg_root.command(name="op-maxstats")
+@owner_only()
+async def rpg_op_maxstats(ctx, member: discord.Member=None):
+    target=member or ctx.author
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.admin_max_stats(ctx.guild.id,target.id); await _rpg_action_panel(ctx,"🔐 OP Max Stats",f"<@{target.id}> — {msg}",ok)
+
+
+@rpg_root.command(name="op-item")
+@owner_only()
+async def rpg_op_item(ctx, item_key:str="", quantity:int=1, member:discord.Member=None):
+    target=member or ctx.author; await _rpg_delete(ctx)
+    if not item_key:
+        await _rpg_action_panel(ctx,"🔐 OP Item","Use `!rpg op-item <item_key> [quantity] [@user]`.",False); return
+    ok,msg=await bot.rpg.admin_give_item(ctx.guild.id,target.id,item_key,quantity); await _rpg_action_panel(ctx,"🔐 OP Item",f"<@{target.id}> — {msg}",ok)
+
+
+@rpg_root.command(name="op-allitems")
+@owner_only()
+async def rpg_op_allitems(ctx, member:discord.Member=None):
+    target=member or ctx.author; await _rpg_delete(ctx); count=0
+    for key in ITEMS:
+        if await bot.rpg.admin_give_item(ctx.guild.id,target.id,key,1): count+=1
+    await _rpg_action_panel(ctx,"🔐 OP All Items",f"Granted **{count}** item types to <@{target.id}>.",True)
+
+
+@rpg_root.command(name="op-gold")
+@owner_only()
+async def rpg_op_gold(ctx, amount:int=0, member:discord.Member=None):
+    target=member or ctx.author; await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.admin_give_currency(ctx.guild.id,target.id,gold=amount); await _rpg_action_panel(ctx,"🔐 OP Gold",f"<@{target.id}> — {msg}",ok)
+
+
+@rpg_root.command(name="op-gems")
+@owner_only()
+async def rpg_op_gems(ctx, amount:int=0, member:discord.Member=None):
+    target=member or ctx.author; await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.admin_give_currency(ctx.guild.id,target.id,gems=amount); await _rpg_action_panel(ctx,"🔐 OP Gems",f"<@{target.id}> — {msg}",ok)
+
+
+@rpg_root.command(name="op-title")
+@owner_only()
+async def rpg_op_title(ctx, title_key:str="", member:discord.Member=None):
+    target=member or ctx.author; await _rpg_delete(ctx)
+    if not title_key:
+        await _rpg_action_panel(ctx,"🔐 OP Title","Available: `adventurer`, `champion`, `legend`, `collector`, `beastmaster`, `master_crafter`.",False); return
+    ok,msg=await bot.rpg.unlock_title(ctx.guild.id,target.id,title_key); await _rpg_action_panel(ctx,"🔐 OP Title",f"<@{target.id}> — {msg}",ok)
+
+
+@rpg_root.command(name="op-housing")
+@owner_only()
+async def rpg_op_housing(ctx, member:discord.Member=None):
+    target=member or ctx.author; await _rpg_delete(ctx); house=await bot.rpg.housing(ctx.guild.id,target.id)
+    await _rpg_action_panel(ctx,"🏠 OP Housing",f"<@{target.id}> has a **{house['house_key']}** at **level {house['level']}**.",True)
+
+
+@rpg_root.command(name="op-killboss")
+@owner_only()
+async def rpg_op_killboss(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.admin_kill_worldboss(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx,"🔐 OP Boss Kill",msg,ok)
 
 
 @rpg_root.command(name="economy", aliases=["economylog", "econ"])
@@ -3752,6 +3865,10 @@ async def on_command_error(ctx, error):
         return
     if isinstance(error, commands.MissingPermissions):
         await ctx.send("You don't have permission to use that command.", delete_after=6)
+        return
+    if isinstance(error, commands.CheckFailure):
+        # Owner-only RPG OP commands fail closed. Server Administrator/moderator roles never bypass this gate.
+        await ctx.send("🔒 This Horizon OP command is restricted to the configured owner.", delete_after=6)
         return
     if isinstance(error, commands.MissingRequiredArgument):
         await ctx.send(f"Missing argument. Use `!help` to see the command format.", delete_after=7)

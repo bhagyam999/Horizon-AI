@@ -1198,6 +1198,16 @@ class RPGService:
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, achievement_key TEXT NOT NULL,
                 unlocked_at REAL NOT NULL, PRIMARY KEY (guild_id, user_id, achievement_key)
             );
+            CREATE TABLE IF NOT EXISTS rpg_titles (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, title_key TEXT NOT NULL,
+                unlocked_at REAL NOT NULL, PRIMARY KEY (guild_id, user_id, title_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_housing (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, house_key TEXT NOT NULL DEFAULT 'cabin',
+                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
+                storage_bonus INTEGER NOT NULL DEFAULT 0, comfort INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL, PRIMARY KEY (guild_id, user_id)
+            );
             CREATE TABLE IF NOT EXISTS rpg_market (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, seller_id INTEGER NOT NULL,
                 item_key TEXT NOT NULL, quantity INTEGER NOT NULL, price_each INTEGER NOT NULL, created_at REAL NOT NULL,
@@ -2201,6 +2211,67 @@ class RPGService:
             return True,f"🌎 **{name} has been defeated!**\nYour **{action_name}** dealt **{damage:,}** damage.\n🏆 You were part of the victory and earned a contribution reward.",await self.world_boss_active(guild_id)
         phase="I" if new_hp>max_hp*.75 else ("II" if new_hp>max_hp*.5 else ("III" if new_hp>max_hp*.25 else "ENRAGED"))
         return True,f"🌎 **{name}** — Phase **{phase}**\nYour **{action_name}** dealt **{damage:,}** damage.\n❤️ Boss HP: **{new_hp:,}/{max_hp:,}**",await self.world_boss_active(guild_id)
+
+    async def admin_set_level(self, guild_id, user_id, level):
+        level=max(1,min(100,int(level)))
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT level FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
+            if not row: return False,"That user does not have an RPG hero."
+            # Rebuild derived progression points from the target level without touching equipment.
+            await db.execute("UPDATE rpg_players SET level=?, xp=?, stat_points=?, skill_points=?, talent_points=?, hp=max_hp, mp=max_mp, stamina=100 WHERE guild_id=? AND user_id=?",(level,self._level_xp(level-1),max(0,level-1),max(0,level-1),max(0,(level-1)*3),guild_id,user_id))
+            await db.commit()
+        await self.check_achievements(guild_id,user_id)
+        return True,f"Hero is now **level {level}**."
+
+    async def admin_give_item(self, guild_id, user_id, item_key, quantity=1):
+        item_key=str(item_key).lower().strip(); quantity=max(1,min(int(quantity),1000000))
+        if item_key not in ITEMS: return False,"Unknown item key."
+        ok=await self.add_item(guild_id,user_id,item_key,quantity,event_type="owner_grant",metadata={"owner_grant":True})
+        return ok,f"Granted **{ITEMS[item_key].get('name',item_key)} ×{quantity}**." if ok else "Could not grant that item."
+
+    async def admin_give_currency(self, guild_id, user_id, gold=0, gems=0):
+        gold=int(gold); gems=int(gems)
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT 1 FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            if not await cur.fetchone(): return False,"That user does not have an RPG hero."
+            await db.execute("UPDATE rpg_players SET gold=gold+?, gems=gems+? WHERE guild_id=? AND user_id=?",(gold,gems,guild_id,user_id)); await db.commit()
+        return True,f"Granted **{gold:,} gold** and **{gems:,} gems**."
+
+    async def admin_max_stats(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT 1 FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            if not await cur.fetchone(): return False,"That user does not have an RPG hero."
+            await db.execute("UPDATE rpg_players SET level=100,xp=?,skill_points=99,stat_points=999,talent_points=999,max_hp=999999,hp=999999,max_mp=999999,mp=999999,atk=99999,defense=99999,speed=9999,crit=100,stamina=100 WHERE guild_id=? AND user_id=?",(self._level_xp(99),guild_id,user_id)); await db.commit()
+        return True,"Hero is now **MAXED**: Lv 100, stats, HP/MP, skill points and talent points."
+
+    async def admin_kill_worldboss(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT id,name,level FROM rpg_world_events WHERE guild_id=? AND status='active' ORDER BY id DESC LIMIT 1",(guild_id,)); boss=await cur.fetchone()
+            if not boss: return False,"No active world boss."
+            await db.execute("UPDATE rpg_world_events SET hp=0,status='defeated' WHERE id=?",(boss[0],))
+            await db.execute("INSERT OR IGNORE INTO rpg_world_event_participants(event_id,guild_id,user_id,damage,attacks,last_attack) VALUES(?,?,?,?,?,?)",(boss[0],guild_id,user_id,999999999,1,time.time()))
+            await db.commit()
+        await self.add_rewards(guild_id,user_id,900+int(boss[2])*30,900+int(boss[2])*40)
+        return True,f"**{boss[1]}** was defeated instantly by the owner command."
+
+    async def title_list(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT title_key,unlocked_at FROM rpg_titles WHERE guild_id=? AND user_id=? ORDER BY unlocked_at",(guild_id,user_id)); return await cur.fetchall()
+
+    async def unlock_title(self,guild_id,user_id,title_key):
+        title_key=str(title_key).lower().strip()
+        titles={"adventurer":"Adventurer","champion":"Champion","legend":"Legend","collector":"Collector","beastmaster":"Beastmaster","master_crafter":"Master Crafter"}
+        if title_key not in titles:return False,"Unknown title key."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT OR IGNORE INTO rpg_titles VALUES(?,?,?,?)",(guild_id,user_id,title_key,time.time())); await db.commit()
+        return True,f"Title unlocked: **{titles[title_key]}**."
+
+    async def housing(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT house_key,level,xp,storage_bonus,comfort FROM rpg_housing WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
+            if not row:
+                await db.execute("INSERT INTO rpg_housing(guild_id,user_id,created_at) VALUES(?,?,?)",(guild_id,user_id,time.time())); await db.commit(); return {"house_key":"cabin","level":1,"xp":0,"storage_bonus":0,"comfort":0}
+            return {"house_key":row[0],"level":row[1],"xp":row[2],"storage_bonus":row[3],"comfort":row[4]}
 
     async def check_achievements(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
