@@ -11,7 +11,7 @@ This batch continues from the v11 Phases 1–4 completion pass. It is additive a
 - Existing recipes, materials, shop and gathering commands remain compatible.
 
 ## Phase 6 — Economy
-- Added personal economy summary through `!rpg economy`.
+- Added personal economy summary through `!rpg economyinfo` (aliases: `!rpg econstats`, `!rpg economy-stats`).
 - Existing economy logs now feed earned/spent/event statistics.
 - Market purchases remain atomic and now apply a 5% market fee to the seller payout.
 - Buyer pays the listed total; seller receives the net amount; the fee is logged.

@@ -2668,8 +2668,8 @@ async def rpg_social(ctx):
           f"🏰 Guild contributions: **{data['guild_contributions']}**")
     await _rpg_action_panel(ctx,"🤝 Social Reputation",text,True)
 
-@rpg_root.command(name="economy", aliases=["wallet","econ"])
-async def rpg_economy(ctx):
+@rpg_root.command(name="economyinfo", aliases=["econstats","economy-stats"])
+async def rpg_economy_info(ctx):
     await _rpg_delete(ctx); data=await bot.rpg.economy_summary(ctx.guild.id,ctx.author.id)
     if not data: await _rpg_action_panel(ctx,"Economy","Create a hero first.",False); return
     text=f"💰 Gold: **{data['gold']}**\n💎 Gems: **{data['gems']}**\n\nGold earned: **{data['earned']}**\nGold spent: **{data['spent']}**\nEconomy events: **{data['events']}**\nMarket sales: **{data['market_sold']}**"
