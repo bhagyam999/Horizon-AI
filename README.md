@@ -1,8 +1,18 @@
-# Horizon RPG v15 — Core Cleanup
+# Horizon RPG v16 — Core Deepening & Balance
 
-**Current build:** v15 Core Cleanup. This is a deliberate cleanup release before the next deepening build. Removed player-facing NPC/story/living-world/housing/construction/life-path/advanced-diplomacy/mystery/anomaly/world-memory systems and the artificial world-event contribution layer. No new RPG systems were added in this release.
+**Current build:** v16 Core Deepening & Balance. This release deepens and balances the systems deliberately kept after the v15 cleanup. It does **not** restore the retired NPC, story, living-world, housing, construction, advanced life-path, advanced diplomacy, mystery, anomaly, manual world-memory, or world-event-contribution systems.
 
-See `VERSION_V15_CLEANUP.md` for the exact scope.
+See `VERSION_V16_CORE_DEEPENING.md` for the exact changes.
+
+## v16 focus
+- Stamina regeneration and activity costs
+- Exploration rewards and regional resource identity
+- Level-appropriate combat loot
+- Deeper crafting/profession progression
+- Economy sinks and level-aware shop inventory
+- Small meaningful faction passives
+- Pet XP from feeding and combat
+- Level-aware gacha equipment rewards
 
 ---
 

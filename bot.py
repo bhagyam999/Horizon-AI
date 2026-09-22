@@ -23,7 +23,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
-from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES
+from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES
 from storage import backup_database, migrate_legacy_database, resolve_database_path
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -1935,6 +1935,13 @@ def _combat_embed(state, result=None):
     if result and result.get("finished"):
         if result.get("win"):
             desc += f"\n\n🏆 **Victory!** +{result.get('xp',0)} XP • +{result.get('gold',0)} gold • **{ITEMS.get(result.get('drop'),{'name':result.get('drop','loot')})['name']}**"
+            if result.get("pet_xp"):
+                desc += f"\n🐾 Equipped pet gained **+{result['pet_xp']} XP**"
+            if result.get("extra_loot"):
+                extras=[]
+                for key,qty in result["extra_loot"]:
+                    extras.append(f"{ITEMS.get(key,{'name':key}).get('name',key)} ×{qty}")
+                desc += f"\n🎁 **Bonus loot:** {', '.join(extras)}"
             if result.get("level_after",0)>result.get("level_before",0): desc += f"\n✨ **LEVEL UP!** Level {result['level_before']} → **{result['level_after']}**"
         elif result.get("fled"): desc += "\n\n🏃 **You escaped.**"
         else: desc += "\n\n💀 **Defeated.** You survived with 1 HP. Rest before trying again."
@@ -2828,7 +2835,7 @@ async def rpg_equip(ctx,item_key: str=""):
 @rpg_root.command(name="shop")
 async def rpg_shop(ctx):
     await _rpg_delete(ctx)
-    items=await bot.rpg.shop()
+    items=await bot.rpg.shop(ctx.guild.id,ctx.author.id)
     pages=_rpg_pages("Horizon Shop",items,page_size=8,icon="🛒",formatter=lambda x:f"**{x[1]['name']}**\n`{x[0]}` • {x[1].get('rarity','common').title()} • **{x[1]['price']} gold**\nBuy: `!rpg buy {x[0]} [qty]`")
     await _rpg_panel(ctx,pages)
 @rpg_root.command(name="buy")
@@ -2845,7 +2852,7 @@ async def rpg_sell(ctx,item_key: str="",quantity: int=1):
 async def rpg_recipes(ctx):
     await _rpg_delete(ctx)
     rows=list(RECIPES.items())
-    pages=_rpg_pages("Crafting Recipes",rows,page_size=6,icon="🔨",formatter=lambda x:f"**{ITEMS.get(x[0],{'name':x[0]})['name']}**\nCraft key: `{x[0]}`\nMaterials: "+", ".join(f"{ITEMS[m]['name']} ×{n}" for m,n in x[1].items()))
+    pages=_rpg_pages("Crafting Recipes",rows,page_size=6,icon="🔨",formatter=lambda x:f"**{ITEMS.get(x[0],{'name':x[0]})['name']}**\nCraft key: `{x[0]}`\nMaterials: "+", ".join(f"{ITEMS.get(m,{'name':m})['name']} ×{n}" for m,n in x[1].items() if m!="_meta") + f"\nReq Lv {x[1].get('_meta',{}).get('level_req',1)} • Fee {x[1].get('_meta',{}).get('gold_fee',0)}g")
     await _rpg_panel(ctx,pages)
 @rpg_root.command(name="craft")
 async def rpg_craft(ctx,item_key: str="",quantity: int=1):
@@ -4023,7 +4030,7 @@ async def rpg_factions(ctx):
     await _rpg_delete(ctx)
     rows = await bot.rpg.factions(ctx.guild.id)
     status = await bot.rpg.faction_status(ctx.guild.id, ctx.author.id)
-    body = "\n\n".join(f"**{key}** — {name}\n{desc}\nIdeology: **{ideology}**" for key, name, desc, ideology in rows)
+    body = "\n\n".join(f"**{key}** — {name}\n{desc}\nIdeology: **{ideology}**\nPassive: **{FACTION_PASSIVES.get(key,{}).get('name','None')}** — {FACTION_PASSIVES.get(key,{}).get('desc','')}" for key, name, desc, ideology in rows)
     body += f"\n\n**Your Allegiance:** `{status[0]}` • Rep **{status[1]}** • Rank **{status[2].title()}**" if status else "\n\nJoin with `!rpg factionjoin <faction_key>`."
     await _rpg_action_panel(ctx, "⚑ Factions of Horizon", body[:4000], True)
 

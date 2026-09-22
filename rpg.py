@@ -887,12 +887,31 @@ for _key, (_name, _rarity, _price) in GACHA_CHEST_ITEMS.items():
     ITEMS[_key]={"name":_name,"slot":"chest","rarity":_rarity,"price":_price,"gacha_chest":True,"level_req":rarity_level.get(_rarity,1) if "rarity_level" in globals() else 1}
 SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price") and v.get("slot") in {"weapon","armor","offhand","consumable","food"}]
 
+# Crafted utility items are intentionally modest: they improve uptime without replacing rest, combat, or gear.
+ITEMS.update({
+    "stamina_tonic":{"name":"Stamina Tonic","slot":"consumable","rarity":"uncommon","stamina":35,"price":90},
+    "hearty_stew":{"name":"Hearty Stew","slot":"food","rarity":"common","heal":45,"stamina":20,"price":70},
+    "arcane_tonic":{"name":"Arcane Tonic","slot":"consumable","rarity":"uncommon","mana":55,"price":110},
+    "reinforcement_core":{"name":"Reinforcement Core","slot":"material","rarity":"rare","price":180},
+})
+
 RECIPES = {
     "life_potion": {"iron_ore": 1, "herb": 2},
     "mana_potion": {"herb": 3, "arcane_shard": 1},
     "steel_blade": {"iron_ore": 5, "arcane_shard": 1},
     "guardian_shield": {"iron_ore": 7, "wolf_pelt": 2},
 }
+
+# v16 expanded crafting progression. `_meta` is ignored by material loops.
+RECIPES.update({
+    "stamina_tonic": {"herb":2, "wolf_pelt":1, "_meta":{"level_req":2,"gold_fee":20,"xp":18}},
+    "hearty_stew": {"food_grilled_fish":2, "herb":1, "_meta":{"level_req":3,"gold_fee":25,"xp":20}},
+    "arcane_tonic": {"herb":3, "arcane_shard":1, "_meta":{"level_req":6,"gold_fee":45,"xp":28}},
+    "steel_blade": {"iron_ore":5, "arcane_shard":1, "_meta":{"level_req":5,"gold_fee":70,"xp":40}},
+    "guardian_shield": {"iron_ore":7, "wolf_pelt":2, "_meta":{"level_req":7,"gold_fee":90,"xp":45}},
+    "reinforcement_core": {"iron_ore":4, "arcane_shard":2, "_meta":{"level_req":10,"gold_fee":120,"xp":55}},
+    "dragon_trophy": {"arcane_shard":5, "iron_ore":8, "_meta":{"level_req":25,"gold_fee":300,"xp":90}},
+})
 
 
 # ---------------------------------------------------------------------------
@@ -907,7 +926,7 @@ UPGRADE_MAX = 15
 UPGRADE_COST_BASE = 350
 UPGRADE_MATERIALS = {
     "common": ("iron_ore", 1), "uncommon": ("iron_ore", 2), "rare": ("arcane_shard", 2),
-    "epic": ("arcane_shard", 4), "legendary": ("dragon_trophy", 2), "mythic": ("dragon_trophy", 4),
+    "epic": ("reinforcement_core", 1), "legendary": ("dragon_trophy", 2), "mythic": ("dragon_trophy", 4),
 }
 
 
@@ -1120,6 +1139,29 @@ LEGENDARY_CHALLENGES = {
     "soul_end": {"name":"The Last Soul", "level":75, "hp":38000, "atk":500, "def":260, "reward":"soul_reaper_scythe", "xp":32000, "gold":65000, "desc":"A final trial for heroes who have walked beyond ordinary mortality."},
 }
 
+
+# ---------------------------------------------------------------------------
+# v16 — Core Deepening & Balance
+# ---------------------------------------------------------------------------
+# The goal of this pass is to make every existing loop feed another loop:
+# exploration finds resources, resources feed professions/crafting, crafting
+# feeds gear/consumables, combat feeds loot/progression, and social systems
+# provide small utility advantages. No retired story/NPC/living-world/etc.
+# systems are reintroduced here.
+STAMINA_REGEN_SECONDS = 90
+ADVENTURE_STAMINA_COST = 8
+EXPLORE_STAMINA_COST = 6
+CRAFT_STAMINA_COST = 2
+PARTY_DUNGEON_STAMINA_COST = 12
+RAID_STAMINA_COST = 5
+MARKET_LISTING_FEE_RATE = 0.01
+
+FACTION_PASSIVES = {
+    "horizon_guard": {"name":"Guard Discipline", "desc":"+3% defense and +5% potion effectiveness.", "def_pct":3, "heal_pct":5},
+    "free_merchants": {"name":"Merchant Network", "desc":"5% cheaper shop purchases and +5% market sale value.", "shop_pct":5, "sale_pct":5},
+    "arcane_circle": {"name":"Arcane Insight", "desc":"+3% skill damage and +5% crafting XP.", "skill_pct":3, "craft_xp_pct":5},
+    "wildbound": {"name":"Wilderness Knowledge", "desc":"+1 material on successful gathering when the roll produces 1–2 items.", "gather_extra":1},
+}
 
 @dataclass
 class RPGService:
@@ -1678,6 +1720,77 @@ class RPGService:
         # one-time migration marker, so Railway restarts never wipe players again.
         await self._phase4_fresh_start()
         await self._v15_remove_retired_systems()
+        await self._v16_migrate()
+
+    async def _v16_migrate(self):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("PRAGMA table_info(rpg_players)")
+            cols={r[1] for r in await cur.fetchall()}
+            if "last_stamina_tick" not in cols:
+                await db.execute("ALTER TABLE rpg_players ADD COLUMN last_stamina_tick REAL NOT NULL DEFAULT 0")
+            now=time.time()
+            await db.execute("UPDATE rpg_players SET last_stamina_tick=? WHERE last_stamina_tick<=0",(now,))
+            await db.commit()
+
+    async def _refresh_stamina(self, guild_id, user_id):
+        now=time.time()
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT stamina,last_stamina_tick FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            row=await cur.fetchone()
+            if not row:return 0
+            stamina=max(0,min(100,int(row[0])))
+            tick=float(row[1] or now)
+            gained=int(max(0,now-tick)//STAMINA_REGEN_SECONDS)
+            if gained:
+                new_stamina=min(100,stamina+gained)
+                consumed=min(gained,100-stamina)
+                new_tick=tick+consumed*STAMINA_REGEN_SECONDS
+                if new_stamina>=100:new_tick=now
+                await db.execute("UPDATE rpg_players SET stamina=?,last_stamina_tick=? WHERE guild_id=? AND user_id=?",(new_stamina,new_tick,guild_id,user_id)); await db.commit()
+                return new_stamina
+            return stamina
+
+    async def _spend_stamina(self,guild_id,user_id,cost):
+        cost=max(0,int(cost)); await self._refresh_stamina(guild_id,user_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT stamina FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
+            if not row or int(row[0])<cost:return False,int(row[0]) if row else 0
+            await db.execute("UPDATE rpg_players SET stamina=stamina-?,last_stamina_tick=? WHERE guild_id=? AND user_id=?",(cost,time.time(),guild_id,user_id)); await db.commit()
+            return True,max(0,int(row[0])-cost)
+
+    async def _refund_stamina(self,guild_id,user_id,amount):
+        amount=max(0,int(amount))
+        if not amount:return
+        await self._refresh_stamina(guild_id,user_id)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET stamina=min(100,stamina+?),last_stamina_tick=? WHERE guild_id=? AND user_id=?",(amount,time.time(),guild_id,user_id)); await db.commit()
+
+    async def _faction_passive(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT faction_key FROM rpg_faction_members WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
+        return FACTION_PASSIVES.get(row[0],{}) if row else {}
+
+    async def _combat_loot(self,guild_id,user_id,p,enemy):
+        """Give varied, level-appropriate loot without flooding inventories."""
+        rewards=[]
+        # Every victory pays a material; stronger regions have a chance at a
+        # second material or a piece of usable gear.
+        drops=[k for k in enemy.get("drops",[]) if k in ITEMS]
+        if drops:
+            first=random.choice(drops); qty=1+int(random.random()<0.18)
+            await self.add_item(guild_id,user_id,first,qty,event_type="combat_loot")
+            rewards.append((first,qty))
+        if random.random()<0.10:
+            candidates=[(k,v) for k,v in ITEMS.items() if v.get("slot") in {"weapon","armor","offhand","accessory","ring","amulet","relic"} and int(v.get("level_req",1))<=int(p["level"])+2 and int(v.get("level_req",1))>=max(1,int(p["level"])-8)]
+            if candidates:
+                # Keep ordinary combat from producing endgame gear too often.
+                weights={"common":70,"uncommon":24,"rare":5,"epic":1,"legendary":0,"mythic":0}
+                usable=[(k,v) for k,v in candidates if weights.get(v.get("rarity","common"),0)>0]
+                if not usable: usable=candidates
+                key,item=random.choices(usable,weights=[weights.get(v.get("rarity","common"),1) for _,v in usable],k=1)[0]
+                await self.add_item(guild_id,user_id,key,1,event_type="combat_gear_drop")
+                rewards.append((key,1))
+        return rewards
 
     async def _v15_remove_retired_systems(self):
         retired = [
@@ -1975,7 +2088,7 @@ class RPGService:
         if not p: return None,"Start your hero first with `!rpg start`."
         remaining=await self._cooldown(p,"last_daily",86400)
         if remaining>0: return None,f"Daily reward ready in **{int(remaining//3600)}h {int((remaining%3600)//60)}m**."
-        streak_bonus=random.randint(0,100); xp=150; gold=300+streak_bonus; gems=random.randint(80,140)
+        streak_bonus=random.randint(0,60); xp=180; gold=220+streak_bonus; gems=random.randint(60,110)
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE rpg_players SET last_daily=?,gold=gold+?,gems=gems+? WHERE guild_id=? AND user_id=?",(time.time(),gold,gems,guild_id,user_id)); await db.commit()
         old,new=await self.add_rewards(guild_id,user_id,xp,0)
@@ -1989,9 +2102,10 @@ class RPGService:
         if not item or item.get("slot") not in {"consumable","food"}:return False,"That item cannot be used this way."
         quantity=max(1,min(int(quantity),10))
         if not await self.remove_item(guild_id,user_id,item_key,quantity):return False,"You don't own enough of that item."
-        heal=item.get("heal",0)*quantity; mana=item.get("mana",0)*quantity; stamina=item.get("stamina",0)*quantity
+        faction=await self._faction_passive(guild_id,user_id)
+        heal=int(item.get("heal",0)*quantity*(1+faction.get("heal_pct",0)/100)); mana=item.get("mana",0)*quantity; stamina=item.get("stamina",0)*quantity
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET hp=min(max_hp,hp+?),mp=min(max_mp,mp+?),stamina=min(100,stamina+?) WHERE guild_id=? AND user_id=?",(heal,mana,stamina,guild_id,user_id)); await db.commit()
+            await db.execute("UPDATE rpg_players SET hp=min(max_hp,hp+?),mp=min(max_mp,mp+?),stamina=min(100,stamina+?),last_stamina_tick=? WHERE guild_id=? AND user_id=?",(heal,mana,stamina,time.time(),guild_id,user_id)); await db.commit()
         return True,f"Used **{item['name']} ×{quantity}** — +{heal} HP, +{mana} MP, +{stamina} stamina."
 
     async def equip(self,guild_id,user_id,item_key):
@@ -2139,6 +2253,7 @@ class RPGService:
         return bonus
 
     async def stats(self,guild_id,user_id):
+        await self._refresh_stamina(guild_id,user_id)
         p=await self.player(guild_id,user_id)
         if not p:return None
         gear={}
@@ -2189,6 +2304,12 @@ class RPGService:
         bonus["pct"] = pct
         pet_bonus=await self._pet_bonus(guild_id,user_id)
         bonus["atk"]+=pet_bonus["atk"]; bonus["defense"]+=pet_bonus["defense"]; bonus["hp"]+=pet_bonus["hp"]; bonus["mp"]+=pet_bonus["mp"]; bonus["speed"]+=pet_bonus["speed"]; bonus["crit"]+=pet_bonus["crit"]
+        faction=await self._faction_passive(guild_id,user_id)
+        bonus["faction_passive"]=faction.get("name","")
+        bonus["faction_desc"]=faction.get("desc","")
+        if faction.get("def_pct"): bonus["defense"]+=round(bonus["defense"]*faction["def_pct"]/100)
+        if faction.get("heal_pct"): bonus["heal_pct"]=faction["heal_pct"]
+        if faction.get("skill_pct"): bonus["skill_pct"]=faction["skill_pct"]
         return p,gear,bonus
 
     async def change_identity(self,guild_id,user_id,kind,value):
@@ -2451,23 +2572,47 @@ class RPGService:
     async def explore(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
+        await self._refresh_stamina(guild_id,user_id); p=await self.player(guild_id,user_id)
         current=p.get("area_key","horizon_village") or "horizon_village"
         neighbors=AREA_CONNECTIONS.get(current,[])
         eligible=[k for k in neighbors if k in AREAS and int(AREAS[k]["level"])<=int(p["level"])+3]
         if not eligible:return False,"There are no new level-appropriate routes from this region yet. Check `!rpg map` for the world atlas."
+        if int(p["stamina"])<EXPLORE_STAMINA_COST:return False,f"You need **{EXPLORE_STAMINA_COST} stamina** to explore. Rest or wait for stamina to recover."
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT area_key FROM rpg_area_discoveries WHERE guild_id=? AND user_id=?",(guild_id,user_id)); known={r[0] for r in await cur.fetchall()}
             unknown=[k for k in eligible if k not in known]
-            target=random.choice(unknown or eligible)
-            fresh=target not in known
-            await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(guild_id,user_id,target,time.time(),"exploration"))
-            await db.commit()
+            target=random.choice(unknown or eligible); fresh=target not in known
+            await db.execute("UPDATE rpg_players SET stamina=stamina-?,last_stamina_tick=? WHERE guild_id=? AND user_id=?",(EXPLORE_STAMINA_COST,time.time(),guild_id,user_id))
+            await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(guild_id,user_id,target,time.time(),"exploration")); await db.commit()
+        area=AREAS[target]
         if fresh:
-            await self.add_rewards(guild_id,user_id,80+int(AREAS[target]["level"])*8,60+int(AREAS[target]["level"])*6)
+            xp=80+int(area["level"])*8; gold=60+int(area["level"])*6
+            await self.add_rewards(guild_id,user_id,xp,gold)
             await self.progress_quests(guild_id,user_id,"explore",1)
-            return True,f"🧭 You discovered **{AREAS[target]['name']}**!\n{AREAS[target]['desc']}\n\n+XP and Gold for discovering a new region."
+            pool=[x for x in self._area_resource_pool(target) if x in ITEMS]
+            if pool: await self.add_item(guild_id,user_id,random.choice(pool),1,event_type="exploration_find")
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_players SET renown=renown+5,fame=fame+2 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
+            return True,f"🧭 You discovered **{area['name']}**!\n{area['desc']}\n\n+{xp} XP • +{gold} Gold • +5 Renown • +2 Fame\nYou also found a regional resource."
+        # Re-exploration is still useful: it can produce a small resource find.
+        pool=[x for x in self._area_resource_pool(target) if x in ITEMS]
+        found=random.choice(pool) if pool and random.random()<0.55 else None
+        if found: await self.add_item(guild_id,user_id,found,1,event_type="exploration_find")
         await self.progress_quests(guild_id,user_id,"explore",1)
-        return True,f"🧭 You explored around **{AREAS[current]['name']}** and found signs of **{AREAS[target]['name']}**."
+        return True,f"🧭 You explored near **{area['name']}**. {('You found **'+ITEMS[found]['name']+'**.' if found else 'The route revealed nothing valuable this time.')}\n−{EXPLORE_STAMINA_COST} stamina."
+
+    def _area_resource_pool(self,area_key):
+        area=AREAS.get(area_key,{})
+        t=area.get("type","wild")
+        pools={
+            "town":["herb","food_grilled_fish"],"plains":["herb","wolf_pelt"],"forest":["herb","wolf_pelt","forest_egg"],
+            "cave":["iron_ore","arcane_shard"],"mountain":["iron_ore","mat_frostwood"],"coast":["food_grilled_fish","mat_sea_pearl"],
+            "islands":["food_grilled_fish","mat_sea_pearl"],"swamp":["herb","mat_nightshade"],"volcanic":["iron_ore","mat_obsidian"],
+            "desert":["mat_crystal_melon","mat_amber"],"undersea":["mat_sea_pearl","food_grilled_fish"],"sky":["mat_star_fragment","mat_angel_feather"],
+            "hell":["mat_demon_horn","mat_void_crystal"],"void":["mat_void_crystal","mat_star_fragment"],"astral":["mat_star_fragment","mat_void_crystal"],
+            "mythic":["mat_world_tree_seed","mat_star_fragment"],"graveyard":["mat_ancient_bone","mat_void_crystal"],"arcane":["arcane_shard","mat_star_fragment"],
+        }
+        return pools.get(t,["herb","iron_ore"])
 
     async def world_boss_active(self,guild_id):
         now=time.time()
@@ -2580,23 +2725,28 @@ class RPGService:
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT achievement_key,unlocked_at FROM rpg_achievements WHERE guild_id=? AND user_id=? ORDER BY unlocked_at",(guild_id,user_id)); return await cur.fetchall()
 
-    async def shop(self):
-        # A rotating storefront keeps the command readable even though the
-        # world now contains hundreds of discoverable items.
-        featured=[k for k in SHOP_ITEMS if ITEMS[k].get("rarity") in {"common","uncommon","rare"}]
-        random.shuffle(featured)
-        keys=featured[:24]
-        return [(k,ITEMS[k]) for k in keys]
+    async def shop(self,guild_id=None,user_id=None):
+        # The shop is level-aware: players see gear they can reasonably use,
+        # while consumables/materials remain available throughout progression.
+        level=1
+        if guild_id is not None and user_id is not None:
+            p=await self.player(guild_id,user_id); level=int(p["level"]) if p else 1
+        featured=[k for k in SHOP_ITEMS if ITEMS[k].get("rarity") in {"common","uncommon","rare"} and (ITEMS[k].get("slot") in {"consumable","food","material"} or int(ITEMS[k].get("level_req",1))<=level+3)]
+        random.shuffle(featured); return [(k,ITEMS[k]) for k in featured[:24]]
 
     async def buy(self,guild_id,user_id,item_key,quantity=1):
         p=await self.player(guild_id,user_id); item=ITEMS.get(item_key.lower())
         if not p:return False,"Create a hero first."
         if not item or not item.get("price"):return False,"That item isn't sold in the shop."
-        quantity=max(1,min(quantity,50)); cost=item["price"]*quantity
-        if p["gold"]<cost:return False,f"You need {cost} gold."
+        req=int(item.get("level_req",1))
+        if item.get("slot") not in {"consumable","food","material"} and int(p["level"])<req:return False,f"That gear requires level **{req}**."
+        quantity=max(1,min(int(quantity),50)); base_cost=int(item["price"])*quantity
+        faction=await self._faction_passive(guild_id,user_id); discount=int(base_cost*faction.get("shop_pct",0)/100); cost=max(1,base_cost-discount)
+        if p["gold"]<cost:return False,f"You need **{cost} gold**."
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id)); await db.commit()
-        await self.add_item(guild_id,user_id,item_key.lower(),quantity); return True,f"Bought **{item['name']} ×{quantity}** for **{cost} gold**."
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id));
+            await self._economy_log(db,guild_id,user_id,"shop_buy",item_key=item_key.lower(),quantity=quantity,gold_delta=-cost,metadata={"base":base_cost,"discount":discount}); await db.commit()
+        await self.add_item(guild_id,user_id,item_key.lower(),quantity); return True,f"Bought **{item['name']} ×{quantity}** for **{cost} gold**." + (f" (−{discount} faction discount)" if discount else "")
 
     async def sell(self,guild_id,user_id,item_key,quantity=1):
         item=ITEMS.get(item_key.lower());
@@ -2604,60 +2754,17 @@ class RPGService:
         quantity=max(1,quantity)
         if not await self.remove_item(guild_id,user_id,item_key.lower(),quantity):return False,"You don't have enough of that item."
         value=max(1,int(item.get("price",10)*0.45))*quantity
+        faction=await self._faction_passive(guild_id,user_id); bonus=int(value*faction.get("sale_pct",0)/100); value+=bonus
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(value,guild_id,user_id)); await db.commit()
-        return True,f"Sold **{item['name']} ×{quantity}** for **{value} gold**."
-
-    async def craft(self,guild_id,user_id,item_key,quantity=1):
-        item_key=item_key.lower(); recipe=RECIPES.get(item_key)
-        if not recipe:return False,"Recipe not found. Use `!rpg recipes`."
-        quantity=max(1,min(int(quantity),10))
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("BEGIN IMMEDIATE")
-            for mat,need in recipe.items():
-                cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,mat)); row=await cur.fetchone()
-                if not row or int(row[0])<need*quantity:
-                    await db.rollback(); return False,f"Missing **{ITEMS[mat]['name']}** ×{need*quantity}."
-            for mat,need in recipe.items():
-                await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(need*quantity,guild_id,user_id,mat))
-                await self._economy_log(db,guild_id,user_id,"craft_material",item_key=mat,quantity=-(need*quantity),metadata={"output":item_key,"output_qty":quantity})
-            await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,user_id,item_key,quantity))
-            await self._economy_log(db,guild_id,user_id,"craft_output",item_key=item_key,quantity=quantity,metadata={"recipe":recipe})
-            await db.commit()
-        return True,f"Crafted **{ITEMS[item_key]['name']} ×{quantity}**."
-
-    async def gather(self,guild_id,user_id,kind="gather"):
-        p=await self.player(guild_id,user_id)
-        if not p:return False,"Create a hero first."
-        kind=str(kind or "gather").lower()
-        settings={
-            "gather": ("last_gather", 30, [("herb", .45),("wolf_pelt", .30),("iron_ore", .15),("arcane_shard", .10)], "Gathering"),
-            "mine": ("last_mine", 45, [("iron_ore", .50),("arcane_shard", .18),("wolf_pelt", .12),("herb", .20)], "Mining"),
-            "fish": ("last_fish", 40, [("food_grilled_fish", .55),("arcane_shard", .08),("herb", .20),("wolf_pelt", .17)], "Fishing"),
-        }
-        field,cooldown,pool,label=settings.get(kind,settings["gather"])
-        remaining=await self._cooldown(p,field,cooldown)
-        if remaining>0:
-            return False,f"⏳ **{label}** is on cooldown. Try again in **{int(remaining)+1}s**."
-        if p["stamina"]<10:return False,"You are exhausted. Use `!rpg rest`."
-        roll=random.random(); acc=0.0; item=pool[-1][0]
-        for key,chance in pool:
-            acc+=chance
-            if roll<=acc:
-                item=key; break
-        if item not in ITEMS:item="herb"
-        qty=random.randint(1,2)
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute(f"UPDATE rpg_players SET stamina=stamina-10, {field}=? WHERE guild_id=? AND user_id=?",(time.time(),guild_id,user_id)); await db.commit()
-        await self.add_item(guild_id,user_id,item,qty)
-        await self.progress_quests(guild_id,user_id,"gather",1)
-        return True,f"**{label} successful!** You obtained **{ITEMS[item]['name']} ×{qty}**. Next {label.lower()} ready in **{cooldown}s**. Stamina: **{max(0,p['stamina']-10)}**."
+            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(value,guild_id,user_id));
+            await self._economy_log(db,guild_id,user_id,"shop_sell",item_key=item_key.lower(),quantity=quantity,gold_delta=value,metadata={"faction_bonus":bonus}); await db.commit()
+        return True,f"Sold **{item['name']} ×{quantity}** for **{value} gold**." + (f" (+{bonus} faction bonus)" if bonus else "")
 
     async def rest(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET hp=max_hp,mp=max_mp,stamina=100 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
+            await db.execute("UPDATE rpg_players SET hp=max_hp,mp=max_mp,stamina=100,last_stamina_tick=? WHERE guild_id=? AND user_id=?",(time.time(),guild_id,user_id)); await db.commit()
         return True,"You rested at Horizon Village. HP, MP and stamina restored."
 
     async def _trade_row(self, db, guild_id, trade_id):
@@ -2988,16 +3095,26 @@ class RPGService:
     async def pet_feed(self,guild_id,user_id,pet_id=None):
         pets=await self.pet_inventory(guild_id,user_id); current=next((x for x in pets if x.get("equipped")),None) if pet_id is None else next((x for x in pets if int(x["pet_id"])==int(pet_id)),None)
         if not current:return False,"Pet not found."
-        food="food_hearty_stew"
+        food="hearty_stew"
         inv=dict(await self.inventory(guild_id,user_id))
         if inv.get(food,0)<1:
             return False,"You need **Hearty Stew** to feed a pet."
         await self.remove_item(guild_id,user_id,food,1,event_type="pet_feed")
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_pet_inventory SET bond=min(100,bond+8),mood=min(100,mood+15),total_xp=total_xp+30,xp=xp+30 WHERE pet_id=? AND guild_id=? AND user_id=?",(current["pet_id"],guild_id,user_id))
+            await db.execute("UPDATE rpg_pet_inventory SET total_xp=total_xp+35,xp=xp+35 WHERE pet_id=? AND guild_id=? AND user_id=?",(current["pet_id"],guild_id,user_id))
             await db.commit()
         await self._level_pet(guild_id,user_id,int(current["pet_id"]))
-        return True,f"Fed **{current['name']}**. Bond increased and the pet gained **30 XP**."
+        return True,f"Fed **{current['name']}**. The meal granted **35 Pet XP** and can help it grow stronger."
+
+    async def _grant_pet_xp(self,guild_id,user_id,amount):
+        pet=await self.pet_record(guild_id,user_id)
+        if not pet:return 0
+        amount=max(0,int(amount))
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_pet_inventory SET total_xp=total_xp+?,xp=xp+? WHERE guild_id=? AND user_id=? AND equipped=1",(amount,amount,guild_id,user_id))
+            await db.commit()
+        await self._level_pet(guild_id,user_id,int(pet["pet_id"]))
+        return amount
 
     async def _level_pet(self,guild_id,user_id,pet_id):
         async with aiosqlite.connect(self.path) as db:
@@ -3037,6 +3154,8 @@ class RPGService:
 
     async def _gacha_one(self,guild_id,user_id,rarity):
         # Rare+ pulls can award companions; equipment dominates the common pool.
+        # Gear is level-aware so a new hero does not get flooded with unusable endgame pieces.
+        p=await self.player(guild_id,user_id)
         pet_species=[name for name,data in PET_SPECIES.items() if data.get("rarity")==rarity]
         if rarity in {"rare","epic","legendary","mythic"} and pet_species and random.random()<0.22:
             species=random.choice(pet_species); data=PET_SPECIES[species]
@@ -3050,7 +3169,8 @@ class RPGService:
                     await db.execute("UPDATE rpg_players SET gems=gems+? WHERE guild_id=? AND user_id=?",(refund,guild_id,user_id)); await db.commit()
                 return {"type":"pet_duplicate","name":pet_name,"species":species,"rarity":rarity,"refund":refund}
             return {"type":"pet","name":pet_name,"species":species,"rarity":rarity,"ability":data.get("ability"),"ability_desc":data.get("ability_desc")}
-        candidates=[(k,v) for k,v in ITEMS.items() if v.get("rarity")==rarity and v.get("slot") in {"weapon","armor","offhand","accessory","ring","amulet","relic","chest","consumable"}]
+        level=int(p.get("level",1)) if p else 1
+        candidates=[(k,v) for k,v in ITEMS.items() if v.get("rarity")==rarity and v.get("slot") in {"weapon","armor","offhand","accessory","ring","amulet","relic","chest","consumable"} and int(v.get("level_req",1))<=level+3]
         if not candidates:
             candidates=[(k,v) for k,v in ITEMS.items() if v.get("slot") in {"weapon","armor","offhand","accessory","ring","amulet","relic"}]
         key,item=random.choice(candidates)
@@ -3142,15 +3262,23 @@ class RPGService:
         d=next((x for x in available if name and x[0].lower()==name.lower()),None) if name else (available[-1] if available else None)
         if not d:return {"error":"No dungeon is unlocked for the party leader."}
         n,req,floors,xp,gold,desc=d
-        # Party power is the sum of each hero's combat stats. This keeps the
-        # group game simple while making team composition matter.
+        # A party run is a real expedition: every member commits stamina, and
+        # the group gets a small coordination bonus instead of a combat-only check.
+        for uid,_role in members:
+            await self._refresh_stamina(guild_id,uid)
+            member=await self.player(guild_id,uid)
+            if not member or int(member["stamina"])<PARTY_DUNGEON_STAMINA_COST:
+                return {"error":f"<@{uid}> needs **{PARTY_DUNGEON_STAMINA_COST} stamina** for the expedition."}
         power=0
         for uid,_role in members:
             stats=await self.stats(guild_id,uid)
             if stats:
                 p,gear,b=stats; power += p["atk"]+b["atk"]+p["defense"]+b["defense"]+p["speed"]+b["speed"]
         required_power=floors*55 + req*12
-        chance=min(.95,max(.25,power/max(1,required_power)*.55))
+        # Team size adds reliability but never guarantees success.
+        chance=min(.93,max(.30,power/max(1,required_power)*.60 + (len(members)-2)*.04))
+        for uid,_role in members:
+            await self._spend_stamina(guild_id,uid,PARTY_DUNGEON_STAMINA_COST)
         success=random.random() < chance
         if not success:
             return {"win":False,"name":n,"members":len(members),"chance":chance,"log":["The party was overwhelmed before reaching the final floor."]}
@@ -3196,33 +3324,49 @@ class RPGService:
         return out
 
     async def craft(self,guild_id,user_id,item_key,quantity=1):
-        item_key=item_key.lower(); recipe=RECIPES.get(item_key)
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        item_key=item_key.lower().strip(); recipe=RECIPES.get(item_key)
         if not recipe:return False,"Recipe not found. Use `!rpg recipes`."
-        quantity=max(1,min(int(quantity),20))
+        meta=recipe.get("_meta",{}) if isinstance(recipe,dict) else {}
+        quantity=max(1,min(int(quantity),10)); req=int(meta.get("level_req",1))
         prof=await self.profession_data(guild_id,user_id,"crafting"); level=int(prof[0][1]) if prof else 1
-        if level < int(recipe.get("level_req",1)) if isinstance(recipe,dict) else False:
-            return False,f"Your crafting level is too low for **{ITEMS.get(item_key,{'name':item_key})['name']}**."
+        if level<req:return False,f"**{ITEMS.get(item_key,{'name':item_key}).get('name',item_key)}** requires Crafting Lv **{req}**."
+        stamina_cost=CRAFT_STAMINA_COST*quantity
+        ok,remaining=await self._spend_stamina(guild_id,user_id,stamina_cost)
+        if not ok:return False,f"You need **{stamina_cost} stamina** to craft that quantity."
+        fee=int(meta.get("gold_fee",0))*quantity
+        faction=await self._faction_passive(guild_id,user_id); xp_gain=int(meta.get("xp",25)*quantity*(1+faction.get("craft_xp_pct",0)/100))
         async with aiosqlite.connect(self.path) as db:
             await db.execute("BEGIN IMMEDIATE")
+            cur=await db.execute("SELECT gold FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
+            if not row or int(row[0])<fee:
+                await db.rollback(); await self._refund_stamina(guild_id,user_id,stamina_cost)
+                return False,f"You need **{fee} gold** for the crafting fee."
             for mat,need in recipe.items():
-                if mat=="_meta": continue
-                cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,mat)); row=await cur.fetchone()
-                if not row or int(row[0])<need*quantity:
-                    await db.rollback(); return False,f"Missing **{ITEMS.get(mat,{'name':mat})['name']}** ×{need*quantity}."
+                if mat=="_meta":continue
+                cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,mat)); have=await cur.fetchone()
+                if not have or int(have[0])<int(need)*quantity:
+                    await db.rollback(); await self._refund_stamina(guild_id,user_id,stamina_cost)
+                    return False,f"Missing **{ITEMS.get(mat,{'name':mat}).get('name',mat)}** ×{int(need)*quantity}."
             for mat,need in recipe.items():
-                if mat=="_meta": continue
-                await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(need*quantity,guild_id,user_id,mat))
-                await self._economy_log(db,guild_id,user_id,"craft_material",item_key=mat,quantity=-(need*quantity),metadata={"output":item_key,"output_qty":quantity})
+                if mat=="_meta":continue
+                amount=int(need)*quantity
+                await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(amount,guild_id,user_id,mat))
+                await self._economy_log(db,guild_id,user_id,"craft_material",item_key=mat,quantity=-amount,metadata={"output":item_key})
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(fee,guild_id,user_id))
             await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,user_id,item_key,quantity))
+            await self._economy_log(db,guild_id,user_id,"craft_fee",gold_delta=-fee,metadata={"output":item_key})
             await self._economy_log(db,guild_id,user_id,"craft_output",item_key=item_key,quantity=quantity,metadata={"recipe":recipe})
             await db.commit()
-        level_xp=await self._profession_xp(guild_id,user_id,"crafting",25*quantity)
+        level_xp=await self._profession_xp(guild_id,user_id,"crafting",xp_gain)
         await self.check_achievements(guild_id,user_id)
-        return True,f"Crafted **{ITEMS[item_key]['name']} ×{quantity}**. Crafting Lv **{level_xp[0]}** (+{25*quantity} XP)."
+        return True,f"Crafted **{ITEMS[item_key]['name']} ×{quantity}**. Crafting Lv **{level_xp[0]}** (+{xp_gain} XP) • −{stamina_cost} stamina • −{fee} gold."
 
     async def gather(self,guild_id,user_id,kind="gather"):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
+        await self._refresh_stamina(guild_id,user_id); p=await self.player(guild_id,user_id)
         kind=str(kind or "gather").lower()
         settings={
             "gather": ("last_gather",30,[("herb",.45),("wolf_pelt",.30),("iron_ore",.15),("arcane_shard",.10)],"Gathering","gathering"),
@@ -3237,9 +3381,11 @@ class RPGService:
         for key,chance in pool:
             acc+=chance
             if roll<=acc:item=key; break
-        qty=random.randint(1,2) + (1 if (await self.profession_data(guild_id,user_id,profession) and int((await self.profession_data(guild_id,user_id,profession))[0][1])>=10) else 0)
+        prof_rows=await self.profession_data(guild_id,user_id,profession); prof_level=int(prof_rows[0][1]) if prof_rows else 1
+        faction=await self._faction_passive(guild_id,user_id)
+        qty=random.randint(1,2) + (1 if prof_level>=10 else 0) + (1 if faction.get("gather_extra") and random.random()<0.5 else 0)
         async with aiosqlite.connect(self.path) as db:
-            await db.execute(f"UPDATE rpg_players SET stamina=stamina-10, {field}=? WHERE guild_id=? AND user_id=?",(time.time(),guild_id,user_id)); await db.commit()
+            await db.execute(f"UPDATE rpg_players SET stamina=stamina-10, {field}=?, last_stamina_tick=? WHERE guild_id=? AND user_id=?",(time.time(),time.time(),guild_id,user_id)); await db.commit()
         await self.add_item(guild_id,user_id,item,qty,event_type=f"{profession}_gather")
         level_xp=await self._profession_xp(guild_id,user_id,profession,20)
         await self.progress_quests(guild_id,user_id,"gather",1)
@@ -3383,6 +3529,10 @@ class RPGService:
         talent_ranks=await self.talent_ranks(guild_id,user_id)
         talent_bonus=self._talent_bonuses(p,talent_ranks)
         stats=self._combat_stats(p,pet_bonus,talent_bonus)
+        faction=await self._faction_passive(guild_id,user_id)
+        if faction.get("def_pct"): stats["defense"]+=round(stats["defense"]*faction["def_pct"]/100)
+        if faction.get("skill_pct"): stats["skill_pct"]=float(stats.get("skill_pct",0))+float(faction["skill_pct"])
+        if faction.get("heal_pct"): stats["heal_pct"]=float(stats.get("heal_pct",0))+float(faction["heal_pct"])
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT slot,item_key,upgrade_level,intrinsic_json,set_key FROM rpg_equipment WHERE guild_id=? AND user_id=?",(guild_id,user_id)); gear=await cur.fetchall()
             cur=await db.execute("SELECT slot,enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=?",(guild_id,user_id)); enchants=await cur.fetchall()
@@ -3833,13 +3983,17 @@ class RPGService:
             if random.random()<0.08:
                 egg_pool=[k for k,v in ITEMS.items() if v.get("slot")=="egg" and (v.get("rarity") in {"common","uncommon","rare"} or p["level"]>=20)]
                 if egg_pool: drop=random.choice(egg_pool)
-            await self._save_combat_hp(guild_id,user_id,state); old_level,new_level=await self.add_rewards(guild_id,user_id,xp,gold); await self.add_item(guild_id,user_id,drop,1)
+            await self._save_combat_hp(guild_id,user_id,state); old_level,new_level=await self.add_rewards(guild_id,user_id,xp,gold); await self.add_item(guild_id,user_id,drop,1,event_type="combat_drop")
+            extra_loot=await self._combat_loot(guild_id,user_id,p,state.get("enemy",{}))
+            pet_xp=await self._grant_pet_xp(guild_id,user_id,12 if state["mode"]=="adventure" else 20)
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_players SET renown=renown+?,fame=fame+? WHERE guild_id=? AND user_id=?",(2 if state["mode"]=="adventure" else 5,1,guild_id,user_id)); await db.commit()
             await self.progress_quests(guild_id,user_id,"hunt",1)
             if state["mode"]=="dungeon":
                 await self.progress_quests(guild_id,user_id,"dungeon",1)
                 if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
             await self.check_achievements(guild_id,user_id); self.active_combats.pop(key,None); await self._delete_combat_session(guild_id,user_id)
-            return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"state":state,"level_before":old_level,"level_after":new_level}
+            return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"extra_loot":extra_loot,"pet_xp":pet_xp,"state":state,"level_before":old_level,"level_after":new_level}
         # Enemy turn. Defensive/slow/evasion effects are bounded so no skill can
         # create a permanent lock or make damage disappear.
         status_logs=self._tick_enemy_statuses(state)
