@@ -1,3 +1,11 @@
+# Horizon RPG v15 — Core Cleanup
+
+**Current build:** v15 Core Cleanup. This is a deliberate cleanup release before the next deepening build. Removed player-facing NPC/story/living-world/housing/construction/life-path/advanced-diplomacy/mystery/anomaly/world-memory systems and the artificial world-event contribution layer. No new RPG systems were added in this release.
+
+See `VERSION_V15_CLEANUP.md` for the exact scope.
+
+---
+
 # Horizon AI — Log Horizon Legendary RPG
 
 ## v11 — Phases 1–4 Completion Pass

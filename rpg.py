@@ -431,19 +431,6 @@ CLASS_EVOLUTIONS = {
     "lancer": [(20, "dragon_lord"), (35, "heaven_lancer")], "spellblade": [(20, "arcane_knight"), (35, "ether_blade")],
 }
 
-LIFE_PATHS = {
-    "adventurer": "Questing explorer; gains extra rewards from discovery.",
-    "noble": "A courtly life focused on influence and estates.",
-    "royal": "A ruler or royal court member who can hold kingdom offices.",
-    "merchant": "Trade-focused character with better market opportunities.",
-    "outlaw": "Wanted wanderer who thrives outside the law.",
-    "thug": "Street enforcer who earns renown through intimidation and jobs.",
-    "hunter": "Monster tracker with improved hunting rewards.",
-    "scholar": "Lore seeker with bonuses to quests and exploration.",
-    "artisan": "Crafter and blacksmith with production bonuses.",
-    "pirate": "Freebooter who seeks treasure on the high seas.",
-}
-
 AREAS = {
     "horizon_village": {"name": "Horizon Village", "level": 1, "type": "town", "desc": "The safe starting settlement."},
     "whispering_woods": {"name": "Whispering Woods", "level": 2, "type": "wild", "desc": "Ancient forest paths filled with beasts and herbs."},
@@ -1096,10 +1083,10 @@ SECRET_CLASSES = {
         "requirement": "Reach level 60 and deal 100,000 total Raid Boss damage.",
     },
     "soul_reaper": {
-        "name": "Soul Reaper", "req_level": 55, "req_hidden": 2,
-        "desc": "A forbidden executioner who harvests the echoes left by hidden quests.",
+        "name": "Soul Reaper", "req_level": 55, "req_renown": 500,
+        "desc": "A forbidden executioner who harvests the echoes left by fallen enemies.",
         "hp": 25, "mp": 45, "atk": 15, "def": 4, "spd": 9, "crit": 10, "resource": "Souls",
-        "requirement": "Reach level 55 and discover 2 hidden quests.",
+        "requirement": "Reach level 55 and 500 Renown.",
     },
 }
 
@@ -1690,6 +1677,27 @@ class RPGService:
         # Phase 4 launches on a clean RPG economy/progression state. This is a
         # one-time migration marker, so Railway restarts never wipe players again.
         await self._phase4_fresh_start()
+        await self._v15_remove_retired_systems()
+
+    async def _v15_remove_retired_systems(self):
+        retired = [
+            "rpg_housing", "rpg_npc_relationships", "rpg_lore_discoveries",
+            "rpg_hidden_quest_progress", "rpg_server_event_contributions",
+            "rpg_server_events", "rpg_hidden_quests", "rpg_lore_entries", "rpg_npcs",
+            "rpg_world_state", "rpg_rumors", "rpg_npc_schedules", "rpg_story_memory",
+            "rpg_chronicle", "rpg_world_structures", "rpg_project_contributions",
+            "rpg_world_projects", "rpg_faction_relations", "rpg_mysteries",
+            "rpg_anomalies", "rpg_world_memory", "rpg_world_event_state",
+            "rpg_rpg_completion",
+        ]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("PRAGMA foreign_keys=OFF")
+            for table in retired:
+                try:
+                    await db.execute(f"DROP TABLE IF EXISTS {table}")
+                except Exception:
+                    pass
+            await db.commit()
 
     async def _phase4_fresh_start(self):
         tables = [
@@ -1719,47 +1727,8 @@ class RPGService:
             await db.execute("DELETE FROM sqlite_sequence WHERE name LIKE 'rpg_%'")
             await db.execute("INSERT INTO horizon_rpg_migrations(key,applied_at) VALUES('phase4_fresh_start_v1',?)",(time.time(),))
             await db.commit()
-        await self._seed_phase4_world()
 
-    async def _seed_phase4_world(self):
-        npcs=[
-            ("lyra","Archivist Lyra","Lorekeeper","horizon_village","Quiet, observant and obsessed with forgotten history.","The village archivist who knows more about Horizon than she admits."),
-            ("kael","Kael Ironhand","Blacksmith","horizon_village","Blunt, proud and secretly soft-hearted.","A master smith who believes every weapon has a story."),
-            ("mira","Mira the Wayfarer","Wanderer","whispering_woods","Playful, evasive and always testing adventurers.","A traveler who appears wherever strange things happen."),
-            ("orin","Gatekeeper Orin","Gatekeeper","horizon_village","Patient but suspicious of reckless heroes.","The keeper of the old eastern gate and its sealed records."),
-        ]
-        lore=[
-            ("first_dawn","The First Dawn","Before guilds and kingdoms, Horizon was shaped around a single luminous tree. Its roots crossed the world and its leaves recorded every age.","origin","",0),
-            ("broken_compass","The Broken Compass","The first explorers carried a compass that did not point north. It pointed toward places where reality was weakest.","artifact","lyra",25),
-            ("ironhand_oath","The Ironhand Oath","Kael's family once forged weapons for the guardians of the Worldroot. Their final oath was never to forge a weapon for a ruler who feared his own people.","history","kael",30),
-            ("whispering_path","The Whispering Path","Some travelers claim the forest repeats the names of people who have not yet arrived. Mira refuses to explain why.","mystery","mira",35),
-            ("sealed_gate","The Eastern Seal","The eastern gate was closed after an expedition returned with a map showing a city that does not exist on any known continent.","mystery","orin",40),
-        ]
-        hidden=[
-            ("archivist_secret","The Page That Should Not Exist","Help Lyra recover a missing page from the oldest Horizon chronicle.","lyra",50,"relationship",50,700,900,"arcane_shard",3),
-            ("ironhand_legacy","The Ironhand Legacy","Earn Kael's trust and recover the lost forging mark of his ancestors.","kael",60,"relationship",60,900,1200,"steel_sword",1),
-            ("wayfarer_path","Beyond the Whispering Path","Follow Mira into the woods and uncover why the forest remembers strangers.","mira",70,"relationship",70,1200,1600,"mat_shadow_essence",3),
-            ("sealed_truth","The City Beyond the Gate","Convince Orin to reveal what is behind the eastern seal.","orin",80,"relationship",80,1800,2400,"mat_star_fragment",2),
-        ]
-        async with aiosqlite.connect(self.path) as db:
-            for row in npcs:
-                await db.execute("INSERT OR IGNORE INTO rpg_npcs(guild_id,npc_key,name,role,area_key,personality,description) SELECT 0,?,?,?,?,?,?",row)
-            # Server-specific NPC/lore/quest content is cloned lazily when a server first uses Phase 4.
-            # Global templates live under guild_id=0.
-            for row in lore:
-                await db.execute("INSERT OR IGNORE INTO rpg_lore_entries(guild_id,lore_key,title,body,category,required_npc,required_affinity) VALUES(0,?,?,?,?,?,?)",row)
-            for row in hidden:
-                await db.execute("INSERT OR IGNORE INTO rpg_hidden_quests(guild_id,hidden_key,title,description,npc_key,required_affinity,trigger_type,trigger_value,reward_xp,reward_gold,reward_item,reward_qty) VALUES(0,?,?,?,?,?,?,?,?,?,?,?)",row)
-            await db.commit()
 
-    async def _ensure_phase4_server(self,guild_id):
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT COUNT(*) FROM rpg_npcs WHERE guild_id=?",(guild_id,)); count=(await cur.fetchone())[0]
-            if count==0:
-                await db.execute("INSERT INTO rpg_npcs SELECT ?,npc_key,name,role,area_key,personality,description FROM rpg_npcs WHERE guild_id=0",(guild_id,))
-                await db.execute("INSERT INTO rpg_lore_entries SELECT ?,lore_key,title,body,category,required_npc,required_affinity FROM rpg_lore_entries WHERE guild_id=0",(guild_id,))
-                await db.execute("INSERT INTO rpg_hidden_quests SELECT ?,hidden_key,title,description,npc_key,required_affinity,trigger_type,trigger_value,reward_xp,reward_gold,reward_item,reward_qty FROM rpg_hidden_quests WHERE guild_id=0",(guild_id,))
-                await db.commit()
 
     def _level_xp(self, level: int) -> int:
         # Cumulative XP curve becomes increasingly demanding so high-level
@@ -2226,8 +2195,8 @@ class RPGService:
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         kind=kind.lower(); value=value.lower().strip()
-        costs={"race":1500,"class":1200,"subrace":2200,"subclass":3000,"path":1800,"evolution":5000}
-        if kind not in costs:return False,"Change one of: race, subrace, class, subclass, path, evolution."
+        costs={"race":1500,"class":1200,"subrace":2200,"subclass":3000,"evolution":5000}
+        if kind not in costs:return False,"Change one of: race, subrace, class, subclass, evolution."
         if kind=="race":
             if value not in RACES:return False,f"Unknown race. Use `!rpg races`."
             if value==p["race"]:return False,"You already are that race."
@@ -2247,9 +2216,6 @@ class RPGService:
             if parent!=p["class_name"]:return False,f"That subclass requires **{parent.title()}**."
             if p["level"]<10:return False,"Subclasses unlock at level **10**."
             updates={"subclass":value,"evolution":""}
-        elif kind=="path":
-            if value not in LIFE_PATHS:return False,"Unknown life path. Use `!rpg paths`."
-            updates={"life_path":value}
         else:
             evolutions=[name for lvl,name in CLASS_EVOLUTIONS.get(p["class_name"],[]) if p["level"]>=lvl]
             if value not in evolutions:return False,"That evolution is not unlocked for your class and level."
@@ -2387,22 +2353,12 @@ class RPGService:
                 ]
                 for kind,title,desc,lvl,target,ptype,xp,gold,item,qty in templates:
                     await db.execute("INSERT INTO rpg_quests(guild_id,kind,title,description,level_req,target,progress_type,reward_xp,reward_gold,reward_item,reward_qty,expires_at,chain_key,chain_step) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(guild_id,kind,title,desc,lvl,target,ptype,xp,gold,item,qty,now+86400*(7 if kind=='weekly' else 1),"",0))
-            # Persistent story chains: one quest must be claimed before the next appears.
-            chains=[
-                ("first_steps","The First Steps",[("Reach the Whispering Woods", "Travel to the Whispering Woods.", "explore", 1, 250, 350, "herb", 3),("Clear the Path", "Defeat 3 enemies.", "hunt", 3, 300, 450, "wolf_pelt", 4),("Old Hunter's Map", "Explore 2 different areas.", "explore", 2, 450, 600, "mat_ancient_bone", 2),("The First Gate", "Clear a dungeon floor.", "dungeon", 1, 550, 800, "arcane_shard", 3)]),
-                ("abyss_whispers","Whispers of the Abyss",[("Strange Signs", "Explore a high-level region.", "explore", 1, 700, 900, "mat_shadow_essence", 3),("Corrupted Beasts", "Defeat 8 enemies.", "hunt", 8, 900, 1200, "mat_demon_horn", 3),("Break the Seal", "Clear 2 dungeon floors.", "dungeon", 2, 1200, 1700, "mat_void_crystal", 2),("A Voice in the Dark", "Deal damage to a world boss.", "worldboss", 1, 1800, 2600, "void_egg", 1)]),
-                ("horizon_legend","The Horizon Legend",[("Across the World", "Explore 5 different areas.", "explore", 5, 1200, 1800, "mat_star_fragment", 4),("Trial of Steel", "Defeat 15 enemies.", "hunt", 15, 1500, 2200, "steel_sword", 1),("The Deep", "Clear 5 dungeon floors.", "dungeon", 5, 2200, 3200, "dragon_trophy", 1),("Heart of Horizon", "Deal damage to a world boss.", "worldboss", 1, 3000, 5000, "dragon_egg", 1)])]
-            for chain_key,_title,steps in chains:
-                for idx,(title,desc,ptype,target,xp,gold,item,qty) in enumerate(steps,1):
-                    cur=await db.execute("SELECT 1 FROM rpg_quests WHERE guild_id=? AND chain_key=? AND chain_step=?",(guild_id,chain_key,idx))
-                    if not await cur.fetchone():
-                        await db.execute("INSERT INTO rpg_quests(guild_id,kind,title,description,level_req,target,progress_type,reward_xp,reward_gold,reward_item,reward_qty,expires_at,chain_key,chain_step) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(guild_id,"story",title,desc,1,target,ptype,xp,gold,item,qty,now+86400*365,chain_key,idx))
             await db.commit()
 
     async def quests(self,guild_id,user_id):
         await self.quest_seed(guild_id)
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT q.id,q.title,q.description,q.level_req,q.target,q.progress_type,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty,COALESCE(p.progress,0),COALESCE(p.status,'available'),q.kind,q.chain_key,q.chain_step FROM rpg_quests q LEFT JOIN rpg_player_quests p ON q.id=p.quest_id AND p.guild_id=? AND p.user_id=? WHERE q.guild_id=? AND q.expires_at>? ORDER BY CASE q.kind WHEN 'story' THEN 0 WHEN 'daily' THEN 1 ELSE 2 END,q.chain_key,q.chain_step,q.id",(guild_id,user_id,guild_id,time.time())); return await cur.fetchall()
+            cur=await db.execute("SELECT q.id,q.title,q.description,q.level_req,q.target,q.progress_type,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty,COALESCE(p.progress,0),COALESCE(p.status,'available'),q.kind,q.chain_key,q.chain_step FROM rpg_quests q LEFT JOIN rpg_player_quests p ON q.id=p.quest_id AND p.guild_id=? AND p.user_id=? WHERE q.guild_id=? AND q.expires_at>? ORDER BY CASE q.kind WHEN 'daily' THEN 1 WHEN 'weekly' THEN 2 ELSE 3 END,q.id",(guild_id,user_id,guild_id,time.time())); return await cur.fetchall()
 
     async def accept_quest(self,guild_id,user_id,qid):
         p=await self.player(guild_id,user_id)
@@ -2411,10 +2367,6 @@ class RPGService:
             cur=await db.execute("SELECT id,level_req,chain_key,chain_step,title FROM rpg_quests WHERE guild_id=? AND id=?",(guild_id,qid)); q=await cur.fetchone()
             if not q:return False,"Quest not found."
             if p["level"]<q[1]:return False,f"You need level {q[1]}."
-            if q[2] and int(q[3])>1:
-                cur=await db.execute("SELECT q.id,COALESCE(p.status,'available') FROM rpg_quests q LEFT JOIN rpg_player_quests p ON q.id=p.quest_id AND p.guild_id=? AND p.user_id=? WHERE q.guild_id=? AND q.chain_key=? AND q.chain_step=?",(guild_id,user_id,guild_id,q[2],int(q[3])-1)); prev=await cur.fetchone()
-                if not prev or prev[1] != "claimed":
-                    return False,f"Complete the previous step of **{q[2].replace('_',' ').title()}** first."
             cur=await db.execute("SELECT status FROM rpg_player_quests WHERE guild_id=? AND user_id=? AND quest_id=?",(guild_id,user_id,qid)); existing=await cur.fetchone()
             if existing:
                 if existing[0]=="claimed":return False,"You already claimed this quest."
@@ -2589,125 +2541,11 @@ class RPGService:
         phase="I" if new_hp>max_hp*.75 else ("II" if new_hp>max_hp*.5 else ("III" if new_hp>max_hp*.25 else "ENRAGED"))
         return True,f"🌎 **{name}** — Phase **{phase}**\nYour **{action_name}** dealt **{damage:,}** damage.\n❤️ Boss HP: **{new_hp:,}/{max_hp:,}**",await self.world_boss_active(guild_id)
 
-    async def npc_list(self, guild_id):
-        await self._ensure_phase4_server(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT npc_key,name,role,area_key,description FROM rpg_npcs WHERE guild_id=? ORDER BY name",(guild_id,)); return await cur.fetchall()
 
-    async def npc_talk(self, guild_id, user_id, npc_key, message=""):
-        p=await self.player(guild_id,user_id)
-        if not p:return False,"Create a hero first.",None
-        await self._ensure_phase4_server(guild_id)
-        npc_key=str(npc_key).lower().strip()
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT name,role,personality,description FROM rpg_npcs WHERE guild_id=? AND npc_key=?",(guild_id,npc_key)); npc=await cur.fetchone()
-            if not npc:return False,"NPC not found. Use `!rpg npcs` to see the living-world characters.",None
-            cur=await db.execute("SELECT affinity,stage,interactions FROM rpg_npc_relationships WHERE guild_id=? AND user_id=? AND npc_key=?",(guild_id,user_id,npc_key)); rel=await cur.fetchone()
-            affinity=int(rel[0]) if rel else 0; interactions=int(rel[2]) if rel else 0
-            gain=5 if message.strip() else 2
-            affinity=min(100,affinity+gain); interactions+=1
-            stage='stranger' if affinity<20 else ('acquaintance' if affinity<45 else ('trusted' if affinity<70 else ('friend' if affinity<90 else 'bonded')))
-            await db.execute("INSERT INTO rpg_npc_relationships(guild_id,user_id,npc_key,affinity,stage,interactions,last_interaction) VALUES(?,?,?,?,?,?,?) ON CONFLICT(guild_id,user_id,npc_key) DO UPDATE SET affinity=excluded.affinity,stage=excluded.stage,interactions=excluded.interactions,last_interaction=excluded.last_interaction",(guild_id,user_id,npc_key,affinity,stage,interactions,time.time()))
-            await db.commit()
-        unlocks=await self._unlock_npc_content(guild_id,user_id,npc_key,affinity)
-        responses={
-            "lyra": ["The oldest records are not written in ink. They are written in what the world remembers.","You are asking the right questions. That is usually how trouble begins."],
-            "kael": ["A weapon is honest. It tells you exactly what it can do. People are harder to forge.","Bring me something worthy of a legendary blade and perhaps I will tell you about my family's oath."],
-            "mira": ["The forest has paths that only appear after you stop looking for them.","You hear the whispers too, don't you? Interesting."],
-            "orin": ["The eastern gate stays closed for a reason. Some doors are safer as stories.","If you want the truth, earn enough trust that I can risk telling you."],
-        }
-        text=random.choice(responses.get(npc_key,["The NPC watches you carefully."]))
-        if message.strip(): text += f"\n\n*You said:* {message[:180]}"
-        text += f"\n\n❤️ Relationship: **{affinity}/100** ({stage.title()})"
-        if unlocks: text += "\n🔓 **New discovery:** " + ", ".join(unlocks)
-        return True,text,{"name":npc[0],"role":npc[1],"affinity":affinity,"stage":stage}
 
-    async def _unlock_npc_content(self,guild_id,user_id,npc_key,affinity):
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT lore_key,title,required_affinity FROM rpg_lore_entries WHERE guild_id=? AND required_npc=? AND required_affinity<=?",(guild_id,npc_key,affinity)); lore=await cur.fetchall()
-            unlocked=[]
-            for key,title,req in lore:
-                cur=await db.execute("SELECT 1 FROM rpg_lore_discoveries WHERE guild_id=? AND user_id=? AND lore_key=?",(guild_id,user_id,key))
-                if not await cur.fetchone():
-                    await db.execute("INSERT INTO rpg_lore_discoveries VALUES(?,?,?,?,?)",(guild_id,user_id,key,time.time(),"npc_relationship")); unlocked.append(title)
-            cur=await db.execute("SELECT hidden_key,title,required_affinity FROM rpg_hidden_quests WHERE guild_id=? AND npc_key=? AND required_affinity<=?",(guild_id,npc_key,affinity)); quests=await cur.fetchall()
-            for key,title,req in quests:
-                await db.execute("INSERT OR IGNORE INTO rpg_hidden_quest_progress(guild_id,user_id,hidden_key,status,progress,updated_at) VALUES(?,?,?,?,?,?)",(guild_id,user_id,key,"available",0,time.time()))
-                cur=await db.execute("SELECT status FROM rpg_hidden_quest_progress WHERE guild_id=? AND user_id=? AND hidden_key=?",(guild_id,user_id,key)); st=(await cur.fetchone())[0]
-                if st=="available": unlocked.append(title)
-            await db.commit()
-            return unlocked
 
-    async def lore_list(self,guild_id,user_id):
-        await self._ensure_phase4_server(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT l.lore_key,l.title,l.category,CASE WHEN d.lore_key IS NULL THEN 0 ELSE 1 END FROM rpg_lore_entries l LEFT JOIN rpg_lore_discoveries d ON d.guild_id=l.guild_id AND d.user_id=? AND d.lore_key=l.lore_key WHERE l.guild_id=? ORDER BY l.lore_key",(user_id,guild_id)); return await cur.fetchall()
 
-    async def lore_get(self,guild_id,user_id,key):
-        await self._ensure_phase4_server(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT l.title,l.body,d.lore_key FROM rpg_lore_entries l LEFT JOIN rpg_lore_discoveries d ON d.guild_id=l.guild_id AND d.user_id=? AND d.lore_key=l.lore_key WHERE l.guild_id=? AND l.lore_key=?",(user_id,guild_id,key)); row=await cur.fetchone()
-            if not row:return None
-            if not row[2]:return (row[0],"This lore entry has not been discovered yet.")
-            return (row[0],row[1])
 
-    async def claim_hidden_quest(self,guild_id,user_id,hidden_key):
-        await self._ensure_phase4_server(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT q.title,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty,p.status FROM rpg_hidden_quests q JOIN rpg_hidden_quest_progress p ON p.guild_id=q.guild_id AND p.hidden_key=q.hidden_key AND p.user_id=? WHERE q.guild_id=? AND q.hidden_key=?",(user_id,guild_id,hidden_key)); row=await cur.fetchone()
-            if not row:return False,"That hidden quest has not been discovered yet."
-            if row[5] == 'claimed':return False,"You already claimed that hidden quest."
-            if row[5] != 'available':return False,"That hidden quest is not available yet."
-            await db.execute("UPDATE rpg_hidden_quest_progress SET status='claimed',updated_at=? WHERE guild_id=? AND user_id=? AND hidden_key=?",(time.time(),guild_id,user_id,hidden_key)); await db.commit()
-        await self.add_rewards(guild_id,user_id,row[1],row[2])
-        if row[3]: await self.add_item(guild_id,user_id,row[3],row[4])
-        return True,f"Hidden quest **{row[0]}** completed! +{row[1]} XP • +{row[2]} gold" + (f" • {ITEMS.get(row[3],{'name':row[3]})['name']} ×{row[4]}" if row[3] else '')
-
-    async def hidden_quests(self,guild_id,user_id):
-        await self._ensure_phase4_server(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT q.hidden_key,q.title,q.description,p.status,q.reward_xp,q.reward_gold,q.reward_item,q.reward_qty FROM rpg_hidden_quests q LEFT JOIN rpg_hidden_quest_progress p ON p.guild_id=q.guild_id AND p.user_id=? AND p.hidden_key=q.hidden_key WHERE q.guild_id=? ORDER BY q.hidden_key",(user_id,guild_id)); return await cur.fetchall()
-
-    async def server_events(self,guild_id):
-        await self._ensure_phase4_server(guild_id)
-        now=time.time()
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_server_events SET status='expired' WHERE guild_id=? AND status='active' AND expires_at<=?",(guild_id,now))
-            cur=await db.execute("SELECT id,name,description,event_type,target,progress,reward_xp,reward_gold,reward_item,reward_qty,status,expires_at FROM rpg_server_events WHERE guild_id=? ORDER BY status='active' DESC,expires_at",(guild_id,)); rows=await cur.fetchall()
-            if not any(r[10]=='active' for r in rows):
-                await db.execute("INSERT OR IGNORE INTO rpg_server_events(guild_id,event_key,name,description,event_type,target,reward_xp,reward_gold,reward_item,reward_qty,status,started_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(guild_id,'first_gathering','The First Gathering','The people of Horizon must collectively gather resources to prepare for a new chapter.','gather',50,500,750,'arcane_shard',3,'active',now,now+86400*7))
-                await db.commit()
-                cur=await db.execute("SELECT id,name,description,event_type,target,progress,reward_xp,reward_gold,reward_item,reward_qty,status,expires_at FROM rpg_server_events WHERE guild_id=? ORDER BY id DESC LIMIT 1",(guild_id,)); rows=[await cur.fetchone()]
-            return rows
-
-    async def contribute_server_event(self,guild_id,user_id,event_id,amount=1):
-        p=await self.player(guild_id,user_id)
-        if not p:return False,"Create a hero first."
-        amount=max(1,min(int(amount),10))
-        now=time.time()
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT event_type,target,progress,status,expires_at,reward_xp,reward_gold,reward_item,reward_qty FROM rpg_server_events WHERE guild_id=? AND id=?",(guild_id,event_id)); e=await cur.fetchone()
-            if not e:return False,"Server event not found."
-            if e[3]!='active' or e[4]<=now:return False,"That event is no longer active."
-            if e[2]>=e[1]:return False,"That event is already complete."
-            if e[0]=='gather':
-                # Spend a common resource so contribution cannot be generated for free.
-                cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key='herb'",(guild_id,user_id)); row=await cur.fetchone()
-                have=int(row[0]) if row else 0
-                amount=min(amount,have)
-                if amount<=0:return False,"You need herbs to contribute. Gather some first."
-                await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key='herb'",(amount,guild_id,user_id))
-            await db.execute("INSERT INTO rpg_server_event_contributions(event_id,guild_id,user_id,contribution) VALUES(?,?,?,?) ON CONFLICT(event_id,user_id) DO UPDATE SET contribution=contribution+excluded.contribution",(event_id,guild_id,user_id,amount))
-            new_progress=min(e[1],e[2]+amount); status='complete' if new_progress>=e[1] else 'active'
-            await db.execute("UPDATE rpg_server_events SET progress=?,status=? WHERE guild_id=? AND id=?",(new_progress,status,guild_id,event_id)); await db.commit()
-        if status=='complete':
-            # Everyone who contributed receives the event reward; one completion pass is enough.
-            async with aiosqlite.connect(self.path) as db:
-                cur=await db.execute("SELECT user_id FROM rpg_server_event_contributions WHERE event_id=?",(event_id,)); users=[r[0] for r in await cur.fetchall()]
-            for uid in users:
-                await self.add_rewards(guild_id,int(uid),e[5],e[6])
-                if e[7]: await self.add_item(guild_id,int(uid),e[7],e[8])
-        return True,f"Contributed **{amount}**. Server progress: **{new_progress}/{e[1]}**." + (" 🎉 The server event is complete!" if status=='complete' else "")
 
     async def title_list(self,guild_id,user_id):
         async with aiosqlite.connect(self.path) as db:
@@ -2720,13 +2558,6 @@ class RPGService:
         async with aiosqlite.connect(self.path) as db:
             await db.execute("INSERT OR IGNORE INTO rpg_titles VALUES(?,?,?,?)",(guild_id,user_id,title_key,time.time())); await db.commit()
         return True,f"Title unlocked: **{titles[title_key]}**."
-
-    async def housing(self,guild_id,user_id):
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT house_key,level,xp,storage_bonus,comfort FROM rpg_housing WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
-            if not row:
-                await db.execute("INSERT INTO rpg_housing(guild_id,user_id,created_at) VALUES(?,?,?)",(guild_id,user_id,time.time())); await db.commit(); return {"house_key":"cabin","level":1,"xp":0,"storage_bonus":0,"comfort":0}
-            return {"house_key":row[0],"level":row[1],"xp":row[2],"storage_bonus":row[3],"comfort":row[4]}
 
     async def check_achievements(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
@@ -3426,26 +3257,6 @@ class RPGService:
             cur=await db.execute("SELECT COALESCE(SUM(CASE WHEN gold_delta>0 THEN gold_delta ELSE 0 END),0),COALESCE(SUM(CASE WHEN gold_delta<0 THEN -gold_delta ELSE 0 END),0),COUNT(*) FROM rpg_economy_log WHERE guild_id=? AND user_id=?",(guild_id,user_id)); earned,spent,events=await cur.fetchone()
             cur=await db.execute("SELECT COUNT(*) FROM rpg_market WHERE guild_id=? AND seller_id=? AND status='sold'",(guild_id,user_id)); sold=(await cur.fetchone())[0]
         return {"gold":p["gold"],"gems":p["gems"],"earned":earned,"spent":spent,"events":events,"market_sold":sold}
-
-    async def housing_upgrade(self,guild_id,user_id):
-        house=await self.housing(guild_id,user_id); level=int(house["level"]); cost=1000*level
-        p=await self.player(guild_id,user_id)
-        if p["gold"]<cost:return False,f"House upgrade costs **{cost} gold**."
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id))
-            await db.execute("UPDATE rpg_housing SET level=level+1,xp=xp+?,storage_bonus=storage_bonus+5,comfort=comfort+10 WHERE guild_id=? AND user_id=?",(cost//10,guild_id,user_id)); await db.commit()
-        return True,f"Your home reached **Level {level+1}**. Storage +5, Comfort +10."
-
-    async def set_life_path(self,guild_id,user_id,path):
-        paths={"adventurer":"Balanced exploration rewards","merchant":"Improved trade income","craftsman":"Improved crafting progression","scholar":"Improved lore/quest rewards","ruler":"Improved social and kingdom reputation"}
-        path=str(path).lower().strip()
-        if path not in paths:return False,"Choose: adventurer, merchant, craftsman, scholar, ruler."
-        p=await self.player(guild_id,user_id)
-        if not p:return False,"Create a hero first."
-        if p["life_path"] and p["life_path"]!=path and p["level"]<20:return False,"Your first life-path choice is locked until level 20. Choose carefully."
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET life_path=? WHERE guild_id=? AND user_id=?",(path,guild_id,user_id)); await db.commit()
-        return True,f"Life path set to **{path.title()}** — {paths[path]}."
 
     async def guild_deposit(self,guild_id,user_id,amount):
         amount=max(1,amount); info=await self.guild_info(guild_id,user_id=user_id)
@@ -4165,7 +3976,7 @@ class RPGService:
             if await cur.fetchone():return False,"That kingdom already exists."
             await db.execute("INSERT INTO rpg_kingdoms(guild_id,name,ruler_id,treasury,created_at) VALUES(?,?,?,?,?)",(guild_id,name,user_id,0,time.time()))
             await db.execute("INSERT INTO rpg_kingdom_members VALUES(?,?,?,?,?)",(guild_id,name,user_id,"king",time.time()))
-            await db.execute("UPDATE rpg_players SET gold=gold-50000,kingdom_name=?,kingdom_role=?,title='King',life_path='royal',renown=renown+100 WHERE guild_id=? AND user_id=?",(name,"king",guild_id,user_id)); await db.commit()
+            await db.execute("UPDATE rpg_players SET gold=gold-50000,kingdom_name=?,kingdom_role=?,title='King',renown=renown+100 WHERE guild_id=? AND user_id=?",(name,"king",guild_id,user_id)); await db.commit()
         return True,f"**{name}** has been founded. You are its **King**."
 
     async def kingdom_join(self,guild_id,user_id,name):
@@ -4176,7 +3987,7 @@ class RPGService:
             if not row:return False,"Kingdom not found."
             await db.execute("DELETE FROM rpg_kingdom_members WHERE guild_id=? AND user_id=?",(guild_id,user_id))
             await db.execute("INSERT INTO rpg_kingdom_members VALUES(?,?,?,?,?)",(guild_id,row[0],user_id,"citizen",time.time()))
-            await db.execute("UPDATE rpg_players SET kingdom_name=?,kingdom_role='citizen',life_path='noble' WHERE guild_id=? AND user_id=?",(row[0],guild_id,user_id)); await db.commit()
+            await db.execute("UPDATE rpg_players SET kingdom_name=?,kingdom_role='citizen' WHERE guild_id=? AND user_id=?",(row[0],guild_id,user_id)); await db.commit()
         return True,f"You joined **{row[0]}** as a citizen."
 
     async def kingdom_info(self,guild_id,name=None,user_id=None):
@@ -4381,10 +4192,6 @@ class RPGService:
             async with aiosqlite.connect(self.path) as db:
                 cur=await db.execute("SELECT COALESCE(SUM(damage),0) FROM rpg_raid_damage WHERE guild_id=? AND user_id=?",(guild_id,user_id)); damage=(await cur.fetchone())[0]
             if damage<data["req_raid_damage"]:return False,f"Requires **{data['req_raid_damage']:,} total Raid damage**; you have **{damage:,}**."
-        if data.get("req_hidden",0):
-            async with aiosqlite.connect(self.path) as db:
-                cur=await db.execute("SELECT COUNT(*) FROM rpg_hidden_quest_progress WHERE guild_id=? AND user_id=? AND status='claimed'",(guild_id,user_id)); count=(await cur.fetchone())[0]
-            if count<data["req_hidden"]:return False,f"Requires **{data['req_hidden']} completed hidden quests**; you have **{count}**."
         return True,"Requirements met."
 
     async def awaken_secret_class(self,guild_id,user_id,key):
@@ -4565,287 +4372,39 @@ class RPGService:
 
 
 
-    async def _phase10_15_seed(self, guild_id):
-        now = time.time()
+
+    async def _seed_factions(self, guild_id):
         factions = [
-            ("horizon_guard", "Horizon Guard", "Protectors of roads, settlements and ordinary adventurers.", "order"),
+            ("horizon_guard", "Horizon Guard", "Protectors of roads, settlements and adventurers.", "order"),
             ("free_merchants", "Free Merchants", "Traders who value open routes, markets and independent commerce.", "commerce"),
-            ("arcane_circle", "Arcane Circle", "Scholars who pursue magic, relics and forgotten knowledge.", "knowledge"),
-            ("wildbound", "Wildbound", "Explorers and wardens who defend the wilderness and its creatures.", "nature"),
+            ("arcane_circle", "Arcane Circle", "Scholars who pursue magic and relics.", "knowledge"),
+            ("wildbound", "Wildbound", "Explorers and wardens who defend the wilderness.", "nature"),
         ]
         async with aiosqlite.connect(self.path) as db:
-            await db.execute(
-                "INSERT OR IGNORE INTO rpg_world_state(guild_id,world_day,weather,season,stability,last_tick) VALUES(?,?,?,?,?,?)",
-                (guild_id, 1, "clear", "spring", 100, now),
-            )
             for key, name, desc, ideology in factions:
                 await db.execute(
                     "INSERT OR IGNORE INTO rpg_factions(guild_id,faction_key,name,description,ideology) VALUES(?,?,?,?,?)",
                     (guild_id, key, name, desc, ideology),
                 )
-            projects = [
-                ("village_watchtower", "Build the Village Watchtower", "Raise a watchtower overlooking Horizon Village.", "horizon_village", 1000, 1500, 2500),
-                ("road_restoration", "Restore the Eastern Road", "Repair the road and reopen a safer route.", "horizon_village", 1500, 2200, 3500),
-            ]
-            for key, name, desc, area, target, xp, gold in projects:
-                await db.execute(
-                    "INSERT OR IGNORE INTO rpg_world_projects(guild_id,project_key,name,description,area_key,target,reward_xp,reward_gold,status,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    (guild_id, key, name, desc, area, target, xp, gold, "active", now + 86400 * 30),
-                )
-            schedules = [
-                ("village_keeper", 8, "horizon_village", "opens the market"),
-                ("village_keeper", 14, "horizon_village", "checks the town square"),
-                ("village_keeper", 20, "horizon_village", "closes the market"),
-                ("lorekeeper", 10, "horizon_village", "studies old records"),
-                ("lorekeeper", 18, "horizon_village", "shares rumors"),
-            ]
-            for npc, hour, area, activity in schedules:
-                await db.execute(
-                    "INSERT OR IGNORE INTO rpg_npc_schedules(guild_id,npc_key,hour,area_key,activity) VALUES(?,?,?,?,?)",
-                    (guild_id, npc, hour, area, activity),
-                )
-            await db.commit()
-
-    async def _chronicle(self, guild_id, user_id, event_key, title, body, area_key=""):
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute(
-                "INSERT INTO rpg_chronicle(guild_id,user_id,event_key,title,body,area_key,created_at) VALUES(?,?,?,?,?,?,?)",
-                (guild_id, user_id, event_key, title, body, area_key, time.time()),
-            )
             await db.commit()
 
     async def quest_journal(self, guild_id, user_id):
-        await self._phase10_15_seed(guild_id)
         async with aiosqlite.connect(self.path) as db:
             cur = await db.execute(
                 "SELECT status,COUNT(*) FROM rpg_player_quests WHERE guild_id=? AND user_id=? GROUP BY status",
                 (guild_id, user_id),
             )
             counts = {r[0]: r[1] for r in await cur.fetchall()}
-            cur = await db.execute(
-                "SELECT q.chain_key,MAX(q.chain_step),MAX(CASE WHEN p.status='claimed' THEN q.chain_step ELSE 0 END) "
-                "FROM rpg_quests q LEFT JOIN rpg_player_quests p ON p.quest_id=q.id AND p.guild_id=? AND p.user_id=? "
-                "WHERE q.guild_id=? AND q.chain_key!='' GROUP BY q.chain_key ORDER BY q.chain_key",
-                (guild_id, user_id, guild_id),
-            )
-            chains = await cur.fetchall()
-        return counts, chains
-
-    async def world_state(self, guild_id, user_id=0):
-        await self._phase10_15_seed(guild_id)
-        hour = int((time.time() / 3600) % 24)
-        day = int(time.time() // 3600) + 1
-        seasons = ("spring", "summer", "autumn", "winter")
-        season = seasons[(day // 30) % 4]
-        weather_pool = ("clear", "cloudy", "rain", "windy", "foggy", "storm")
-        weather = weather_pool[(guild_id // 7 + day * 3) % len(weather_pool)]
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute("SELECT stability FROM rpg_world_state WHERE guild_id=?", (guild_id,))
-            row = await cur.fetchone()
-            await db.execute(
-                "UPDATE rpg_world_state SET world_day=?,weather=?,season=?,last_tick=? WHERE guild_id=?",
-                (day, weather, season, time.time(), guild_id),
-            )
-            cur = await db.execute(
-                "SELECT npc_key,activity,area_key FROM rpg_npc_schedules WHERE guild_id=? AND hour=?",
-                (guild_id, hour),
-            )
-            schedules = await cur.fetchall()
-            await db.commit()
-        return {"day": day, "hour": hour, "weather": weather, "season": season, "stability": row[0] if row else 100, "schedules": schedules}
-
-    async def rumors(self, guild_id, user_id=0):
-        state = await self.world_state(guild_id, user_id)
-        now = time.time()
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute(
-                "SELECT id,text,area_key,source_npc,expires_at FROM rpg_rumors WHERE guild_id=? AND expires_at>? ORDER BY id DESC LIMIT 8",
-                (guild_id, now),
-            )
-            rows = await cur.fetchall()
-            if not rows:
-                candidates = [
-                    (f"Travelers whisper that the frontier weather is turning {state['weather']}.", "", "village_keeper"),
-                    ("A merchant claims rare materials have appeared beyond the safer roads.", "", "village_keeper"),
-                    ("Someone in the archives found a reference to a forgotten path.", "horizon_village", "lorekeeper"),
-                ]
-                for text, area, npc in candidates:
-                    await db.execute(
-                        "INSERT INTO rpg_rumors(guild_id,text,area_key,source_npc,created_at,expires_at) VALUES(?,?,?,?,?,?)",
-                        (guild_id, text, area, npc, now, now + 86400 * 2),
-                    )
-                await db.commit()
-                cur = await db.execute(
-                    "SELECT id,text,area_key,source_npc,expires_at FROM rpg_rumors WHERE guild_id=? AND expires_at>? ORDER BY id DESC LIMIT 8",
-                    (guild_id, now),
-                )
-                rows = await cur.fetchall()
-        return state, rows
-
-    async def story_memory(self, guild_id, user_id):
-        await self._phase10_15_seed(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute(
-                "SELECT chapter,flags_json,choices_json FROM rpg_story_memory WHERE guild_id=? AND user_id=?",
-                (guild_id, user_id),
-            )
-            row = await cur.fetchone()
-            if not row:
-                await db.execute(
-                    "INSERT INTO rpg_story_memory(guild_id,user_id,chapter,flags_json,choices_json,updated_at) VALUES(?,?,?,?,?,?)",
-                    (guild_id, user_id, 1, "{}", "[]", time.time()),
-                )
-                await db.commit()
-                return 1, {}, []
-        try:
-            flags = json.loads(row[1] or "{}")
-            choices = json.loads(row[2] or "[]")
-        except Exception:
-            flags, choices = {}, []
-        return row[0], flags, choices
-
-    async def story_choose(self, guild_id, user_id, choice):
-        choice = str(choice).lower().strip()
-        chapter, flags, choices = await self.story_memory(guild_id, user_id)
-        options = {
-            1: {
-                "guard": "You pledged to protect the roads.",
-                "merchant": "You chose open trade and safer markets.",
-                "arcane": "You agreed to preserve forbidden knowledge.",
-                "wild": "You swore to protect the wild frontier.",
-            }
-        }
-        if chapter not in options or choice not in options[chapter]:
-            return False, "Choose one of: `guard`, `merchant`, `arcane`, `wild`."
-        flags[f"chapter_{chapter}"] = choice
-        choices.append({"chapter": chapter, "choice": choice, "at": int(time.time())})
-        new_chapter = chapter + 1
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute(
-                "UPDATE rpg_story_memory SET chapter=?,flags_json=?,choices_json=?,updated_at=? WHERE guild_id=? AND user_id=?",
-                (new_chapter, json.dumps(flags), json.dumps(choices[-20:]), time.time(), guild_id, user_id),
-            )
-            await db.commit()
-        await self._chronicle(guild_id, user_id, "story_choice", f"Chapter {chapter} — {choice.title()}", options[chapter][choice])
-        await self.add_rewards(guild_id, user_id, 150 * chapter, 100 * chapter)
-        return True, f"Your choice is remembered by Horizon. **Chapter {new_chapter}** begins.\n{options[chapter][choice]}\n\nThe Chronicle has recorded this decision."
-
-    async def chronicle(self, guild_id, user_id=0, limit=12):
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute(
-                "SELECT title,body,area_key,created_at,user_id FROM rpg_chronicle WHERE guild_id=? ORDER BY id DESC LIMIT ?",
-                (guild_id, max(1, min(30, int(limit)))),
-            )
-            return await cur.fetchall()
-
-    async def structures(self, guild_id, user_id):
-        await self._phase10_15_seed(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute(
-                "SELECT id,structure_key,name,area_key,level,materials_json FROM rpg_world_structures WHERE guild_id=? AND user_id=? ORDER BY id DESC",
-                (guild_id, user_id),
-            )
-            return await cur.fetchall()
-
-    async def build_structure(self, guild_id, user_id, structure_key):
-        p = await self.player(guild_id, user_id)
-        if not p:
-            return False, "Create a hero first."
-        specs = {
-            "camp": ("Frontier Camp", {"wood": 20, "stone": 10}, "Resting at your camp restores a little extra stamina."),
-            "workshop": ("Crafting Workshop", {"wood": 30, "iron_ore": 10, "stone": 20}, "A base for crafting progression."),
-            "watchtower": ("Watchtower", {"wood": 40, "stone": 40, "iron_ore": 20}, "A lookout over the frontier."),
-            "shrine": ("Horizon Shrine", {"wood": 15, "stone": 25, "herb": 10}, "A place to recover and record memories."),
-            "market_stall": ("Market Stall", {"wood": 25, "iron_ore": 10}, "A base for merchant activity."),
-        }
-        key = str(structure_key).lower().strip()
-        if key not in specs:
-            return False, "Build one of: `camp`, `workshop`, `watchtower`, `shrine`, `market_stall`."
-        name, costs, desc = specs[key]
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute(
-                "SELECT id,level FROM rpg_world_structures WHERE guild_id=? AND user_id=? AND structure_key=? AND area_key=?",
-                (guild_id, user_id, key, p["area_key"]),
-            )
-            if await cur.fetchone():
-                return False, f"You already have a **{name}** here."
-            for item, qty in costs.items():
-                cur = await db.execute(
-                    "SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",
-                    (guild_id, user_id, item),
-                )
-                row = await cur.fetchone()
-                if not row or row[0] < qty:
-                    return False, f"You need **{qty} {ITEMS.get(item, {'name': item})['name']}**."
-            for item, qty in costs.items():
-                await db.execute(
-                    "UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",
-                    (qty, guild_id, user_id, item),
-                )
-            await db.execute(
-                "INSERT INTO rpg_world_structures(guild_id,user_id,structure_key,name,area_key,level,materials_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                (guild_id, user_id, key, name, p["area_key"], 1, json.dumps(costs), time.time()),
-            )
-            await db.commit()
-        area_name = AREAS.get(p["area_key"], {}).get("name", p["area_key"])
-        await self._chronicle(guild_id, user_id, "structure_built", f"{name} established", f"{p['name']} built a {name.lower()} in {area_name}.", p["area_key"])
-        return True, f"Built **{name}** in **{area_name}**.\n{desc}"
-
-    async def projects(self, guild_id):
-        await self._phase10_15_seed(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute(
-                "SELECT id,project_key,name,description,area_key,target,progress,reward_xp,reward_gold,status,expires_at FROM rpg_world_projects WHERE guild_id=? ORDER BY status,id",
-                (guild_id,),
-            )
-            return await cur.fetchall()
-
-    async def contribute_project(self, guild_id, user_id, project_id, amount):
-        amount = max(1, int(amount))
-        p = await self.player(guild_id, user_id)
-        if not p:
-            return False, "Create a hero first."
-        async with aiosqlite.connect(self.path) as db:
-            cur = await db.execute(
-                "SELECT target,progress,status,reward_xp,reward_gold,name FROM rpg_world_projects WHERE guild_id=? AND id=?",
-                (guild_id, project_id),
-            )
-            proj = await cur.fetchone()
-            if not proj:
-                return False, "Project not found."
-            if proj[2] != "active":
-                return False, "That project is no longer active."
-            amount = min(amount, max(0, proj[0] - proj[1]))
-            if amount <= 0:
-                return False, "That project is already complete."
-            if p["gold"] < amount:
-                return False, f"You need **{amount} gold** to contribute that much."
-            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?", (amount, guild_id, user_id))
-            await db.execute("UPDATE rpg_world_projects SET progress=MIN(target,progress+?) WHERE guild_id=? AND id=?", (amount, guild_id, project_id))
-            await db.execute(
-                "INSERT INTO rpg_project_contributions(project_id,guild_id,user_id,contribution) VALUES(?,?,?,?) "
-                "ON CONFLICT(project_id,user_id) DO UPDATE SET contribution=contribution+excluded.contribution",
-                (project_id, guild_id, user_id, amount),
-            )
-            cur = await db.execute("SELECT progress,target,reward_xp,reward_gold,name FROM rpg_world_projects WHERE guild_id=? AND id=?", (guild_id, project_id))
-            after = await cur.fetchone()
-            completed = after[0] >= after[1]
-            if completed:
-                await db.execute("UPDATE rpg_world_projects SET status='complete' WHERE guild_id=? AND id=?", (guild_id, project_id))
-            await db.commit()
-        if completed:
-            await self.add_rewards(guild_id, user_id, after[2], after[3])
-        await self._chronicle(guild_id, user_id, "project_contribution", f"Project contribution — {after[4]}", f"A contribution of {amount} gold was added to a server construction project.")
-        return True, f"Contributed **{amount} gold**. Project progress: **{after[0]}/{after[1]}**." + (f"\nProject completed! You receive **+{after[2]} XP** and **+{after[3]} gold**." if completed else "")
+        return counts, []
 
     async def factions(self, guild_id):
-        await self._phase10_15_seed(guild_id)
+        await self._seed_factions(guild_id)
         async with aiosqlite.connect(self.path) as db:
             cur = await db.execute("SELECT faction_key,name,description,ideology FROM rpg_factions WHERE guild_id=? ORDER BY name", (guild_id,))
             return await cur.fetchall()
 
     async def faction_status(self, guild_id, user_id):
-        await self._phase10_15_seed(guild_id)
+        await self._seed_factions(guild_id)
         async with aiosqlite.connect(self.path) as db:
             cur = await db.execute("SELECT faction_key,reputation,rank,joined_at FROM rpg_faction_members WHERE guild_id=? AND user_id=?", (guild_id, user_id))
             return await cur.fetchone()
@@ -4868,40 +4427,7 @@ class RPGService:
                 (guild_id, user_id, key, 0, "outsider", time.time()),
             )
             await db.commit()
-        await self._chronicle(guild_id, user_id, "faction_join", f"Joined {factions[key][1]}", f"A new allegiance was recorded with the {factions[key][1]}.")
         return True, f"You joined **{factions[key][1]}**. Your faction reputation starts at **0**."
-
-    async def faction_rep(self, guild_id, user_id, amount=10):
-        row = await self.faction_status(guild_id, user_id)
-        if not row:
-            return False, "Join a faction first."
-        async with aiosqlite.connect(self.path) as db:
-            new = max(-1000, min(5000, row[1] + int(amount)))
-            rank = "outsider" if new < 100 else "member" if new < 500 else "veteran" if new < 1000 else "champion" if new < 2500 else "paragon"
-            await db.execute("UPDATE rpg_faction_members SET reputation=?,rank=? WHERE guild_id=? AND user_id=?", (new, rank, guild_id, user_id))
-            await db.commit()
-        return True, f"Faction reputation changed to **{new}** (**{rank.title()}**)."
-
-    async def faction_relation(self, guild_id, user_id, other_key, relation):
-        me = await self.faction_status(guild_id, user_id)
-        if not me:
-            return False, "Join a faction first."
-        relation = str(relation).lower().strip()
-        if relation not in {"allied", "neutral", "rival"}:
-            return False, "Relation must be `allied`, `neutral`, or `rival`."
-        keys = {r[0] for r in await self.factions(guild_id)}
-        if other_key not in keys or other_key == me[0]:
-            return False, "Choose another valid faction key."
-        if me[1] < 1000:
-            return False, "You need **1000 faction reputation** to propose diplomacy."
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute(
-                "INSERT INTO rpg_faction_relations(guild_id,faction_a,faction_b,relation,updated_at) VALUES(?,?,?,?,?) "
-                "ON CONFLICT(guild_id,faction_a,faction_b) DO UPDATE SET relation=excluded.relation,updated_at=excluded.updated_at",
-                (guild_id, me[0], other_key, relation, time.time()),
-            )
-            await db.commit()
-        return True, f"Your faction's diplomatic stance toward **{other_key}** is now **{relation}**."
 
     async def endgame_status(self, guild_id, user_id):
         p = await self.player(guild_id, user_id)
@@ -4927,164 +4453,6 @@ class RPGService:
             await db.commit()
         return {"level": p["level"], "arena": arena, "legendary": legendary, "secret_classes": secrets, "raid_damage": raid_damage, "mastery": mastery, "ascension": ascension}
 
-    async def _seed_v14_content(self, guild_id):
-        mysteries = [
-            ("worldroot_echo", "Echo of the Worldroot", "A pulse beneath Horizon Village repeats an event from the distant past.", "worldroot", 10, "", "horizon_village", 3, 1200, 900, "chronicle_shard", 1),
-            ("nameless_city", "The Nameless City", "A city appears on maps only when the eastern seal is disturbed.", "location", 25, "", "sealed_gate", 5, 2500, 1800, "arcane_shard", 5),
-            ("broken_compass", "The Compass That Lies", "The Broken Compass points toward a place that should not exist.", "artifact", 35, "story_guard", "whispering_woods", 7, 5000, 3500, "chronicle_shard", 2),
-            ("silent_moon", "The Silent Moon", "For one night the moon casts no shadow, and old NPC records change.", "cosmic", 50, "", "horizon_village", 10, 9000, 6000, "star_fragment", 1),
-        ]
-        events = [
-            ("worldroot_wake", "Worldroot Awakening", "The Worldroot is stirring. Players must stabilize four regions before the anomaly spreads.", "world_threat", 1000, 12000, 9000, "chronicle_shard", 1),
-            ("rift_storm", "Riftstorm", "Reality fractures across the world. Exploration and combat contributions close the rifts.", "world_threat", 1500, 16000, 12000, "arcane_shard", 8),
-        ]
-        async with aiosqlite.connect(self.path) as db:
-            for row in mysteries:
-                await db.execute("INSERT OR IGNORE INTO rpg_mysteries(guild_id,mystery_key,name,description,category,required_level,required_flag,area_key,discovery_threshold,reward_xp,reward_gold,reward_item,reward_qty) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)", (guild_id,*row))
-            # A world-scale event is opt-in to activation; only one can be active at a time.
-            for key,name,desc,etype,target,xp,gold,item,qty in events:
-                await db.execute("INSERT OR IGNORE INTO rpg_server_events(guild_id,event_key,name,description,event_type,target,reward_xp,reward_gold,reward_item,reward_qty,status,started_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?, 'dormant',0,0)", (guild_id,key,name,desc,etype,target,xp,gold,item,qty))
-            await db.execute("INSERT OR IGNORE INTO rpg_world_event_state(guild_id) VALUES(?)", (guild_id,))
-            await db.execute("INSERT OR IGNORE INTO rpg_rpg_completion(guild_id,updated_at) VALUES(?,?)", (guild_id,time.time()))
-            await db.commit()
-
-    async def mysteries(self, guild_id, user_id):
-        await self._seed_v14_content(guild_id)
-        p=await self.player(guild_id,user_id)
-        level=int(p['level']) if p else 0
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT mystery_key,name,description,category,required_level,area_key,discovery_threshold,reward_xp,reward_gold,reward_item,reward_qty FROM rpg_mysteries WHERE guild_id=? ORDER BY required_level,mystery_key", (guild_id,))
-            rows=await cur.fetchall()
-            out=[]
-            for r in rows:
-                cur2=await db.execute("SELECT progress,discovered FROM rpg_mystery_progress WHERE guild_id=? AND user_id=? AND mystery_key=?", (guild_id,user_id,r[0]))
-                pr=await cur2.fetchone()
-                out.append((*r, int(pr[0]) if pr else 0, bool(pr[1]) if pr else False, level>=int(r[4])))
-            return out
-
-    async def investigate_mystery(self, guild_id, user_id, key):
-        key=str(key).lower().strip(); rows=await self.mysteries(guild_id,user_id)
-        row=next((r for r in rows if r[0]==key),None)
-        if not row:return False,"That mystery does not exist."
-        _,name,desc,category,req,area,threshold,xp,gold,item,qty,progress,discovered,eligible=row
-        if not eligible:return False,f"**{name}** requires level **{req}**."
-        if discovered:return True,f"**{name}** is already recorded in your discoveries."
-        progress=min(int(threshold),int(progress)+1)
-        now=time.time()
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("INSERT INTO rpg_mystery_progress(guild_id,user_id,mystery_key,progress,discovered,updated_at) VALUES(?,?,?,?,?,?) ON CONFLICT(guild_id,user_id,mystery_key) DO UPDATE SET progress=excluded.progress,discovered=excluded.discovered,updated_at=excluded.updated_at", (guild_id,user_id,key,progress,int(progress>=threshold),now))
-            if progress>=threshold:
-                await db.execute("INSERT OR IGNORE INTO rpg_world_memory(guild_id,user_id,memory_key,category,summary,consequence_json,created_at) VALUES(?,?,?,?,?,?,?)", (guild_id,user_id,'mystery:'+key,'mystery',f'{name}: {desc}',json.dumps({'reward_xp':xp,'reward_gold':gold,'reward_item':item,'reward_qty':qty}),now))
-                await db.commit()
-            else:
-                await db.commit()
-        if progress>=threshold:
-            await self.add_rewards(guild_id,user_id,xp,gold)
-            if item: await self.add_item(guild_id,user_id,item,qty,event_type='mystery_reward')
-            await self._chronicle(guild_id,user_id,'mystery_discovered',f'Mystery discovered — {name}',desc,area)
-            return True,f"**{name}** discovered. Rewards: **+{xp} XP**, **+{gold} gold**" + (f", **{item} ×{qty}**" if item else '') + "."
-        return True,f"You found another clue for **{name}**. Progress: **{progress}/{threshold}**."
-
-    async def anomalies(self, guild_id):
-        await self._seed_v14_content(guild_id)
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT anomaly_key,area_key,severity,state,started_at,resolved_at FROM rpg_anomalies WHERE guild_id=? ORDER BY id DESC",(guild_id,))
-            return await cur.fetchall()
-
-    async def world_event_status(self,guild_id):
-        await self._seed_v14_content(guild_id)
-        now=time.time()
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_server_events SET status='expired' WHERE guild_id=? AND status='active' AND expires_at<=?",(guild_id,now))
-            await db.commit()
-            cur=await db.execute("SELECT id,event_key,name,description,event_type,target,progress,reward_xp,reward_gold,reward_item,reward_qty,status,started_at,expires_at FROM rpg_server_events WHERE guild_id=? AND event_type='world_threat' ORDER BY id DESC",(guild_id,))
-            return await cur.fetchall()
-
-    async def start_world_event(self,guild_id,user_id,key):
-        rows=await self.world_event_status(guild_id); key=str(key).lower().strip()
-        row=next((r for r in rows if r[1]==key),None)
-        if not row:return False,"That world-scale event does not exist."
-        if row[11]=='active':return False,"A world-scale event is already active."
-        if row[11]=='complete':return False,"That event has already been completed."
-        now=time.time(); expires=now+72*3600
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_server_events SET status='dormant' WHERE guild_id=? AND event_type='world_threat' AND status='active'",(guild_id,))
-            await db.execute("UPDATE rpg_server_events SET status='active',started_at=?,expires_at=?,progress=0 WHERE guild_id=? AND event_key=?",(now,expires,guild_id,key))
-            await db.execute("UPDATE rpg_world_event_state SET event_key=?,phase='awakening',threat=25,world_progress=0,started_at=?,updated_at=? WHERE guild_id=?",(key,now,now,guild_id))
-            await db.commit()
-        await self._chronicle(guild_id,user_id,'world_event_started',f'World-scale event — {row[2]}',row[3])
-        return True,f"**{row[2]}** has begun. The entire server can contribute for the next **72 hours**."
-
-    async def contribute_world_event(self,guild_id,user_id,event_id,amount=1):
-        amount=max(1,min(1000,int(amount)))
-        rows=await self.world_event_status(guild_id); row=next((r for r in rows if int(r[0])==int(event_id)),None)
-        if not row or row[11]!='active':return False,"That world event is not active."
-        p=await self.player(guild_id,user_id)
-        if not p:return False,"Create a hero first."
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT progress,target FROM rpg_server_events WHERE guild_id=? AND id=?",(guild_id,event_id)); e=await cur.fetchone()
-            if not e:return False,"Event not found."
-            amount=min(amount,max(0,int(e[1])-int(e[0])))
-            if amount<=0:return False,"The event is already complete."
-            await db.execute("UPDATE rpg_server_events SET progress=MIN(target,progress+?) WHERE guild_id=? AND id=?",(amount,guild_id,event_id))
-            await db.execute("INSERT INTO rpg_server_event_contributions(event_id,guild_id,user_id,contribution) VALUES(?,?,?,?) ON CONFLICT(event_id,user_id) DO UPDATE SET contribution=contribution+excluded.contribution",(event_id,guild_id,user_id,amount))
-            await db.execute("UPDATE rpg_world_event_state SET world_progress=world_progress+?,threat=MAX(0,threat-?),phase='containment',updated_at=? WHERE guild_id=?",(amount,max(1,amount//10),time.time(),guild_id))
-            cur=await db.execute("SELECT progress,target,reward_xp,reward_gold,reward_item,reward_qty,name FROM rpg_server_events WHERE guild_id=? AND id=?",(guild_id,event_id)); after=await cur.fetchone()
-            complete=int(after[0])>=int(after[1])
-            if complete: await db.execute("UPDATE rpg_server_events SET status='complete' WHERE guild_id=? AND id=?",(guild_id,event_id))
-            await db.commit()
-        if complete:
-            await self.add_rewards(guild_id,user_id,after[2],after[3])
-            if after[4]: await self.add_item(guild_id,user_id,after[4],after[5],event_type='world_event_reward')
-            await self._chronicle(guild_id,user_id,'world_event_complete',f'World-scale event resolved — {after[6]}','The community reached the required contribution target.')
-            return True,f"The server completed **{after[6]}**. You earned **+{after[2]} XP** and **+{after[3]} gold**."
-        await self._chronicle(guild_id,user_id,'world_event_contribution',f'Contribution to {after[6]}',f'You contributed {amount} progress to a world-scale threat.')
-        return True,f"You contributed **{amount}**. Event progress: **{after[0]}/{after[1]}**."
-
-    async def memory_list(self,guild_id,user_id=0,limit=20):
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT memory_key,category,summary,consequence_json,created_at,user_id FROM rpg_world_memory WHERE guild_id=? AND (user_id=? OR user_id=0) ORDER BY created_at DESC LIMIT ?",(guild_id,user_id,int(limit)))
-            return await cur.fetchall()
-
-    async def record_memory(self,guild_id,user_id,memory_key,category,summary,consequence=None):
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("INSERT INTO rpg_world_memory(guild_id,user_id,memory_key,category,summary,consequence_json,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(guild_id,user_id,memory_key) DO UPDATE SET summary=excluded.summary,consequence_json=excluded.consequence_json,created_at=excluded.created_at",(guild_id,user_id,memory_key,category,summary,json.dumps(consequence or {},separators=(',',':')),time.time()))
-            await db.commit()
-        return True
-
-    async def completion_audit(self,guild_id,user_id):
-        p=await self.player(guild_id,user_id)
-        checks={
-            'character': bool(p),
-            'world': bool(p and p.get('area_key')),
-            'combat': bool(p),
-            'equipment': bool(p),
-            'crafting': False,
-            'economy': False,
-            'pets': False,
-            'life': False,
-            'social': False,
-            'quests': False,
-            'living_world': False,
-            'story_memory': False,
-            'construction': False,
-            'factions': False,
-            'endgame': False,
-            'mysteries': False,
-            'world_events': False,
-            'world_memory': False,
-        }
-        async with aiosqlite.connect(self.path) as db:
-            tables=['rpg_professions','rpg_market','rpg_pet_inventory','rpg_housing','rpg_social_reputation','rpg_player_quests','rpg_world_state','rpg_story_memory','rpg_world_structures','rpg_faction_members','rpg_endgame_progress','rpg_mysteries','rpg_server_events','rpg_world_memory']
-            for key,table in zip(['crafting','economy','pets','life','social','quests','living_world','story_memory','construction','factions','endgame','mysteries','world_events','world_memory'],tables):
-                cur=await db.execute(f'SELECT 1 FROM {table} WHERE guild_id=? LIMIT 1',(guild_id,)); checks[key]=bool(await cur.fetchone())
-        # RPG completion is an integration audit, not a claim that Phase 20 public-platform work is done.
-        completed=sum(1 for v in checks.values() if v); total=len(checks)
-        now=time.time()
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute("INSERT INTO rpg_rpg_completion(guild_id,phase16,phase17,phase18,phase19,audit_json,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(guild_id) DO UPDATE SET phase16=excluded.phase16,phase17=excluded.phase17,phase18=excluded.phase18,phase19=excluded.phase19,audit_json=excluded.audit_json,updated_at=excluded.updated_at",(guild_id,int(checks['mysteries']),int(checks['world_events']),int(checks['world_memory']),int(completed==total),json.dumps(checks,separators=(',',':')),now))
-            await db.commit()
-        return checks,completed,total
 
     async def endgame_ascend(self, guild_id, user_id):
         status = await self.endgame_status(guild_id, user_id)
@@ -5101,5 +4469,4 @@ class RPGService:
             await db.execute("UPDATE rpg_endgame_progress SET ascension=?,updated_at=? WHERE guild_id=? AND user_id=?", (new_level, time.time(), guild_id, user_id))
             await db.execute("UPDATE rpg_players SET renown=renown+500,fame=fame+250 WHERE guild_id=? AND user_id=?", (guild_id, user_id))
             await db.commit()
-        await self._chronicle(guild_id, user_id, "ascension", f"Ascension {new_level}", "A hero crossed beyond ordinary endgame progression.")
         return True, f"**Ascension {new_level}** achieved. You gained **+500 Renown** and **+250 Fame**."
