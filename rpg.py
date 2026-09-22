@@ -3791,6 +3791,19 @@ class RPGService:
                 self.active_combats.pop(key,None)
                 await self._delete_combat_session(guild_id,user_id)
                 return {"error":"Your previous battle state was incomplete, so Horizon cleared it. You can start a new battle now."}
+
+            # A requested dungeon must match the dungeon run already in progress.
+            # Previously every `!rpg dungeon <name>` call blindly resumed the
+            # saved run, which made it look like players were permanently stuck
+            # in one dungeon and could not return to easier content. Keep the
+            # persistent recovery behavior, but require the player to finish or
+            # flee the current run before selecting a different dungeon.
+            if mode == "dungeon" and dungeon_name:
+                requested = str(dungeon_name).strip().casefold()
+                current = str(persisted.get("name") or "").strip().casefold()
+                if current != requested:
+                    return {"error":f"You are currently in **{persisted.get('name','a dungeon')}** on **Floor {int(persisted.get('floor',1))}/{int(persisted.get('floors',1))}**. Finish it or press **🏃 Flee** before entering another dungeon. You can then use `!rpg dungeon <name>` to choose any dungeon you have unlocked."}
+
             self.active_combats[key]=persisted
             return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
 
