@@ -187,8 +187,8 @@ class Horizon(commands.Bot):
     def ai_context_from_rows(self, rows, prompt):
         return _relevant_ai_context(rows, prompt)
 
-    def build_ai_system(self, guild_name, user_name, memories, personality, profile, context):
-        return build_system(guild_name, user_name, memories, personality, profile, context)
+    def build_ai_system(self, guild_name, user_name, memories, personality, profile, context, prompt=""):
+        return build_system(guild_name, user_name, memories, personality, profile, context, prompt=prompt)
 
     async def on_guild_join(self, guild: discord.Guild):
         await self.db.settings(guild.id)
@@ -328,7 +328,43 @@ class Horizon(commands.Bot):
 bot = Horizon()
 
 
-def build_system(guild_name, user_name, memories, personality, profile, context, server_history=""):
+def _ai_tone_cue(prompt: str, context: str = "") -> str:
+    """Return a request-local tone hint. It deliberately expires after this reply.
+
+    Playful mode is opt-in from the current conversation rather than a persistent
+    personality state. This prevents a joke/roast session from leaking into the
+    next serious or technical question.
+    """
+    text = (prompt or "").strip().lower()
+    explicit_playful = (
+        "i'm bored" in text or "im bored" in text or "i am bored" in text
+        or "bored af" in text or "so bored" in text
+        or "make me laugh" in text or "tell me a joke" in text
+        or "roast me" in text or "roast us" in text
+        or "mess around" in text or "mess with me" in text
+        or "let's joke" in text or "lets joke" in text
+        or "let's banter" in text or "lets banter" in text
+        or "be sarcastic" in text or "be a little sarcastic" in text
+        or "sarcasm mode" in text or "banter mode" in text
+    )
+    if explicit_playful:
+        return (
+            "PLAYFUL MOMENT: The user is explicitly inviting light humor right now. "
+            "You may use mild sarcasm, teasing, or a short joke when it fits. Keep it "
+            "natural and concise; do not turn the reply into a comedy routine. This cue "
+            "applies ONLY to the current response and must not carry into the next request. "
+            "If the user changes subject or asks a normal/serious question, immediately "
+            "return to the normal conversational tone."
+        )
+    return (
+        "NORMAL MOMENT: Do not intentionally add sarcasm or banter. Respond naturally "
+        "to the current request. A small spontaneous joke is fine only if it genuinely "
+        "fits; do not continue a previous playful mood when the user has changed subject."
+    )
+
+
+def build_system(guild_name, user_name, memories, personality, profile, context, server_history="", prompt=""):
+    tone_cue = _ai_tone_cue(prompt, context)
     return f"""
 You are Horizon, the AI companion of the Discord server "{guild_name}".
 Your personality is calm, observant, friendly, practical, and naturally conversational.
@@ -364,6 +400,8 @@ HUMOR AND PERSONALITY:
 TONE SWITCHING:
 - Casual conversation: relaxed and natural.
 - User is joking: playful if appropriate, but concise.
+- If the TONE CUE below says PLAYFUL MOMENT, a little sarcasm or teasing is allowed.
+- If it says NORMAL MOMENT, do not deliberately continue earlier banter.
 - User is frustrated or upset: calm, helpful, and stop unnecessary joking.
 - Serious topic: serious and respectful.
 - Technical question: precise and practical.
@@ -419,6 +457,9 @@ RELEVANT PUBLIC SERVER HISTORY:
 
 CURRENT SPEAKER: {user_name}
 
+TONE CUE FOR THIS RESPONSE ONLY:
+{tone_cue}
+
 Respond as a sensible conversational companion. Be natural first, useful second,
 and entertaining only when the conversation calls for it.
 """.strip()
@@ -448,7 +489,7 @@ async def ai_reply(guild_id, user_id, name, text, channel_id=None):
     server_history=await bot.ai_server_context(guild_id,channel_id,text) if channel_id else ""
     guild=bot.get_guild(guild_id)
     guild_name=guild.name if guild else 'Log Horizon'
-    system=build_system(guild_name,name,memory_text,settings['personality'],profile_text,context,server_history)
+    system=build_system(guild_name,name,memory_text,settings['personality'],profile_text,context,server_history,text)
     await bot.db.add_ai_message(guild_id,scope_id,'user',f"{name} (user_id={user_id}): {text}")
     try:
         answer=await bot.ai.generate(system,text)

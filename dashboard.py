@@ -516,7 +516,7 @@ class Dashboard:
         rows = await self.bot.db.ai_conversation(guild_id, scope_id, 120)
         context = self.bot.ai_context_from_rows(rows, message)
         memory_text = "\n".join(f"- {row[1]}" for row in memories)
-        system = self.bot.build_ai_system(guild.name, name, memory_text, settings["personality"], profile_text, context)
+        system = self.bot.build_ai_system(guild.name, name, memory_text, settings["personality"], profile_text, context, message)
         system += "\n\nMemory rule: use private conversation memory only when it clearly helps the current request. Never bring up unrelated old topics and never reveal another member's conversation."
         await self.bot.db.add_ai_message(guild_id, scope_id, "user", message)
         try:
