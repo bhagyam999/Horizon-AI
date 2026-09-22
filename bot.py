@@ -70,6 +70,49 @@ class Horizon(commands.Bot):
         self.mod_history: dict[int, list[str]] = {}
         self._ai_history_backfill_task = None
         self._ai_history_backfilled = False
+        # Prevent overlapping prefix RPG commands for the same player and stop
+        # a slow database/API operation from making a command appear frozen.
+        self._rpg_command_locks: dict[tuple[int, int], asyncio.Lock] = {}
+        self._rpg_command_timeout = 30
+
+    async def invoke(self, ctx):
+        """Run RPG prefix commands with a per-player lock and hard timeout.
+
+        A slow SQLite operation or a duplicate click/command should never leave
+        the user staring at a command that appears to have done nothing.
+        Interactive Discord UI callbacks are handled separately and are not
+        subject to this prefix-command guard.
+        """
+        command = getattr(ctx, "command", None)
+        root = getattr(command, "root_parent", None) if command else None
+        is_rpg = bool(command and (getattr(command, "name", "") == "rpg" or getattr(root, "name", "") == "rpg"))
+        if not is_rpg:
+            return await super().invoke(ctx)
+
+        guild_id = getattr(getattr(ctx, "guild", None), "id", 0)
+        user_id = getattr(getattr(ctx, "author", None), "id", 0)
+        lock_key = (int(guild_id), int(user_id))
+        lock = self._rpg_command_locks.setdefault(lock_key, asyncio.Lock())
+        if lock.locked():
+            try:
+                await ctx.send("⏳ Your previous RPG command is still processing. Please wait a moment before sending another one.", delete_after=7)
+            except discord.HTTPException:
+                pass
+            return
+
+        await lock.acquire()
+        try:
+            await asyncio.wait_for(super().invoke(ctx), timeout=self._rpg_command_timeout)
+        except asyncio.TimeoutError:
+            log.error("RPG command timed out after %ss: guild=%s user=%s command=%s", self._rpg_command_timeout, guild_id, user_id, getattr(command, "qualified_name", "unknown"))
+            try:
+                await ctx.send("⚠️ That RPG command took too long and was stopped. Your saved data was not intentionally reset. Please try again; if it keeps happening, check the Railway logs for a database error.", delete_after=12)
+            except discord.HTTPException:
+                pass
+        finally:
+            lock.release()
+            if not lock.locked():
+                self._rpg_command_locks.pop(lock_key, None)
 
     async def setup_hook(self):
         # Database initialization is required for the RPG and server systems.
@@ -2139,24 +2182,232 @@ async def rpg_root(ctx):
     e.add_field(name="🧬 Hero", value="`!rpg profile` • `!rpg change` • `!rpg evolve`", inline=True)
     e.add_field(name="🏰 Society", value="`!rpg party` • `!rpg guild` • `!rpg kingdom`", inline=True)
     e.add_field(name="👑 Endgame", value="`!rpg arena` • `!rpg raid` • `!rpg secretclasses` • `!rpg legendary`", inline=False)
-    e.add_field(name="👑 Endgame", value="`!rpg arena` • `!rpg raid` • `!rpg secretclasses` • `!rpg legendary`", inline=False)
     e.add_field(name="🎒 Collection", value="`!rpg inventory` • `!rpg items` • `!rpg eggs` • `!rpg pet`", inline=False)
     e.set_footer(text="Every RPG panel can be paged • use 🗑️ to remove it")
     await _rpg_panel(ctx,[e])
 
 @rpg_root.command(name="help")
 async def rpg_help(ctx):
+    """Show every registered RPG command, including nested commands and aliases."""
     await _rpg_delete(ctx)
-    pages=[
-        _rpg_embed("🌌 Horizon RPG — Start Here", "**Create & preview**\n`!rpg races` — browse races + matchup strengths/weaknesses\n`!rpg race <name>` — full race preview\n`!rpg classes` — browse classes + starter skills\n`!rpg class <name>` — full class preview + skill progression\n`!rpg start <name> <race> <class>` — create your hero\n`!rpg profile` — full character sheet\n\n**Important:** changing race/class/subrace/subclass/path/evolution always asks for confirmation first."),
-        _rpg_embed("⚔️ Horizon RPG — Combat", "`!rpg adventure` — live battle\n`!rpg dungeon [name]` — multi-floor battle\n`!rpg battle @player` — PvP duel\n\n**Battle buttons:** Attack • Skills • Pet Assist • Potion/Food • Defend • Flee\n\n**Skills:** every class has **20 distinct skills**. Start with **3**, then unlock new skills every several levels. Each skill shows damage/healing, MP, cooldown, buffs and debuffs. Only **4 can be active**.\n`!rpg skills` — browse all skills + mastery\n`!rpg skill <skill_key>` — spend Skill Points to master an unlocked skill\n`!rpg stat <stat>` — spend Stat Points on core stats\n`!rpg talents` — view class + race talent trees\n`!rpg talent <class|race> <key>` — spend a Talent Point\n`!rpg equip-skill <skill_key> <1-4>` — change active loadout\n\nMatchup bonuses are deliberately small so counters matter without hard-locking a build."),
-        _rpg_embed("🎒 Horizon RPG — Items & Gear", "`!rpg inventory` — your owned items\n`!rpg items [category] [page]` — classified item codex\n`!rpg iteminfo <item_key>` — detailed item inspection\n`!rpg equipment` — interactive gear loadout with a dropdown for every equipment slot\n`!rpg equip <item_key>` — equip gear directly\n`!rpg use [item_key] [qty]` — consume food/potions\n\nThe world now contains **8,000+ base items** across weapons, armor, offhands, accessories, rings, amulets, relics, consumables, food, materials, eggs and chests. Gear names are no longer enchantment variants: every piece is a clean base item with empty enchantment slots. Open `!rpg iteminfo <item_key>` for the full preview and every enchantment compatible with that item."),
-        _rpg_embed("✨ Horizon RPG — Enchanting & Gacha", "`!rpg gacha` — view rates, pity and Gems\n`!rpg gacha 1` — single pull\n`!rpg gacha 10` — ten-pull\n`!rpg open-chest <key>` — open a gacha chest\n`!rpg enchantments` — see enchant types\n`!rpg enchant <slot> <item> <enchant>` — upgrade equipped gear\n\nGacha uses earned in-game Gems and published rates. Pity guarantees Epic+ at the configured threshold and Mythic at the higher threshold."),
-        _rpg_embed("🐾 Horizon RPG — Pets", "`!rpg pets` — full pet inventory\n`!rpg pet` — equipped companion\n`!rpg equip-pet <pet_id>` — switch companions\n`!rpg unequip-pet` — store the active companion\n`!rpg adopt <name>` — starter companion\n`!rpg eggs` — owned eggs\n`!rpg hatch <egg> <name>` — hatch an egg\n`!rpg rename <name>` — rename equipped pet\n`!rpg release` — release equipped pet\n\nPets are now stored as a collection, so switching pets does **not** require releasing the others. Each pet shows its actual ability and passive stats."),
-        _rpg_embed("🗺️ Horizon RPG — World & Progression", "`!rpg areas` — world atlas\n`!rpg travel <area_key>` — travel\n`!rpg quests` — quest board\n`!rpg daily` — daily reward\n`!rpg rest` — recover\n`!rpg shop` / `buy` / `sell` / `recipes` / `craft` / `gather` / `mine` / `fish` / `market` / `economy` — economy + professions\n`!rpg trade @player` — direct trading of gear, items, pets, Gold and Diamonds\n`!rpg trades` / `tradeview` / `tradeadd` / `tradepet` / `tradegold` / `tradediamonds` / `tradeaccept` / `tradecancel` — trade controls\n`!rpg party ...` / `guild ...` / `kingdom ...` / `bounty ...` — multiplayer systems\n`!rpg housing` / `house-upgrade` / `life-path` — player life systems\n\nThe world now has dozens of additional areas. Level XP scales increasingly with level, so late-game progression takes substantially more XP than early progression."),
-        _rpg_embed("👑 Horizon RPG — Phase 5 Endgame", "`!rpg arena @player` — ranked PvP match\n`!rpg season` — current PvP leaderboard\n`!rpg raid` — inspect the weekly server raid\n`!rpg raid attack` — damage the shared Raid Boss\n`!rpg secretclasses` — secret class requirements\n`!rpg awaken <class>` — awaken a secret class\n`!rpg legendary` — legendary endgame trials\n`!rpg challenge <key>` — attempt a legendary trial\n\nArena ratings are seasonal. Raid HP is shared across the server. Secret classes are hidden from normal character creation and require endgame requirements."),
-    ]
-    await _rpg_panel(ctx,pages)
+
+    # Short explanations for the commands that need a little more context.
+    # Commands without a special entry still receive a useful generated
+    # explanation, so newly added RPG commands automatically appear in help.
+    descriptions = {
+        "rpg": "Open the RPG home panel.",
+        "rpg help": "Show this complete RPG command guide.",
+        "rpg start": "Create your RPG hero with a name, race and class.",
+        "rpg classes": "Browse playable classes and their starter skills.",
+        "rpg class": "Inspect one class, its stats, strengths and skills.",
+        "rpg races": "Browse playable races and their racial traits.",
+        "rpg race": "Inspect one race, its bonuses and matchup notes.",
+        "rpg subraces": "See the subraces available to each race.",
+        "rpg subclasses": "Browse class specializations and their bonuses.",
+        "rpg paths": "View character paths and progression choices.",
+        "rpg change": "Change an eligible character choice after confirmation.",
+        "rpg evolve": "View or select an unlocked character evolution.",
+        "rpg spend": "Spend available progression points on a supported stat.",
+        "rpg profile": "Show your complete RPG character sheet.",
+        "rpg stats": "Show your current combat and progression statistics.",
+        "rpg stat": "Spend one Stat Point on a core stat.",
+        "rpg skills": "Browse your class skills, mastery and active loadout.",
+        "rpg skill": "Spend a Skill Point to increase a skill's mastery.",
+        "rpg talents": "View your class and race talent trees.",
+        "rpg talent": "Spend a Talent Point on a class or race talent.",
+        "rpg equip-skill": "Put an unlocked skill into one of your four active slots.",
+        "rpg adventure": "Start a normal PvE adventure battle.",
+        "rpg dungeon": "Enter a dungeon and fight through its floors.",
+        "rpg battle": "Challenge another player to a turn-based duel.",
+        "rpg arena": "View your ranked rating or start a ranked PvP match.",
+        "rpg season": "View the current ranked PvP season and leaderboard.",
+        "rpg raid": "View the server raid or attack the shared raid boss.",
+        "rpg worldboss": "Open world-boss controls.",
+        "rpg worldboss spawn": "Spawn an available world boss.",
+        "rpg worldboss attack": "Attack the active world boss with a skill.",
+        "rpg secretclasses": "View hidden class requirements and awakening status.",
+        "rpg awaken": "Awaken a secret class when its requirements are met.",
+        "rpg legendary": "Browse legendary endgame trials.",
+        "rpg challenge": "Attempt a legendary endgame challenge.",
+        "rpg areas": "Browse the world atlas and known areas.",
+        "rpg travel": "Travel to a connected or discovered area.",
+        "rpg map": "Open the world map/atlas.",
+        "rpg explore": "Explore your current area for discoveries and encounters.",
+        "rpg dungeons": "Browse available dungeons and their requirements.",
+        "rpg objectives": "View your daily and weekly objectives.",
+        "rpg objective": "Claim a completed objective reward.",
+        "rpg inventory": "View the items currently in your inventory.",
+        "rpg items": "Browse the item codex by category and page.",
+        "rpg iteminfo": "Inspect one item, its stats and compatible details.",
+        "rpg equipment": "Open your equipped gear and loadout.",
+        "rpg equip": "Equip an item from your inventory.",
+        "rpg use": "Consume a usable item such as food or a potion.",
+        "rpg upgrade": "Upgrade equipped gear using materials and Gold.",
+        "rpg vault": "View equipment stored safely in the Gear Vault.",
+        "rpg vaultequip": "Move a stored Gear Vault item back into your loadout.",
+        "rpg sets": "View equipment sets and their set bonuses.",
+        "rpg enchantments": "Browse available enchantment types.",
+        "rpg enchant": "Apply an available enchantment to eligible gear.",
+        "rpg gacha": "View gacha rates, Gems, pulls and pity information.",
+        "rpg open-chest": "Open a gacha chest from your inventory.",
+        "rpg eggs": "View owned pet eggs.",
+        "rpg hatch": "Hatch a pet egg and give the new pet a name.",
+        "rpg adopt": "Adopt a starter companion if eligible.",
+        "rpg pet": "Show your equipped companion.",
+        "rpg pets": "View your full pet collection.",
+        "rpg equip-pet": "Equip a pet from your collection.",
+        "rpg unequip-pet": "Store your currently equipped pet.",
+        "rpg petfeed": "Feed your active pet and improve its bond/mood.",
+        "rpg petcollection": "View pet species collected and discovered.",
+        "rpg rename": "Rename your equipped pet.",
+        "rpg release": "Release your currently equipped pet.",
+        "rpg shop": "View the NPC shop and its available goods.",
+        "rpg buy": "Buy an item from the NPC shop.",
+        "rpg sell": "Sell an item to the NPC shop.",
+        "rpg recipes": "Browse available crafting recipes.",
+        "rpg craft": "Craft an item from a known recipe.",
+        "rpg gather": "Gather materials from the current area.",
+        "rpg fish": "Fish for materials and catches.",
+        "rpg mine": "Mine for ore and other materials.",
+        "rpg professions": "View your gathering and crafting profession levels.",
+        "rpg economy": "View the RPG economy transaction log.",
+        "rpg economyinfo": "View your economy statistics and transaction summary.",
+        "rpg market": "Browse the player marketplace.",
+        "rpg list": "List an eligible item on the player marketplace.",
+        "rpg marketbuy": "Buy an active marketplace listing.",
+        "rpg marketcancel": "Cancel one of your marketplace listings.",
+        "rpg trade": "Start or view a direct player-to-player trade.",
+        "rpg trades": "View your active trade offers.",
+        "rpg tradeview": "Inspect a specific trade.",
+        "rpg tradeadd": "Add an item to an active trade.",
+        "rpg tradepet": "Add a pet to an active trade.",
+        "rpg tradegold": "Add Gold to an active trade.",
+        "rpg tradediamonds": "Add Diamonds to an active trade.",
+        "rpg tradeclear": "Remove your offered items/currency from a trade.",
+        "rpg tradeaccept": "Accept the current trade after reviewing it.",
+        "rpg tradecancel": "Cancel an active trade.",
+        "rpg quests": "Open the quest board and current quest information.",
+        "rpg quests accept": "Accept an available quest.",
+        "rpg quests claim": "Claim the reward for a completed quest.",
+        "rpg quest": "Open a specific quest by its ID.",
+        "rpg claim": "Claim a completed quest by its ID.",
+        "rpg journal": "View your quest journal and story-chain progress.",
+        "rpg party": "View your current party or party directory.",
+        "rpg party create": "Create an adventure party.",
+        "rpg party join": "Join an existing party by ID.",
+        "rpg party leave": "Leave your current party.",
+        "rpg party dungeon": "Start a dungeon run for your party.",
+        "rpg party info": "View party members and party details.",
+        "rpg guild": "View your guild or the guild directory.",
+        "rpg guild list": "List guilds in the server.",
+        "rpg guild create": "Create a new guild.",
+        "rpg guild join": "Join an existing guild.",
+        "rpg guild info": "Inspect a guild's level, bank and members.",
+        "rpg guild members": "List the members of your guild.",
+        "rpg guild leave": "Leave your current guild.",
+        "rpg guild deposit": "Deposit Gold into your guild treasury.",
+        "rpg guild upgrade": "Upgrade your guild using its available resources.",
+        "rpg kingdom": "View your kingdom or the kingdom directory.",
+        "rpg kingdom list": "List kingdoms in the server.",
+        "rpg kingdom create": "Create a new kingdom.",
+        "rpg kingdom join": "Join an existing kingdom.",
+        "rpg kingdom info": "Inspect a kingdom's level, treasury and members.",
+        "rpg kingdom appoint": "Appoint a kingdom member to an available role.",
+        "rpg kingdom leave": "Leave your current kingdom.",
+        "rpg bounty": "View the server bounty board.",
+        "rpg bounty list": "List active bounties.",
+        "rpg bounty post": "Post a bounty with a Gold reward.",
+        "rpg bounty claim": "Claim a completed bounty reward.",
+        "rpg social": "View your social, party, guild and trade activity.",
+        "rpg titles": "View titles and title progress you have earned.",
+        "rpg housing": "View your player housing and upgrades.",
+        "rpg house-upgrade": "Upgrade your house to unlock better bonuses.",
+        "rpg life-path": "View or choose your player life path.",
+        "rpg achievements": "View your RPG achievements and progress.",
+        "rpg leaderboard": "View server RPG leaderboards.",
+        "rpg npcs": "Browse important NPCs and their current information.",
+        "rpg talk": "Talk to an available NPC and discover interactions.",
+        "rpg lore": "Browse discovered world lore and codex entries.",
+        "rpg hidden": "Browse hidden quests and secret discoveries.",
+        "rpg hiddenclaim": "Claim a completed hidden-quest reward.",
+        "rpg events": "View active server/world events.",
+        "rpg contribute": "Contribute to an active server event.",
+        "rpg worldstate": "Show the current world clock, season and weather.",
+        "rpg rumors": "Hear current rumors circulating through the world.",
+        "rpg story": "View your persistent story chapter and choices.",
+        "rpg storychoose": "Make a story choice that is saved to your character.",
+        "rpg chronicle": "Read the persistent Chronicle of important world events.",
+        "rpg structures": "View player-built structures.",
+        "rpg build": "Build an available personal structure.",
+        "rpg projects": "View server-wide construction projects.",
+        "rpg project": "Contribute resources to a construction project.",
+        "rpg factions": "Browse the server's major factions.",
+        "rpg factionjoin": "Join an available faction.",
+        "rpg factionrep": "View or manage your faction reputation.",
+        "rpg factiondiplomacy": "View or change an eligible faction diplomacy state.",
+        "rpg endgamemastery": "View your Endgame Mastery progression.",
+        "rpg ascend": "Ascend when you meet the Endgame Mastery requirements.",
+        "rpg mysteries": "Browse persistent world mysteries and discovery progress.",
+        "rpg investigate": "Investigate a mystery and advance its clue progress.",
+        "rpg anomalies": "View active and recorded world anomalies/rifts.",
+        "rpg worldthreats": "View large-scale world threats and their status.",
+        "rpg worldeventstart": "Start an available world-scale event.",
+        "rpg worldeventcontribute": "Contribute progress to an active world-scale event.",
+        "rpg memory": "View memories the world has recorded for you or the server.",
+        "rpg remember": "Record a non-sensitive RPG memory/chronicle entry.",
+        "rpg rpgstatus": "Audit which major RPG systems are currently active.",
+    }
+
+    def pretty(name):
+        return name.replace("-", " ").title()
+
+    def usage(command):
+        params = []
+        for key, param in getattr(command, "clean_params", {}).items():
+            # Discord.py's Parameter objects expose required/default information;
+            # keep the help compact rather than dumping Python type annotations.
+            required = getattr(param, "required", False)
+            params.append(f"<{key}>" if required else f"[{key}]")
+        return "!" + command.qualified_name + (" " + " ".join(params) if params else "")
+
+    def command_entry(command):
+        q = command.qualified_name
+        aliases = list(getattr(command, "aliases", []) or [])
+        alias_text = f" • aliases: {', '.join('`'+a+'`' for a in aliases)}" if aliases else ""
+        desc = descriptions.get(q)
+        if not desc:
+            if isinstance(command, commands.Group):
+                desc = f"Open the {pretty(command.name)} RPG menu and its subcommands."
+            else:
+                desc = f"Use this command to manage {pretty(command.name).lower()} in your RPG."
+        return f"`{usage(command)}`{alias_text}\n{desc}"
+
+    def walk(group):
+        # Include the group itself, then every nested command.
+        yield group
+        for child in sorted(group.commands, key=lambda c: c.qualified_name):
+            if isinstance(child, commands.Group):
+                yield from walk(child)
+            else:
+                yield child
+
+    commands_to_show = list(walk(rpg_root))
+    # Put the most useful entry points first; everything else remains alphabetic.
+    priority = {"rpg": 0, "rpg help": 1, "rpg start": 2, "rpg profile": 3, "rpg adventure": 4, "rpg quests": 5, "rpg party": 6, "rpg guild": 7, "rpg equipment": 8, "rpg inventory": 9}
+    commands_to_show.sort(key=lambda c: (priority.get(c.qualified_name, 100), c.qualified_name))
+
+    # Discord embeds have a finite description/field budget. Ten commands per
+    # page keeps this complete guide readable on mobile while still being fast.
+    pages = []
+    page_size = 8
+    for index in range(0, len(commands_to_show), page_size):
+        chunk = commands_to_show[index:index + page_size]
+        page_no = index // page_size + 1
+        total = (len(commands_to_show) + page_size - 1) // page_size
+        e = _rpg_embed(f"📖 Horizon RPG — Complete Command Guide", "\n\n".join(command_entry(c) for c in chunk))
+        e.set_footer(text=f"Page {page_no}/{total} • {len(commands_to_show)} RPG commands • Use the buttons to browse")
+        pages.append(e)
+    await _rpg_panel(ctx, pages)
 
 @rpg_root.command(name="start")
 async def rpg_start(ctx, name: str = "", race: str = "human", class_name: str = "warrior"):
