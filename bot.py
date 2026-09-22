@@ -4011,6 +4011,80 @@ async def rpg_ascend(ctx):
     ok, msg = await bot.rpg.endgame_ascend(ctx.guild.id, ctx.author.id)
     await _rpg_action_panel(ctx, "🌌 Ascension", msg, ok)
 
+# ---------------------------------------------------------------------------
+# v14 — Phases 16-19 commands
+# ---------------------------------------------------------------------------
+
+@rpg_root.command(name="mysteries", aliases=["mystery", "discoveries"])
+async def rpg_mysteries(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.mysteries(ctx.guild.id,ctx.author.id)
+    lines=[]
+    for key,name,desc,category,req,area,threshold,xp,gold,item,qty,progress,discovered,eligible in rows:
+        state="DISCOVERED" if discovered else (f"CLUE {progress}/{threshold}" if eligible else f"LOCKED — Lv {req}")
+        lines.append(f"**{name}** · `{key}`\n{desc}\n**{state}**")
+    await _rpg_panel(ctx,[_rpg_embed("🜂 Mysteries of Horizon","\n\n".join(lines) or "No mysteries have surfaced yet.")])
+
+@rpg_root.command(name="investigate", aliases=["investigate-mystery", "mystery-search"])
+async def rpg_investigate(ctx, mystery_key:str=""):
+    await _rpg_delete(ctx)
+    if not mystery_key:
+        await _rpg_action_panel(ctx,"🜂 Investigation","Use `!rpg investigate <mystery_key>`.",False); return
+    ok,msg=await bot.rpg.investigate_mystery(ctx.guild.id,ctx.author.id,mystery_key)
+    await _rpg_action_panel(ctx,"🜂 Investigation",msg,ok)
+
+@rpg_root.command(name="anomalies", aliases=["anomaly", "rifts"])
+async def rpg_anomalies(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.anomalies(ctx.guild.id)
+    body="\n".join(f"• **{key}** — `{state}` · Severity {severity} · `{area}`" for key,area,severity,state,started,resolved in rows) or "No recorded anomalies."
+    await _rpg_action_panel(ctx,"🜂 World Anomalies",body,True)
+
+@rpg_root.command(name="worldthreats", aliases=["worldeventlist", "world-threats"])
+async def rpg_worldevents(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.world_event_status(ctx.guild.id)
+    body="\n\n".join(f"**#{r[0]} {r[2]}** — `{r[11]}`\n{r[3]}\nProgress: **{r[6]}/{r[5]}**" for r in rows) or "No world-scale events have been seeded yet."
+    body += "\n\nStart one with `!rpg worldeventstart <event_key>` and contribute with `!rpg worldeventcontribute <id> <amount>`."
+    await _rpg_action_panel(ctx,"🌌 World-Scale Events",body[:4000],True)
+
+@rpg_root.command(name="worldeventstart", aliases=["startworldevent", "start-event"])
+async def rpg_worldeventstart(ctx,event_key:str=""):
+    await _rpg_delete(ctx)
+    if not event_key:
+        await _rpg_action_panel(ctx,"🌌 World Event","Use `!rpg worldeventstart <event_key>`.",False); return
+    ok,msg=await bot.rpg.start_world_event(ctx.guild.id,ctx.author.id,event_key)
+    await _rpg_action_panel(ctx,"🌌 World Event",msg,ok)
+
+@rpg_root.command(name="worldeventcontribute", aliases=["worldcontribute", "threatcontribute"])
+async def rpg_worldeventcontribute(ctx,event_id:int=0,amount:int=1):
+    await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.contribute_world_event(ctx.guild.id,ctx.author.id,event_id,amount)
+    await _rpg_action_panel(ctx,"🌌 World Event Contribution",msg,ok)
+
+@rpg_root.command(name="memory", aliases=["worldmemorylog", "memories"])
+async def rpg_memory(ctx):
+    await _rpg_delete(ctx)
+    rows=await bot.rpg.memory_list(ctx.guild.id,ctx.author.id)
+    body="\n\n".join(f"**{category.title()}** — {summary}" for key,category,summary,consequence,created,uid in rows) or "No persistent memories have been recorded yet."
+    await _rpg_action_panel(ctx,"🧠 World Memory",body[:4000],True)
+
+@rpg_root.command(name="remember", aliases=["recordmemory"])
+async def rpg_remember(ctx,key:str="",category:str="world",*,summary:str=""):
+    await _rpg_delete(ctx)
+    if not key or not summary:
+        await _rpg_action_panel(ctx,"🧠 Memory","Use `!rpg remember <key> <category> <summary>`.",False); return
+    await bot.rpg.record_memory(ctx.guild.id,ctx.author.id,key,category,summary)
+    await _rpg_action_panel(ctx,"🧠 Memory Recorded",f"Recorded **{key}** as a persistent {category} memory.",True)
+
+@rpg_root.command(name="rpgstatus", aliases=["completion", "rpg-complete"])
+async def rpg_completion(ctx):
+    await _rpg_delete(ctx)
+    checks,completed,total=await bot.rpg.completion_audit(ctx.guild.id,ctx.author.id)
+    lines="\n".join(f"{'✅' if value else '⬜'} **{key.replace('_',' ').title()}**" for key,value in checks.items())
+    body=f"**Integration audit:** {completed}/{total} systems active\n\n{lines}\n\nPhase 20 (public Horizon platform) is separate from this RPG completion audit."
+    await _rpg_action_panel(ctx,"🧭 Horizon RPG Completion",body[:4000],True)
+
 # -------------------- Message handling --------------------
 
 @bot.event
