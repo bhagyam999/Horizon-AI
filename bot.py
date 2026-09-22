@@ -3879,6 +3879,138 @@ async def resolve_day(channel, session):
     session["round"] += 1; session["phase"] = "night"; session["votes"] = {}; session["night_actions"] = {}
     await _edit_game_message(channel, session, f"**{bot.games.games[session['key']][0]} — Night {session['round']}**\n\n{member.mention if member else 'A player'} was eliminated by the vote.\nRoles, check your DMs for your private night action.\nHost can use `!nightend` when ready.")
 
+# ---------------------------------------------------------------------------
+# v13 — Phases 10-15 commands
+# ---------------------------------------------------------------------------
+
+@rpg_root.command(name="journal", aliases=["questjournal", "quest-log"])
+async def rpg_journal(ctx):
+    await _rpg_delete(ctx)
+    counts, chains = await bot.rpg.quest_journal(ctx.guild.id, ctx.author.id)
+    body = (f"**Active:** {counts.get('active', 0)}\n" f"**Complete:** {counts.get('complete', 0)}\n" f"**Claimed:** {counts.get('claimed', 0)}\n\n**Story Chains**\n")
+    body += "\n".join(f"• `{key}` — {claimed}/{total} steps claimed" for key, total, claimed in chains) if chains else "No story-chain progress yet."
+    body += "\n\nUse `!rpg quests` to accept quests and continue chains."
+    await _rpg_action_panel(ctx, "📜 Quest Journal", body, True)
+
+@rpg_root.command(name="worldstate", aliases=["world-clock", "weather"])
+async def rpg_worldstate(ctx):
+    await _rpg_delete(ctx)
+    state = await bot.rpg.world_state(ctx.guild.id, ctx.author.id)
+    schedule = "\n".join(f"• **{npc}** — {activity}" for npc, activity, area in state["schedules"]) or "No scheduled NPC activity right now."
+    body = (f"**World Day:** {state['day']}\n**Time:** {state['hour']:02d}:00\n**Season:** {state['season'].title()}\n**Weather:** {state['weather'].title()}\n**World Stability:** {state['stability']}/100\n\n**NPC Activity Now**\n{schedule}")
+    await _rpg_action_panel(ctx, "🌦️ Living World", body, True)
+
+@rpg_root.command(name="rumors")
+async def rpg_rumors(ctx):
+    await _rpg_delete(ctx)
+    state, rows = await bot.rpg.rumors(ctx.guild.id, ctx.author.id)
+    body = "\n\n".join(f"• {text}" + (f" — *{source}*" if source else "") for _id, text, area, source, expires in rows) or "The world is unusually quiet."
+    await _rpg_action_panel(ctx, "🗣️ Rumors of Horizon", f"Weather: **{state['weather'].title()}**\n\n{body}", True)
+
+@rpg_root.command(name="story")
+async def rpg_story(ctx):
+    await _rpg_delete(ctx)
+    chapter, flags, choices = await bot.rpg.story_memory(ctx.guild.id, ctx.author.id)
+    choice_text = "\n".join(f"• Chapter {c['chapter']}: **{c['choice'].title()}**" for c in choices[-8:]) or "No choices recorded yet."
+    prompt = "Choose: `guard`, `merchant`, `arcane`, or `wild` with `!rpg storychoose <choice>`." if chapter == 1 else "Your first major decision has been recorded. Later chapters can build on it."
+    await _rpg_action_panel(ctx, "📖 Horizon Story Memory", f"**Chapter:** {chapter}\n\n{prompt}\n\n**Recorded Choices**\n{choice_text}", True)
+
+@rpg_root.command(name="storychoose", aliases=["story-choice", "choose"])
+async def rpg_storychoose(ctx, choice: str = ""):
+    await _rpg_delete(ctx)
+    if not choice:
+        await _rpg_action_panel(ctx, "📖 Story Choice", "Choose: `guard`, `merchant`, `arcane`, or `wild`.", False); return
+    ok, msg = await bot.rpg.story_choose(ctx.guild.id, ctx.author.id, choice)
+    await _rpg_action_panel(ctx, "📖 Story Choice", msg, ok)
+
+@rpg_root.command(name="chronicle", aliases=["worldmemory", "history"])
+async def rpg_chronicle(ctx):
+    await _rpg_delete(ctx)
+    rows = await bot.rpg.chronicle(ctx.guild.id, ctx.author.id, 12)
+    if not rows:
+        await _rpg_action_panel(ctx, "📚 Chronicle", "No major events have been recorded yet.", True); return
+    body = "\n\n".join(f"**{title}**\n{body}" + (f"\n*Area: {AREAS.get(area, {}).get('name', area)}*" if area else "") for title, body, area, created, uid in rows)
+    await _rpg_action_panel(ctx, "📚 Chronicle of Horizon", body[:4000], True)
+
+@rpg_root.command(name="structures", aliases=["buildings", "bases"])
+async def rpg_structures(ctx):
+    await _rpg_delete(ctx)
+    rows = await bot.rpg.structures(ctx.guild.id, ctx.author.id)
+    if not rows:
+        await _rpg_action_panel(ctx, "🏗️ Your Structures", "You have no structures yet. Try `!rpg build camp`.", True); return
+    body = "\n".join(f"• **{name}** — Lv {level} — {AREAS.get(area, {}).get('name', area)}" for _id, key, name, area, level, mats in rows)
+    await _rpg_action_panel(ctx, "🏗️ Your Structures", body, True)
+
+@rpg_root.command(name="build")
+async def rpg_build(ctx, structure_key: str = ""):
+    await _rpg_delete(ctx)
+    if not structure_key:
+        await _rpg_action_panel(ctx, "🏗️ Player Construction", "Build: `camp`, `workshop`, `watchtower`, `shrine`, `market_stall`.\nUse `!rpg structures` to view your builds.", False); return
+    ok, msg = await bot.rpg.build_structure(ctx.guild.id, ctx.author.id, structure_key)
+    await _rpg_action_panel(ctx, "🏗️ Player Construction", msg, ok)
+
+@rpg_root.command(name="projects", aliases=["worldprojects", "construction"])
+async def rpg_projects(ctx):
+    await _rpg_delete(ctx)
+    rows = await bot.rpg.projects(ctx.guild.id)
+    def fmt(x): return f"`#{x[0]}` **{x[2]}**\n{x[3]}\nProgress: **{x[6]}/{x[5]}** • Status: **{x[9].title()}**\nContribute: `!rpg project {x[0]} <gold>`"
+    await _rpg_panel(ctx, _rpg_pages("🏗️ Server Construction Projects", rows, page_size=3, icon="🏗️", formatter=fmt))
+
+@rpg_root.command(name="project")
+async def rpg_project(ctx, project_id: int = 0, amount: int = 0):
+    await _rpg_delete(ctx)
+    if not project_id or not amount:
+        await _rpg_action_panel(ctx, "🏗️ Project Contribution", "Use `!rpg project <project_id> <gold>`.", False); return
+    ok, msg = await bot.rpg.contribute_project(ctx.guild.id, ctx.author.id, project_id, amount)
+    await _rpg_action_panel(ctx, "🏗️ Project Contribution", msg, ok)
+
+@rpg_root.command(name="factions", aliases=["faction-list", "factionlist"])
+async def rpg_factions(ctx):
+    await _rpg_delete(ctx)
+    rows = await bot.rpg.factions(ctx.guild.id)
+    status = await bot.rpg.faction_status(ctx.guild.id, ctx.author.id)
+    body = "\n\n".join(f"**{key}** — {name}\n{desc}\nIdeology: **{ideology}**" for key, name, desc, ideology in rows)
+    body += f"\n\n**Your Allegiance:** `{status[0]}` • Rep **{status[1]}** • Rank **{status[2].title()}**" if status else "\n\nJoin with `!rpg factionjoin <faction_key>`."
+    await _rpg_action_panel(ctx, "⚑ Factions of Horizon", body[:4000], True)
+
+@rpg_root.command(name="factionjoin", aliases=["joinfaction", "faction-join"])
+async def rpg_factionjoin(ctx, faction_key: str = ""):
+    await _rpg_delete(ctx)
+    if not faction_key:
+        await _rpg_action_panel(ctx, "⚑ Faction", "Use `!rpg factions` first, then `!rpg factionjoin <faction_key>`.", False); return
+    ok, msg = await bot.rpg.faction_join(ctx.guild.id, ctx.author.id, faction_key)
+    await _rpg_action_panel(ctx, "⚑ Faction Allegiance", msg, ok)
+
+@rpg_root.command(name="factionrep", aliases=["faction-rep", "rep-faction"])
+async def rpg_factionrep(ctx, amount: int = 10):
+    await _rpg_delete(ctx)
+    ok, msg = await bot.rpg.faction_rep(ctx.guild.id, ctx.author.id, amount)
+    await _rpg_action_panel(ctx, "⚑ Faction Reputation", msg, ok)
+
+@rpg_root.command(name="factiondiplomacy", aliases=["faction-diplomacy", "diplomacy"])
+async def rpg_factiondiplomacy(ctx, other_faction: str = "", relation: str = ""):
+    await _rpg_delete(ctx)
+    if not other_faction or not relation:
+        await _rpg_action_panel(ctx, "⚑ Faction Diplomacy", "Use `!rpg factiondiplomacy <faction_key> <allied|neutral|rival>`. Requires 1000 faction reputation.", False); return
+    ok, msg = await bot.rpg.faction_relation(ctx.guild.id, ctx.author.id, other_faction.lower(), relation)
+    await _rpg_action_panel(ctx, "⚑ Faction Diplomacy", msg, ok)
+
+@rpg_root.command(name="endgamemastery", aliases=["endgame-mastery", "mastery"])
+async def rpg_endgame(ctx):
+    await _rpg_delete(ctx)
+    status = await bot.rpg.endgame_status(ctx.guild.id, ctx.author.id)
+    if not status:
+        await _rpg_action_panel(ctx, "👑 Endgame Mastery", "Create a hero first.", False); return
+    arena = status["arena"]
+    body = (f"**Level:** {status['level']}\n**Endgame Mastery:** {status['mastery']}\n**Ascension:** {status['ascension']}/5\n\n" f"**Arena Rating:** {arena.get('rating', 1000)}\n**Legendary Trials Cleared:** {status['legendary']}\n**Secret Classes:** {status['secret_classes']}\n**Raid Damage:** {status['raid_damage']:,}\n\nAscend with `!rpg ascend` at level 80 and 100 Mastery.")
+    await _rpg_action_panel(ctx, "👑 Endgame Mastery", body, True)
+
+@rpg_root.command(name="ascend", aliases=["ascension"])
+async def rpg_ascend(ctx):
+    await _rpg_delete(ctx)
+    ok, msg = await bot.rpg.endgame_ascend(ctx.guild.id, ctx.author.id)
+    await _rpg_action_panel(ctx, "🌌 Ascension", msg, ok)
+
 # -------------------- Message handling --------------------
 
 @bot.event

@@ -1,0 +1,486 @@
+    for _skill, _name in zip(_base, _names):
+        _skill["name"] = _name
+    SKILLS[_k] = _base
+
+ITEMS.setdefault("abyssal_core", {"name":"Abyssal Core","slot":"relic","rarity":"legendary","atk":35,"def":20,"hp":120,"spd":8,"crit":8,"price":50000,"level_req":50})
+ITEMS.setdefault("chronicle_shard", {"name":"Chronicle Shard","slot":"relic","rarity":"legendary","atk":20,"def":10,"mp":100,"spd":15,"crit":10,"price":50000,"level_req":50})
+ITEMS.setdefault("dragon_lord_scale", {"name":"Dragon Lord Scale","slot":"armor","rarity":"mythic","def":45,"hp":250,"atk":20,"spd":8,"crit":6,"price":75000,"level_req":60})
+ITEMS.setdefault("soul_reaper_scythe", {"name":"Soul Reaper's Scythe","slot":"weapon","rarity":"mythic","atk":55,"spd":12,"crit":15,"price":80000,"level_req":55})
+
+LEGENDARY_CHALLENGES = {
+    "abyssal_throne": {"name":"Abyssal Throne", "level":50, "hp":18000, "atk":260, "def":150, "reward":"abyssal_core", "xp":12000, "gold":25000, "desc":"Survive the throne of the void and claim its core."},
+    "chronicle_end": {"name":"End of the Chronicle", "level":60, "hp":24000, "atk":340, "def":190, "reward":"chronicle_shard", "xp":18000, "gold":35000, "desc":"Break the timeline without becoming trapped inside it."},
+    "dragon_throne": {"name":"Dragon Throne", "level":70, "hp":32000, "atk":430, "def":230, "reward":"dragon_lord_scale", "xp":26000, "gold":50000, "desc":"Face the ancient sovereign of dragons."},
+    "soul_end": {"name":"The Last Soul", "level":75, "hp":38000, "atk":500, "def":260, "reward":"soul_reaper_scythe", "xp":32000, "gold":65000, "desc":"A final trial for heroes who have walked beyond ordinary mortality."},
+}
+
+
+@dataclass
+class RPGService:
+    path: str
+    active_combats: dict[tuple[int, int], dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
+    active_duels: dict[tuple[int, int, int], dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
+    combat_locks: dict[tuple[int, int], asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+    duel_locks: dict[tuple[int, int, int], asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+
+    async def setup(self):
+        async with aiosqlite.connect(self.path) as db:
+            await db.executescript("""
+            CREATE TABLE IF NOT EXISTS rpg_players (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                name TEXT NOT NULL DEFAULT '', race TEXT NOT NULL DEFAULT 'human', class_name TEXT NOT NULL DEFAULT 'warrior',
+                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0, gold INTEGER NOT NULL DEFAULT 250, gems INTEGER NOT NULL DEFAULT 500,
+                hp INTEGER NOT NULL DEFAULT 100, max_hp INTEGER NOT NULL DEFAULT 100,
+                mp INTEGER NOT NULL DEFAULT 40, max_mp INTEGER NOT NULL DEFAULT 40,
+                atk INTEGER NOT NULL DEFAULT 10, defense INTEGER NOT NULL DEFAULT 5, speed INTEGER NOT NULL DEFAULT 5,
+                crit INTEGER NOT NULL DEFAULT 5, skill_points INTEGER NOT NULL DEFAULT 0,
+                stamina INTEGER NOT NULL DEFAULT 100, location TEXT NOT NULL DEFAULT 'Horizon Village',
+                guild_name TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT 'Adventurer', prestige INTEGER NOT NULL DEFAULT 0,
+                subclass TEXT NOT NULL DEFAULT '', subrace TEXT NOT NULL DEFAULT '', evolution TEXT NOT NULL DEFAULT '',
+                life_path TEXT NOT NULL DEFAULT 'adventurer', renown INTEGER NOT NULL DEFAULT 0, fame INTEGER NOT NULL DEFAULT 0,
+                stat_points INTEGER NOT NULL DEFAULT 0, talent_points INTEGER NOT NULL DEFAULT 0, kingdom_name TEXT NOT NULL DEFAULT '',
+                kingdom_role TEXT NOT NULL DEFAULT '', area_key TEXT NOT NULL DEFAULT 'horizon_village',
+                last_daily REAL NOT NULL DEFAULT 0, last_adventure REAL NOT NULL DEFAULT 0,
+                last_hunt REAL NOT NULL DEFAULT 0, last_weekly REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_inventory (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, item_key TEXT NOT NULL, quantity INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id, item_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_equipment (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot TEXT NOT NULL, item_key TEXT NOT NULL,
+                upgrade_level INTEGER NOT NULL DEFAULT 0, intrinsic_json TEXT NOT NULL DEFAULT '{}',
+                set_key TEXT NOT NULL DEFAULT '', instance_uid TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (guild_id, user_id, slot)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_equipment_storage (
+                instance_uid TEXT PRIMARY KEY, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                slot TEXT NOT NULL, item_key TEXT NOT NULL, upgrade_level INTEGER NOT NULL DEFAULT 0,
+                intrinsic_json TEXT NOT NULL DEFAULT '{}', set_key TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_equipment_storage_owner ON rpg_equipment_storage(guild_id,user_id,slot);
+            CREATE TABLE IF NOT EXISTS rpg_economy_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL, event_type TEXT NOT NULL, item_key TEXT NOT NULL DEFAULT '',
+                quantity INTEGER NOT NULL DEFAULT 0, gold_delta INTEGER NOT NULL DEFAULT 0,
+                balance_after INTEGER, metadata_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_economy_log_owner ON rpg_economy_log(guild_id,user_id,created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_rpg_economy_log_event ON rpg_economy_log(guild_id,event_type,created_at DESC);
+            CREATE TABLE IF NOT EXISTS rpg_skill_loadout (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot INTEGER NOT NULL, skill_key TEXT NOT NULL,
+                PRIMARY KEY (guild_id, user_id, slot)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_skill_mastery (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, skill_key TEXT NOT NULL, rank INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY (guild_id, user_id, skill_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_talents (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, tree TEXT NOT NULL, talent_key TEXT NOT NULL, rank INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id, user_id, tree, talent_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_pet_inventory (
+                pet_id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                name TEXT NOT NULL, species TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
+                bonus_atk INTEGER NOT NULL DEFAULT 0, bonus_def INTEGER NOT NULL DEFAULT 0, bonus_hp INTEGER NOT NULL DEFAULT 0,
+                bonus_mp INTEGER NOT NULL DEFAULT 0, bonus_speed INTEGER NOT NULL DEFAULT 0, bonus_crit INTEGER NOT NULL DEFAULT 0,
+                ability TEXT NOT NULL DEFAULT 'Pounce', equipped INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL DEFAULT (strftime('%s','now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_pet_inventory_owner ON rpg_pet_inventory(guild_id,user_id,equipped,pet_id);
+            CREATE TABLE IF NOT EXISTS rpg_gacha_state (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, banner TEXT NOT NULL DEFAULT 'horizon',
+                pulls INTEGER NOT NULL DEFAULT 0, pity INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id,user_id,banner)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_equipment_enchants (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, slot TEXT NOT NULL, enchant_key TEXT NOT NULL,
+                level INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (guild_id,user_id,slot,enchant_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_combat_sessions (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                state_json TEXT NOT NULL, updated_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_combat_sessions_updated ON rpg_combat_sessions(updated_at);
+            CREATE TABLE IF NOT EXISTS rpg_quests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL,
+                description TEXT NOT NULL, level_req INTEGER NOT NULL DEFAULT 1, target INTEGER NOT NULL DEFAULT 1,
+                progress_type TEXT NOT NULL DEFAULT 'hunt', reward_xp INTEGER NOT NULL DEFAULT 0,
+                reward_gold INTEGER NOT NULL DEFAULT 0, reward_item TEXT DEFAULT '', reward_qty INTEGER NOT NULL DEFAULT 0,
+                expires_at REAL NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS rpg_player_quests (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, quest_id INTEGER NOT NULL,
+                progress INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'active',
+                PRIMARY KEY (guild_id, user_id, quest_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_guilds (
+                guild_id INTEGER NOT NULL, name TEXT NOT NULL, leader_id INTEGER NOT NULL,
+                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0, bank INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL, PRIMARY KEY (guild_id, name)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_guild_members (
+                guild_id INTEGER NOT NULL, guild_name TEXT NOT NULL, user_id INTEGER NOT NULL,
+                rank TEXT NOT NULL DEFAULT 'member', joined_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_parties (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, name TEXT NOT NULL,
+                leader_id INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS rpg_party_members (
+                party_id INTEGER NOT NULL, user_id INTEGER NOT NULL, role TEXT NOT NULL DEFAULT 'member',
+                PRIMARY KEY (party_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_pets (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, name TEXT NOT NULL,
+                species TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
+                bonus_atk INTEGER NOT NULL DEFAULT 0, bonus_def INTEGER NOT NULL DEFAULT 0,
+                bonus_hp INTEGER NOT NULL DEFAULT 0, bonus_mp INTEGER NOT NULL DEFAULT 0,
+                bonus_speed INTEGER NOT NULL DEFAULT 0, bonus_crit INTEGER NOT NULL DEFAULT 0,
+                ability TEXT NOT NULL DEFAULT 'Pounce',
+                PRIMARY KEY (guild_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_achievements (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, achievement_key TEXT NOT NULL,
+                unlocked_at REAL NOT NULL, PRIMARY KEY (guild_id, user_id, achievement_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_titles (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, title_key TEXT NOT NULL,
+                unlocked_at REAL NOT NULL, PRIMARY KEY (guild_id, user_id, title_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_housing (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, house_key TEXT NOT NULL DEFAULT 'cabin',
+                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
+                storage_bonus INTEGER NOT NULL DEFAULT 0, comfort INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL, PRIMARY KEY (guild_id, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_market (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, seller_id INTEGER NOT NULL,
+                item_key TEXT NOT NULL, quantity INTEGER NOT NULL, price_each INTEGER NOT NULL, created_at REAL NOT NULL,
+                status TEXT NOT NULL DEFAULT 'open', buyer_id INTEGER DEFAULT 0, sold_at REAL DEFAULT 0, listing_token TEXT NOT NULL DEFAULT ''
+            );
+            CREATE TABLE IF NOT EXISTS rpg_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL,
+                proposer_id INTEGER NOT NULL, target_id INTEGER NOT NULL,
+                proposer_gold INTEGER NOT NULL DEFAULT 0, target_gold INTEGER NOT NULL DEFAULT 0,
+                proposer_gems INTEGER NOT NULL DEFAULT 0, target_gems INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'open', created_at REAL NOT NULL, updated_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS rpg_trade_items (
+                trade_id INTEGER NOT NULL, side TEXT NOT NULL, item_key TEXT NOT NULL, quantity INTEGER NOT NULL,
+                PRIMARY KEY (trade_id, side, item_key),
+                FOREIGN KEY (trade_id) REFERENCES rpg_trades(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS rpg_trade_pets (
+                trade_id INTEGER NOT NULL, side TEXT NOT NULL, pet_id INTEGER NOT NULL,
+                PRIMARY KEY (trade_id, side, pet_id),
+                FOREIGN KEY (trade_id) REFERENCES rpg_trades(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_trades_parties ON rpg_trades(guild_id, proposer_id, target_id, status);
+            CREATE INDEX IF NOT EXISTS idx_rpg_trade_items_trade ON rpg_trade_items(trade_id, side);
+            CREATE INDEX IF NOT EXISTS idx_rpg_trade_pets_trade ON rpg_trade_pets(trade_id, side);
+            CREATE TABLE IF NOT EXISTS rpg_kingdoms (
+                guild_id INTEGER NOT NULL, name TEXT NOT NULL, ruler_id INTEGER NOT NULL, level INTEGER NOT NULL DEFAULT 1,
+                treasury INTEGER NOT NULL DEFAULT 0, renown INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, name)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_kingdom_members (
+                guild_id INTEGER NOT NULL, kingdom_name TEXT NOT NULL, user_id INTEGER NOT NULL,
+                role TEXT NOT NULL DEFAULT 'citizen', joined_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, kingdom_name, user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_bounties (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, poster_id INTEGER NOT NULL,
+                target_name TEXT NOT NULL, reward INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', created_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS rpg_area_discoveries (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, area_key TEXT NOT NULL,
+                discovered_at REAL NOT NULL, source TEXT NOT NULL DEFAULT 'exploration',
+                PRIMARY KEY (guild_id, user_id, area_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_objectives (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, period TEXT NOT NULL,
+                objective_key TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL,
+                progress_type TEXT NOT NULL, target INTEGER NOT NULL, progress INTEGER NOT NULL DEFAULT 0,
+                reward_xp INTEGER NOT NULL DEFAULT 0, reward_gold INTEGER NOT NULL DEFAULT 0,
+                reward_item TEXT, reward_qty INTEGER NOT NULL DEFAULT 0, claimed INTEGER NOT NULL DEFAULT 0,
+                period_key TEXT NOT NULL, created_at REAL NOT NULL,
+                PRIMARY KEY (guild_id, user_id, period, objective_key, period_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_world_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, event_key TEXT NOT NULL,
+                name TEXT NOT NULL, description TEXT NOT NULL, area_key TEXT NOT NULL, level INTEGER NOT NULL,
+                max_hp INTEGER NOT NULL, hp INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+                started_at REAL NOT NULL, expires_at REAL NOT NULL, created_by INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS rpg_world_event_participants (
+                event_id INTEGER NOT NULL, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                damage INTEGER NOT NULL DEFAULT 0, attacks INTEGER NOT NULL DEFAULT 0, last_attack REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (event_id, user_id), FOREIGN KEY (event_id) REFERENCES rpg_world_events(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_world_events_active ON rpg_world_events(guild_id,status,expires_at);
+            CREATE INDEX IF NOT EXISTS idx_rpg_world_event_participants_damage ON rpg_world_event_participants(event_id,damage DESC);
+
+            -- Phase 4: living-world systems. These are server-scoped and player progress
+            -- is deliberately separate from the existing RPG character tables.
+            CREATE TABLE IF NOT EXISTS rpg_npcs (
+                guild_id INTEGER NOT NULL, npc_key TEXT NOT NULL, name TEXT NOT NULL,
+                role TEXT NOT NULL, area_key TEXT NOT NULL DEFAULT 'horizon_village',
+                personality TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (guild_id, npc_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_npc_relationships (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, npc_key TEXT NOT NULL,
+                affinity INTEGER NOT NULL DEFAULT 0, stage TEXT NOT NULL DEFAULT 'stranger',
+                interactions INTEGER NOT NULL DEFAULT 0, last_interaction REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id,user_id,npc_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_lore_entries (
+                guild_id INTEGER NOT NULL, lore_key TEXT NOT NULL, title TEXT NOT NULL,
+                body TEXT NOT NULL, category TEXT NOT NULL DEFAULT 'world',
+                required_npc TEXT NOT NULL DEFAULT '', required_affinity INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (guild_id,lore_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_lore_discoveries (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, lore_key TEXT NOT NULL,
+                discovered_at REAL NOT NULL, source TEXT NOT NULL DEFAULT 'discovery',
+                PRIMARY KEY (guild_id,user_id,lore_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_hidden_quests (
+                guild_id INTEGER NOT NULL, hidden_key TEXT NOT NULL, title TEXT NOT NULL,
+                description TEXT NOT NULL, npc_key TEXT NOT NULL DEFAULT '',
+                required_affinity INTEGER NOT NULL DEFAULT 0, trigger_type TEXT NOT NULL DEFAULT 'relationship',
+                trigger_value INTEGER NOT NULL DEFAULT 0, reward_xp INTEGER NOT NULL DEFAULT 0,
+                reward_gold INTEGER NOT NULL DEFAULT 0, reward_item TEXT NOT NULL DEFAULT '',
+                reward_qty INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (guild_id,hidden_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_hidden_quest_progress (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, hidden_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'locked', progress INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL DEFAULT 0, PRIMARY KEY (guild_id,user_id,hidden_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_server_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, event_key TEXT NOT NULL,
+                name TEXT NOT NULL, description TEXT NOT NULL, event_type TEXT NOT NULL DEFAULT 'community',
+                target INTEGER NOT NULL DEFAULT 1, progress INTEGER NOT NULL DEFAULT 0,
+                reward_xp INTEGER NOT NULL DEFAULT 0, reward_gold INTEGER NOT NULL DEFAULT 0,
+                reward_item TEXT NOT NULL DEFAULT '', reward_qty INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active', started_at REAL NOT NULL, expires_at REAL NOT NULL,
+                UNIQUE(guild_id,event_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_server_event_contributions (
+                event_id INTEGER NOT NULL, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                contribution INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(event_id,user_id),
+                FOREIGN KEY(event_id) REFERENCES rpg_server_events(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_npc_relationships_user ON rpg_npc_relationships(guild_id,user_id,affinity DESC);
+            CREATE INDEX IF NOT EXISTS idx_rpg_server_events_active ON rpg_server_events(guild_id,status,expires_at);
+
+            -- Phase 5: PvP seasons, raid bosses, secret classes and legendary trials.
+            CREATE TABLE IF NOT EXISTS rpg_pvp_seasons (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, season_number INTEGER NOT NULL,
+                name TEXT NOT NULL, started_at REAL NOT NULL, ends_at REAL NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+                UNIQUE(guild_id,season_number)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_pvp_ratings (
+                guild_id INTEGER NOT NULL, season_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                rating INTEGER NOT NULL DEFAULT 1000, wins INTEGER NOT NULL DEFAULT 0, losses INTEGER NOT NULL DEFAULT 0,
+                streak INTEGER NOT NULL DEFAULT 0, best_rating INTEGER NOT NULL DEFAULT 1000,
+                PRIMARY KEY(guild_id,season_id,user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_arena_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, season_id INTEGER NOT NULL,
+                player_a INTEGER NOT NULL, player_b INTEGER NOT NULL, winner_id INTEGER NOT NULL DEFAULT 0,
+                rating_delta_a INTEGER NOT NULL DEFAULT 0, rating_delta_b INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_pvp_ratings_leaderboard ON rpg_pvp_ratings(guild_id,season_id,rating DESC);
+            CREATE TABLE IF NOT EXISTS rpg_raid_bosses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, raid_key TEXT NOT NULL,
+                name TEXT NOT NULL, description TEXT NOT NULL, level INTEGER NOT NULL, max_hp INTEGER NOT NULL, hp INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active', started_at REAL NOT NULL, expires_at REAL NOT NULL, weekly_key TEXT NOT NULL,
+                UNIQUE(guild_id,weekly_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_raid_damage (
+                raid_id INTEGER NOT NULL, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, damage INTEGER NOT NULL DEFAULT 0,
+                attacks INTEGER NOT NULL DEFAULT 0, last_attack REAL NOT NULL DEFAULT 0, claimed INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(raid_id,user_id), FOREIGN KEY(raid_id) REFERENCES rpg_raid_bosses(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_raid_damage_rank ON rpg_raid_damage(raid_id,damage DESC);
+            CREATE TABLE IF NOT EXISTS rpg_secret_class_unlocks (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, class_key TEXT NOT NULL, unlocked_at REAL NOT NULL,
+                PRIMARY KEY(guild_id,user_id,class_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_legendary_challenges (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, challenge_key TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0, completions INTEGER NOT NULL DEFAULT 0, last_completed REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY(guild_id,user_id,challenge_key)
+            );
+            """)
+            # Lightweight migrations for existing Horizon RPG databases.
+            migrations = {
+                "gems": "INTEGER NOT NULL DEFAULT 500",
+                "subclass": "TEXT NOT NULL DEFAULT ''", "subrace": "TEXT NOT NULL DEFAULT ''",
+                "evolution": "TEXT NOT NULL DEFAULT ''", "life_path": "TEXT NOT NULL DEFAULT 'adventurer'",
+                "renown": "INTEGER NOT NULL DEFAULT 0", "fame": "INTEGER NOT NULL DEFAULT 0",
+                "stat_points": "INTEGER NOT NULL DEFAULT 0", "talent_points": "INTEGER NOT NULL DEFAULT 0",
+                "kingdom_name": "TEXT NOT NULL DEFAULT ''", "kingdom_role": "TEXT NOT NULL DEFAULT ''",
+                "area_key": "TEXT NOT NULL DEFAULT 'horizon_village'",
+                "last_gather": "REAL NOT NULL DEFAULT 0", "last_mine": "REAL NOT NULL DEFAULT 0", "last_fish": "REAL NOT NULL DEFAULT 0",
+            }
+            cur = await db.execute("PRAGMA table_info(rpg_players)")
+            existing = {row[1] for row in await cur.fetchall()}
+            for column, definition in migrations.items():
+                if column not in existing:
+                    await db.execute(f"ALTER TABLE rpg_players ADD COLUMN {column} {definition}")
+            cur = await db.execute("PRAGMA table_info(rpg_equipment)")
+            equipment_existing = {row[1] for row in await cur.fetchall()}
+            equipment_migrations = {
+                "upgrade_level": "INTEGER NOT NULL DEFAULT 0",
+                "intrinsic_json": "TEXT NOT NULL DEFAULT '{}'",
+                "set_key": "TEXT NOT NULL DEFAULT ''",
+                "instance_uid": "TEXT NOT NULL DEFAULT ''",
+            }
+            for column, definition in equipment_migrations.items():
+                if column not in equipment_existing:
+                    await db.execute(f"ALTER TABLE rpg_equipment ADD COLUMN {column} {definition}")
+            cur = await db.execute("PRAGMA table_info(rpg_market)")
+            market_existing = {row[1] for row in await cur.fetchall()}
+            market_migrations = {
+                "status": "TEXT NOT NULL DEFAULT 'open'", "buyer_id": "INTEGER DEFAULT 0",
+                "sold_at": "REAL DEFAULT 0", "listing_token": "TEXT NOT NULL DEFAULT ''",
+            }
+            for column, definition in market_migrations.items():
+                if column not in market_existing:
+                    await db.execute(f"ALTER TABLE rpg_market ADD COLUMN {column} {definition}")
+            await db.execute("UPDATE rpg_market SET listing_token='legacy-'||id WHERE listing_token='' OR listing_token IS NULL")
+            await db.execute("UPDATE rpg_equipment SET instance_uid='legacy-'||guild_id||'-'||user_id||'-'||slot WHERE instance_uid='' OR instance_uid IS NULL")
+            await db.execute("UPDATE rpg_equipment SET set_key='' WHERE set_key IS NULL")
+            # One-time migration for already-equipped legacy gear. Intrinsics are
+            # rolled only when the old row has no intrinsic payload, so restarts
+            # never reroll a player's gear.
+            cur = await db.execute("SELECT guild_id,user_id,slot,item_key,intrinsic_json,set_key FROM rpg_equipment")
+            legacy_gear = await cur.fetchall()
+            for gid, uid, slot, item_key, intrinsic_json, set_key in legacy_gear:
+                item = ITEMS.get(item_key, {})
+                intr = intrinsic_json if intrinsic_json not in (None, "", "{}") else json.dumps(_roll_intrinsics(item), separators=(",", ":"))
+                skey = set_key or _set_key_for_item(item, item_key)
+                await db.execute("UPDATE rpg_equipment SET intrinsic_json=?,set_key=? WHERE guild_id=? AND user_id=? AND slot=?",(intr,skey,gid,uid,slot))
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_rpg_market_open ON rpg_market(guild_id,status,created_at DESC)")
+            cur = await db.execute("PRAGMA table_info(rpg_quests)")
+            quest_existing = {row[1] for row in await cur.fetchall()}
+            quest_migrations = {"chain_key": "TEXT NOT NULL DEFAULT ''", "chain_step": "INTEGER NOT NULL DEFAULT 0"}
+            for column, definition in quest_migrations.items():
+                if column not in quest_existing:
+                    await db.execute(f"ALTER TABLE rpg_quests ADD COLUMN {column} {definition}")
+            cur = await db.execute("PRAGMA table_info(rpg_bounties)")
+            bounty_existing = {row[1] for row in await cur.fetchall()}
+            if "target_id" not in bounty_existing:
+                await db.execute("ALTER TABLE rpg_bounties ADD COLUMN target_id INTEGER DEFAULT 0")
+            # Pet migrations keep existing companions valid while adding their
+            # passive stats and battle ability.
+            cur = await db.execute("PRAGMA table_info(rpg_pets)")
+            pet_existing = {row[1] for row in await cur.fetchall()}
+            pet_migrations = {
+                "bonus_hp": "INTEGER NOT NULL DEFAULT 0",
+                "bonus_mp": "INTEGER NOT NULL DEFAULT 0",
+                "bonus_speed": "INTEGER NOT NULL DEFAULT 0",
+                "bonus_crit": "INTEGER NOT NULL DEFAULT 0",
+                "ability": "TEXT NOT NULL DEFAULT 'Pounce'",
+            }
+            for column, definition in pet_migrations.items():
+                if column not in pet_existing:
+                    await db.execute(f"ALTER TABLE rpg_pets ADD COLUMN {column} {definition}")
+            # New progression starts with exactly three active skills. Remove the
+            # old fourth starter slot from characters created by earlier versions;
+            # skill 4 remains unlockable normally at level 6.
+            await db.execute("DELETE FROM rpg_skill_loadout WHERE slot=4")
+
+            cur = await db.execute("SELECT guild_id,user_id,area_key FROM rpg_players")
+            for _gid,_uid,_area in await cur.fetchall():
+                _area = _area or "horizon_village"
+                if _area in AREAS:
+                    await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(_gid,_uid,_area,time.time(),"migration"))
+            # Preserve an existing single-pet character while upgrading to a true
+            # pet inventory. The old rpg_pets table remains as a compatibility cache.
+            cur = await db.execute("SELECT guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability FROM rpg_pets")
+            old_pets = await cur.fetchall()
+            for row in old_pets:
+                exists = await db.execute("SELECT 1 FROM rpg_pet_inventory WHERE guild_id=? AND user_id=? AND name=? AND species=? LIMIT 1", (row[0],row[1],row[2],row[3]))
+                if not await exists.fetchone():
+                    await db.execute("INSERT INTO rpg_pet_inventory(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability,equipped) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)", row)
+            cur = await db.execute("SELECT guild_id,user_id,class_name FROM rpg_players")
+            players = await cur.fetchall()
+            for guild_id,user_id,class_name in players:
+                count_cur = await db.execute("SELECT COUNT(*) FROM rpg_skill_loadout WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+                count = (await count_cur.fetchone())[0]
+                if count == 0:
+                    for slot, skill_key in enumerate(("skill_1","skill_2","skill_3"),1):
+                        await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)", (guild_id,user_id,slot,skill_key))
+            # Ensure every existing character has exactly three starter skills and
+            # a mastery record for those skills. Skill points are intentionally not
+            # spent automatically; players decide which skills to master.
+            cur = await db.execute("SELECT guild_id,user_id,class_name FROM rpg_players")
+            for guild_id,user_id,class_name in await cur.fetchall():
+                for skill_key in ("skill_1","skill_2","skill_3"):
+                    await db.execute("INSERT OR IGNORE INTO rpg_skill_mastery(guild_id,user_id,skill_key,rank) VALUES(?,?,?,1)", (guild_id,user_id,skill_key))
+            # Batch v12 — Phases 5-9 progression tables. These are additive and
+            # intentionally do not reset existing RPG data.
+            await db.executescript("""
+            CREATE TABLE IF NOT EXISTS rpg_professions (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, profession TEXT NOT NULL,
+                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(guild_id,user_id,profession)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_recipe_unlocks (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, recipe_key TEXT NOT NULL,
+                unlocked_at REAL NOT NULL, PRIMARY KEY(guild_id,user_id,recipe_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_pet_collection (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, species TEXT NOT NULL,
+                first_seen REAL NOT NULL, times_seen INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY(guild_id,user_id,species)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_social_reputation (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                helpful INTEGER NOT NULL DEFAULT 0, party_runs INTEGER NOT NULL DEFAULT 0,
+                trades_completed INTEGER NOT NULL DEFAULT 0, guild_contributions INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(guild_id,user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_market_seller_status ON rpg_market(guild_id,seller_id,status);
+            """)
+            cur=await db.execute("PRAGMA table_info(rpg_pet_inventory)")
+            pet_inv_existing={row[1] for row in await cur.fetchall()}
+            for column,definition in {
+                "bond":"INTEGER NOT NULL DEFAULT 0",
+                "mood":"INTEGER NOT NULL DEFAULT 50",
+                "total_xp":"INTEGER NOT NULL DEFAULT 0",
+            }.items():
+                if column not in pet_inv_existing:
+                    await db.execute(f"ALTER TABLE rpg_pet_inventory ADD COLUMN {column} {definition}")
+            await db.commit()
+
+        # Phase 4 launches on a clean RPG economy/progression state. This is a
+        # one-time migration marker, so Railway restarts never wipe players again.
+        await self._phase4_fresh_start()
+
+    async def _phase4_fresh_start(self):
+        tables = [
+            "rpg_world_event_participants", "rpg_world_events", "rpg_objectives",
+            "rpg_area_discoveries", "rpg_bounties", "rpg_kingdom_members", "rpg_kingdoms",
+            "rpg_trade_items", "rpg_trade_pets", "rpg_trades", "rpg_market",
+            "rpg_housing", "rpg_titles", "rpg_achievements", "rpg_pets", "rpg_pet_inventory",
+            "rpg_talents", "rpg_skill_mastery", "rpg_skill_loadout", "rpg_equipment_enchants",
+            "rpg_gacha_state", "rpg_economy_log", "rpg_equipment_storage", "rpg_equipment",
+            "rpg_inventory", "rpg_player_quests", "rpg_quests", "rpg_party_members",
+            "rpg_parties", "rpg_guild_members", "rpg_guilds", "rpg_players",
+            "rpg_npc_relationships", "rpg_lore_discoveries", "rpg_hidden_quest_progress",
+            "rpg_server_event_contributions", "rpg_server_events", "rpg_hidden_quests",
+            "rpg_lore_entries", "rpg_npcs"
+        ]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("CREATE TABLE IF NOT EXISTS horizon_rpg_migrations (key TEXT PRIMARY KEY, applied_at REAL NOT NULL)")
+            cur=await db.execute("SELECT 1 FROM horizon_rpg_migrations WHERE key='phase4_fresh_start_v1'")
+            if await cur.fetchone():
+                return

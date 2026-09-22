@@ -1578,6 +1578,72 @@ class RPGService:
             }.items():
                 if column not in pet_inv_existing:
                     await db.execute(f"ALTER TABLE rpg_pet_inventory ADD COLUMN {column} {definition}")
+            # v13 — Phases 10-15 additive world/quest/building/faction/endgame systems.
+            await db.executescript("""
+            CREATE TABLE IF NOT EXISTS rpg_world_state (
+                guild_id INTEGER PRIMARY KEY, world_day INTEGER NOT NULL DEFAULT 1,
+                weather TEXT NOT NULL DEFAULT 'clear', season TEXT NOT NULL DEFAULT 'spring',
+                stability INTEGER NOT NULL DEFAULT 100, last_tick REAL NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS rpg_rumors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, text TEXT NOT NULL,
+                area_key TEXT NOT NULL DEFAULT '', source_npc TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL, expires_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_rumors_active ON rpg_rumors(guild_id,expires_at);
+            CREATE TABLE IF NOT EXISTS rpg_npc_schedules (
+                guild_id INTEGER NOT NULL, npc_key TEXT NOT NULL, hour INTEGER NOT NULL,
+                area_key TEXT NOT NULL, activity TEXT NOT NULL, PRIMARY KEY(guild_id,npc_key,hour)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_story_memory (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, chapter INTEGER NOT NULL DEFAULT 1,
+                flags_json TEXT NOT NULL DEFAULT '{}', choices_json TEXT NOT NULL DEFAULT '[]', updated_at REAL NOT NULL,
+                PRIMARY KEY(guild_id,user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_chronicle (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL DEFAULT 0,
+                event_key TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, area_key TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_chronicle_world ON rpg_chronicle(guild_id,created_at DESC);
+            CREATE TABLE IF NOT EXISTS rpg_world_structures (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                structure_key TEXT NOT NULL, name TEXT NOT NULL, area_key TEXT NOT NULL, level INTEGER NOT NULL DEFAULT 1,
+                materials_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL,
+                UNIQUE(guild_id,user_id,structure_key,area_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_world_projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, guild_id INTEGER NOT NULL, project_key TEXT NOT NULL,
+                name TEXT NOT NULL, description TEXT NOT NULL, area_key TEXT NOT NULL, target INTEGER NOT NULL,
+                progress INTEGER NOT NULL DEFAULT 0, reward_xp INTEGER NOT NULL DEFAULT 0, reward_gold INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'active', expires_at REAL NOT NULL,
+                UNIQUE(guild_id,project_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_project_contributions (
+                project_id INTEGER NOT NULL, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                contribution INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project_id,user_id),
+                FOREIGN KEY(project_id) REFERENCES rpg_world_projects(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS rpg_factions (
+                guild_id INTEGER NOT NULL, faction_key TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+                ideology TEXT NOT NULL, color TEXT NOT NULL DEFAULT '', PRIMARY KEY(guild_id,faction_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_faction_members (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, faction_key TEXT NOT NULL,
+                reputation INTEGER NOT NULL DEFAULT 0, rank TEXT NOT NULL DEFAULT 'outsider', joined_at REAL NOT NULL,
+                PRIMARY KEY(guild_id,user_id)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_faction_relations (
+                guild_id INTEGER NOT NULL, faction_a TEXT NOT NULL, faction_b TEXT NOT NULL, relation TEXT NOT NULL DEFAULT 'neutral',
+                updated_at REAL NOT NULL, PRIMARY KEY(guild_id,faction_a,faction_b)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_endgame_progress (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, mastery INTEGER NOT NULL DEFAULT 0,
+                ascension INTEGER NOT NULL DEFAULT 0, milestones_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL,
+                PRIMARY KEY(guild_id,user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_faction_rep ON rpg_faction_members(guild_id,faction_key,reputation DESC);
+            """)
             await db.commit()
 
         # Phase 4 launches on a clean RPG economy/progression state. This is a
@@ -4455,3 +4521,385 @@ class RPGService:
             except Exception:
                 pass
         return {"finished":True,"state":state,"winner":winner_id,"loser":loser_id}
+
+
+
+    async def _phase10_15_seed(self, guild_id):
+        now = time.time()
+        factions = [
+            ("horizon_guard", "Horizon Guard", "Protectors of roads, settlements and ordinary adventurers.", "order"),
+            ("free_merchants", "Free Merchants", "Traders who value open routes, markets and independent commerce.", "commerce"),
+            ("arcane_circle", "Arcane Circle", "Scholars who pursue magic, relics and forgotten knowledge.", "knowledge"),
+            ("wildbound", "Wildbound", "Explorers and wardens who defend the wilderness and its creatures.", "nature"),
+        ]
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT OR IGNORE INTO rpg_world_state(guild_id,world_day,weather,season,stability,last_tick) VALUES(?,?,?,?,?,?)",
+                (guild_id, 1, "clear", "spring", 100, now),
+            )
+            for key, name, desc, ideology in factions:
+                await db.execute(
+                    "INSERT OR IGNORE INTO rpg_factions(guild_id,faction_key,name,description,ideology) VALUES(?,?,?,?,?)",
+                    (guild_id, key, name, desc, ideology),
+                )
+            projects = [
+                ("village_watchtower", "Build the Village Watchtower", "Raise a watchtower overlooking Horizon Village.", "horizon_village", 1000, 1500, 2500),
+                ("road_restoration", "Restore the Eastern Road", "Repair the road and reopen a safer route.", "horizon_village", 1500, 2200, 3500),
+            ]
+            for key, name, desc, area, target, xp, gold in projects:
+                await db.execute(
+                    "INSERT OR IGNORE INTO rpg_world_projects(guild_id,project_key,name,description,area_key,target,reward_xp,reward_gold,status,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (guild_id, key, name, desc, area, target, xp, gold, "active", now + 86400 * 30),
+                )
+            schedules = [
+                ("village_keeper", 8, "horizon_village", "opens the market"),
+                ("village_keeper", 14, "horizon_village", "checks the town square"),
+                ("village_keeper", 20, "horizon_village", "closes the market"),
+                ("lorekeeper", 10, "horizon_village", "studies old records"),
+                ("lorekeeper", 18, "horizon_village", "shares rumors"),
+            ]
+            for npc, hour, area, activity in schedules:
+                await db.execute(
+                    "INSERT OR IGNORE INTO rpg_npc_schedules(guild_id,npc_key,hour,area_key,activity) VALUES(?,?,?,?,?)",
+                    (guild_id, npc, hour, area, activity),
+                )
+            await db.commit()
+
+    async def _chronicle(self, guild_id, user_id, event_key, title, body, area_key=""):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT INTO rpg_chronicle(guild_id,user_id,event_key,title,body,area_key,created_at) VALUES(?,?,?,?,?,?,?)",
+                (guild_id, user_id, event_key, title, body, area_key, time.time()),
+            )
+            await db.commit()
+
+    async def quest_journal(self, guild_id, user_id):
+        await self._phase10_15_seed(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT status,COUNT(*) FROM rpg_player_quests WHERE guild_id=? AND user_id=? GROUP BY status",
+                (guild_id, user_id),
+            )
+            counts = {r[0]: r[1] for r in await cur.fetchall()}
+            cur = await db.execute(
+                "SELECT q.chain_key,MAX(q.chain_step),MAX(CASE WHEN p.status='claimed' THEN q.chain_step ELSE 0 END) "
+                "FROM rpg_quests q LEFT JOIN rpg_player_quests p ON p.quest_id=q.id AND p.guild_id=? AND p.user_id=? "
+                "WHERE q.guild_id=? AND q.chain_key!='' GROUP BY q.chain_key ORDER BY q.chain_key",
+                (guild_id, user_id, guild_id),
+            )
+            chains = await cur.fetchall()
+        return counts, chains
+
+    async def world_state(self, guild_id, user_id=0):
+        await self._phase10_15_seed(guild_id)
+        hour = int((time.time() / 3600) % 24)
+        day = int(time.time() // 3600) + 1
+        seasons = ("spring", "summer", "autumn", "winter")
+        season = seasons[(day // 30) % 4]
+        weather_pool = ("clear", "cloudy", "rain", "windy", "foggy", "storm")
+        weather = weather_pool[(guild_id // 7 + day * 3) % len(weather_pool)]
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute("SELECT stability FROM rpg_world_state WHERE guild_id=?", (guild_id,))
+            row = await cur.fetchone()
+            await db.execute(
+                "UPDATE rpg_world_state SET world_day=?,weather=?,season=?,last_tick=? WHERE guild_id=?",
+                (day, weather, season, time.time(), guild_id),
+            )
+            cur = await db.execute(
+                "SELECT npc_key,activity,area_key FROM rpg_npc_schedules WHERE guild_id=? AND hour=?",
+                (guild_id, hour),
+            )
+            schedules = await cur.fetchall()
+            await db.commit()
+        return {"day": day, "hour": hour, "weather": weather, "season": season, "stability": row[0] if row else 100, "schedules": schedules}
+
+    async def rumors(self, guild_id, user_id=0):
+        state = await self.world_state(guild_id, user_id)
+        now = time.time()
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT id,text,area_key,source_npc,expires_at FROM rpg_rumors WHERE guild_id=? AND expires_at>? ORDER BY id DESC LIMIT 8",
+                (guild_id, now),
+            )
+            rows = await cur.fetchall()
+            if not rows:
+                candidates = [
+                    (f"Travelers whisper that the frontier weather is turning {state['weather']}.", "", "village_keeper"),
+                    ("A merchant claims rare materials have appeared beyond the safer roads.", "", "village_keeper"),
+                    ("Someone in the archives found a reference to a forgotten path.", "horizon_village", "lorekeeper"),
+                ]
+                for text, area, npc in candidates:
+                    await db.execute(
+                        "INSERT INTO rpg_rumors(guild_id,text,area_key,source_npc,created_at,expires_at) VALUES(?,?,?,?,?,?)",
+                        (guild_id, text, area, npc, now, now + 86400 * 2),
+                    )
+                await db.commit()
+                cur = await db.execute(
+                    "SELECT id,text,area_key,source_npc,expires_at FROM rpg_rumors WHERE guild_id=? AND expires_at>? ORDER BY id DESC LIMIT 8",
+                    (guild_id, now),
+                )
+                rows = await cur.fetchall()
+        return state, rows
+
+    async def story_memory(self, guild_id, user_id):
+        await self._phase10_15_seed(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT chapter,flags_json,choices_json FROM rpg_story_memory WHERE guild_id=? AND user_id=?",
+                (guild_id, user_id),
+            )
+            row = await cur.fetchone()
+            if not row:
+                await db.execute(
+                    "INSERT INTO rpg_story_memory(guild_id,user_id,chapter,flags_json,choices_json,updated_at) VALUES(?,?,?,?,?,?)",
+                    (guild_id, user_id, 1, "{}", "[]", time.time()),
+                )
+                await db.commit()
+                return 1, {}, []
+        try:
+            flags = json.loads(row[1] or "{}")
+            choices = json.loads(row[2] or "[]")
+        except Exception:
+            flags, choices = {}, []
+        return row[0], flags, choices
+
+    async def story_choose(self, guild_id, user_id, choice):
+        choice = str(choice).lower().strip()
+        chapter, flags, choices = await self.story_memory(guild_id, user_id)
+        options = {
+            1: {
+                "guard": "You pledged to protect the roads.",
+                "merchant": "You chose open trade and safer markets.",
+                "arcane": "You agreed to preserve forbidden knowledge.",
+                "wild": "You swore to protect the wild frontier.",
+            }
+        }
+        if chapter not in options or choice not in options[chapter]:
+            return False, "Choose one of: `guard`, `merchant`, `arcane`, `wild`."
+        flags[f"chapter_{chapter}"] = choice
+        choices.append({"chapter": chapter, "choice": choice, "at": int(time.time())})
+        new_chapter = chapter + 1
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "UPDATE rpg_story_memory SET chapter=?,flags_json=?,choices_json=?,updated_at=? WHERE guild_id=? AND user_id=?",
+                (new_chapter, json.dumps(flags), json.dumps(choices[-20:]), time.time(), guild_id, user_id),
+            )
+            await db.commit()
+        await self._chronicle(guild_id, user_id, "story_choice", f"Chapter {chapter} — {choice.title()}", options[chapter][choice])
+        await self.add_rewards(guild_id, user_id, 150 * chapter, 100 * chapter)
+        return True, f"Your choice is remembered by Horizon. **Chapter {new_chapter}** begins.\n{options[chapter][choice]}\n\nThe Chronicle has recorded this decision."
+
+    async def chronicle(self, guild_id, user_id=0, limit=12):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT title,body,area_key,created_at,user_id FROM rpg_chronicle WHERE guild_id=? ORDER BY id DESC LIMIT ?",
+                (guild_id, max(1, min(30, int(limit)))),
+            )
+            return await cur.fetchall()
+
+    async def structures(self, guild_id, user_id):
+        await self._phase10_15_seed(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT id,structure_key,name,area_key,level,materials_json FROM rpg_world_structures WHERE guild_id=? AND user_id=? ORDER BY id DESC",
+                (guild_id, user_id),
+            )
+            return await cur.fetchall()
+
+    async def build_structure(self, guild_id, user_id, structure_key):
+        p = await self.player(guild_id, user_id)
+        if not p:
+            return False, "Create a hero first."
+        specs = {
+            "camp": ("Frontier Camp", {"wood": 20, "stone": 10}, "Resting at your camp restores a little extra stamina."),
+            "workshop": ("Crafting Workshop", {"wood": 30, "iron_ore": 10, "stone": 20}, "A base for crafting progression."),
+            "watchtower": ("Watchtower", {"wood": 40, "stone": 40, "iron_ore": 20}, "A lookout over the frontier."),
+            "shrine": ("Horizon Shrine", {"wood": 15, "stone": 25, "herb": 10}, "A place to recover and record memories."),
+            "market_stall": ("Market Stall", {"wood": 25, "iron_ore": 10}, "A base for merchant activity."),
+        }
+        key = str(structure_key).lower().strip()
+        if key not in specs:
+            return False, "Build one of: `camp`, `workshop`, `watchtower`, `shrine`, `market_stall`."
+        name, costs, desc = specs[key]
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT id,level FROM rpg_world_structures WHERE guild_id=? AND user_id=? AND structure_key=? AND area_key=?",
+                (guild_id, user_id, key, p["area_key"]),
+            )
+            if await cur.fetchone():
+                return False, f"You already have a **{name}** here."
+            for item, qty in costs.items():
+                cur = await db.execute(
+                    "SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",
+                    (guild_id, user_id, item),
+                )
+                row = await cur.fetchone()
+                if not row or row[0] < qty:
+                    return False, f"You need **{qty} {ITEMS.get(item, {'name': item})['name']}**."
+            for item, qty in costs.items():
+                await db.execute(
+                    "UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",
+                    (qty, guild_id, user_id, item),
+                )
+            await db.execute(
+                "INSERT INTO rpg_world_structures(guild_id,user_id,structure_key,name,area_key,level,materials_json,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                (guild_id, user_id, key, name, p["area_key"], 1, json.dumps(costs), time.time()),
+            )
+            await db.commit()
+        area_name = AREAS.get(p["area_key"], {}).get("name", p["area_key"])
+        await self._chronicle(guild_id, user_id, "structure_built", f"{name} established", f"{p['name']} built a {name.lower()} in {area_name}.", p["area_key"])
+        return True, f"Built **{name}** in **{area_name}**.\n{desc}"
+
+    async def projects(self, guild_id):
+        await self._phase10_15_seed(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT id,project_key,name,description,area_key,target,progress,reward_xp,reward_gold,status,expires_at FROM rpg_world_projects WHERE guild_id=? ORDER BY status,id",
+                (guild_id,),
+            )
+            return await cur.fetchall()
+
+    async def contribute_project(self, guild_id, user_id, project_id, amount):
+        amount = max(1, int(amount))
+        p = await self.player(guild_id, user_id)
+        if not p:
+            return False, "Create a hero first."
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT target,progress,status,reward_xp,reward_gold,name FROM rpg_world_projects WHERE guild_id=? AND id=?",
+                (guild_id, project_id),
+            )
+            proj = await cur.fetchone()
+            if not proj:
+                return False, "Project not found."
+            if proj[2] != "active":
+                return False, "That project is no longer active."
+            amount = min(amount, max(0, proj[0] - proj[1]))
+            if amount <= 0:
+                return False, "That project is already complete."
+            if p["gold"] < amount:
+                return False, f"You need **{amount} gold** to contribute that much."
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?", (amount, guild_id, user_id))
+            await db.execute("UPDATE rpg_world_projects SET progress=MIN(target,progress+?) WHERE guild_id=? AND id=?", (amount, guild_id, project_id))
+            await db.execute(
+                "INSERT INTO rpg_project_contributions(project_id,guild_id,user_id,contribution) VALUES(?,?,?,?) "
+                "ON CONFLICT(project_id,user_id) DO UPDATE SET contribution=contribution+excluded.contribution",
+                (project_id, guild_id, user_id, amount),
+            )
+            cur = await db.execute("SELECT progress,target,reward_xp,reward_gold,name FROM rpg_world_projects WHERE guild_id=? AND id=?", (guild_id, project_id))
+            after = await cur.fetchone()
+            completed = after[0] >= after[1]
+            if completed:
+                await db.execute("UPDATE rpg_world_projects SET status='complete' WHERE guild_id=? AND id=?", (guild_id, project_id))
+            await db.commit()
+        if completed:
+            await self.add_rewards(guild_id, user_id, after[2], after[3])
+        await self._chronicle(guild_id, user_id, "project_contribution", f"Project contribution — {after[4]}", f"A contribution of {amount} gold was added to a server construction project.")
+        return True, f"Contributed **{amount} gold**. Project progress: **{after[0]}/{after[1]}**." + (f"\nProject completed! You receive **+{after[2]} XP** and **+{after[3]} gold**." if completed else "")
+
+    async def factions(self, guild_id):
+        await self._phase10_15_seed(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute("SELECT faction_key,name,description,ideology FROM rpg_factions WHERE guild_id=? ORDER BY name", (guild_id,))
+            return await cur.fetchall()
+
+    async def faction_status(self, guild_id, user_id):
+        await self._phase10_15_seed(guild_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute("SELECT faction_key,reputation,rank,joined_at FROM rpg_faction_members WHERE guild_id=? AND user_id=?", (guild_id, user_id))
+            return await cur.fetchone()
+
+    async def faction_join(self, guild_id, user_id, faction_key):
+        key = str(faction_key).lower().strip()
+        faction_rows = await self.factions(guild_id)
+        factions = {r[0]: r for r in faction_rows}
+        if key not in factions:
+            return False, "Choose a faction key from `!rpg factions`."
+        existing = await self.faction_status(guild_id, user_id)
+        if existing and existing[0] != key:
+            current = factions.get(existing[0], (existing[0], existing[0]))
+            return False, f"You already serve **{current[1]}**. Leave your faction before changing allegiance."
+        if existing:
+            return False, "You are already a member of that faction."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT INTO rpg_faction_members(guild_id,user_id,faction_key,reputation,rank,joined_at) VALUES(?,?,?,?,?,?)",
+                (guild_id, user_id, key, 0, "outsider", time.time()),
+            )
+            await db.commit()
+        await self._chronicle(guild_id, user_id, "faction_join", f"Joined {factions[key][1]}", f"A new allegiance was recorded with the {factions[key][1]}.")
+        return True, f"You joined **{factions[key][1]}**. Your faction reputation starts at **0**."
+
+    async def faction_rep(self, guild_id, user_id, amount=10):
+        row = await self.faction_status(guild_id, user_id)
+        if not row:
+            return False, "Join a faction first."
+        async with aiosqlite.connect(self.path) as db:
+            new = max(-1000, min(5000, row[1] + int(amount)))
+            rank = "outsider" if new < 100 else "member" if new < 500 else "veteran" if new < 1000 else "champion" if new < 2500 else "paragon"
+            await db.execute("UPDATE rpg_faction_members SET reputation=?,rank=? WHERE guild_id=? AND user_id=?", (new, rank, guild_id, user_id))
+            await db.commit()
+        return True, f"Faction reputation changed to **{new}** (**{rank.title()}**)."
+
+    async def faction_relation(self, guild_id, user_id, other_key, relation):
+        me = await self.faction_status(guild_id, user_id)
+        if not me:
+            return False, "Join a faction first."
+        relation = str(relation).lower().strip()
+        if relation not in {"allied", "neutral", "rival"}:
+            return False, "Relation must be `allied`, `neutral`, or `rival`."
+        keys = {r[0] for r in await self.factions(guild_id)}
+        if other_key not in keys or other_key == me[0]:
+            return False, "Choose another valid faction key."
+        if me[1] < 1000:
+            return False, "You need **1000 faction reputation** to propose diplomacy."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT INTO rpg_faction_relations(guild_id,faction_a,faction_b,relation,updated_at) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(guild_id,faction_a,faction_b) DO UPDATE SET relation=excluded.relation,updated_at=excluded.updated_at",
+                (guild_id, me[0], other_key, relation, time.time()),
+            )
+            await db.commit()
+        return True, f"Your faction's diplomatic stance toward **{other_key}** is now **{relation}**."
+
+    async def endgame_status(self, guild_id, user_id):
+        p = await self.player(guild_id, user_id)
+        if not p:
+            return None
+        arena = await self.arena_rating(guild_id, user_id)
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute("SELECT COUNT(*) FROM rpg_legendary_challenges WHERE guild_id=? AND user_id=? AND completed=1", (guild_id, user_id))
+            legendary = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT COUNT(*) FROM rpg_secret_class_unlocks WHERE guild_id=? AND user_id=?", (guild_id, user_id))
+            secrets = (await cur.fetchone())[0]
+            cur = await db.execute("SELECT COALESCE(SUM(damage),0) FROM rpg_raid_damage WHERE guild_id=? AND user_id=?", (guild_id, user_id))
+            raid_damage = (await cur.fetchone())[0]
+            mastery = legendary * 10 + secrets * 15 + int(raid_damage // 10000) + int(arena.get("rating", 1000) // 100)
+            cur = await db.execute("SELECT ascension FROM rpg_endgame_progress WHERE guild_id=? AND user_id=?", (guild_id, user_id))
+            row = await cur.fetchone()
+            ascension = row[0] if row else 0
+            await db.execute(
+                "INSERT INTO rpg_endgame_progress(guild_id,user_id,mastery,ascension,milestones_json,updated_at) VALUES(?,?,?,?,?,?) "
+                "ON CONFLICT(guild_id,user_id) DO UPDATE SET mastery=excluded.mastery,milestones_json=excluded.milestones_json,updated_at=excluded.updated_at",
+                (guild_id, user_id, mastery, ascension, json.dumps({"legendary": legendary, "secret_classes": secrets, "raid_damage": raid_damage}), time.time()),
+            )
+            await db.commit()
+        return {"level": p["level"], "arena": arena, "legendary": legendary, "secret_classes": secrets, "raid_damage": raid_damage, "mastery": mastery, "ascension": ascension}
+
+    async def endgame_ascend(self, guild_id, user_id):
+        status = await self.endgame_status(guild_id, user_id)
+        if not status:
+            return False, "Create a hero first."
+        if status["level"] < 80:
+            return False, "Ascension unlocks at level **80**."
+        if status["mastery"] < 100:
+            return False, "You need **100 Endgame Mastery** before Ascension."
+        async with aiosqlite.connect(self.path) as db:
+            if status["ascension"] >= 5:
+                return False, "You have reached the current Ascension cap."
+            new_level = status["ascension"] + 1
+            await db.execute("UPDATE rpg_endgame_progress SET ascension=?,updated_at=? WHERE guild_id=? AND user_id=?", (new_level, time.time(), guild_id, user_id))
+            await db.execute("UPDATE rpg_players SET renown=renown+500,fame=fame+250 WHERE guild_id=? AND user_id=?", (guild_id, user_id))
+            await db.commit()
+        await self._chronicle(guild_id, user_id, "ascension", f"Ascension {new_level}", "A hero crossed beyond ordinary endgame progression.")
+        return True, f"**Ascension {new_level}** achieved. You gained **+500 Renown** and **+250 Fame**."
