@@ -2259,10 +2259,11 @@ class RPGCombatView(discord.ui.View):
     async def flee(self,interaction,button): await self._act(interaction,"flee")
 
     async def on_timeout(self):
-        # The Discord UI can time out while the persistent combat session is
-        # still valid. Remove only the in-memory lock; !rpg dungeon/adventure
-        # can then rebuild a fresh combat view from the saved session.
-        bot.rpg.active_combats.pop((self.ctx.guild.id,self.ctx.author.id),None)
+        # Keep the authoritative combat state alive in memory and in the
+        # database. The old behavior removed the in-memory state here, which
+        # could make a live battle appear dead while a stale Discord component
+        # was still visible. The next !rpg adventure/!rpg dungeon command can
+        # recover the same battle and rebuild its controls.
         for child in self.children: child.disabled=True
         if self.message:
             try: await self.message.edit(view=self)

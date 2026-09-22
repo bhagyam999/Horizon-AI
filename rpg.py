@@ -3792,20 +3792,24 @@ class RPGService:
                 await self._delete_combat_session(guild_id,user_id)
                 return {"error":"Your previous battle state was incomplete, so Horizon cleared it. You can start a new battle now."}
 
-            # A requested dungeon must match the dungeon run already in progress.
-            # Previously every `!rpg dungeon <name>` call blindly resumed the
-            # saved run, which made it look like players were permanently stuck
-            # in one dungeon and could not return to easier content. Keep the
-            # persistent recovery behavior, but require the player to finish or
-            # flee the current run before selecting a different dungeon.
+            # A requested dungeon can replace a different saved dungeon run.
+            # A dungeon run is temporary progress, not a permanent dungeon
+            # selection. If the player explicitly names another unlocked
+            # dungeon, abandon the old run and start the requested one below.
+            # This also clears stale sessions left behind by an expired battle UI.
             if mode == "dungeon" and dungeon_name:
                 requested = str(dungeon_name).strip().casefold()
                 current = str(persisted.get("name") or "").strip().casefold()
                 if current != requested:
-                    return {"error":f"You are currently in **{persisted.get('name','a dungeon')}** on **Floor {int(persisted.get('floor',1))}/{int(persisted.get('floors',1))}**. Finish it or press **🏃 Flee** before entering another dungeon. You can then use `!rpg dungeon <name>` to choose any dungeon you have unlocked."}
-
-            self.active_combats[key]=persisted
-            return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
+                    self.active_combats.pop(key,None)
+                    await self._delete_combat_session(guild_id,user_id)
+                    persisted = None
+                else:
+                    self.active_combats[key]=persisted
+                    return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
+            else:
+                self.active_combats[key]=persisted
+                return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
 
         if key in self.active_combats:
             # The in-memory flag can survive longer than the actual battle.
@@ -4049,7 +4053,30 @@ class RPGService:
 
     async def _combat_action_locked(self,guild_id,user_id,action):
         key=(guild_id,user_id); state=self.active_combats.get(key)
+        # Recover the authoritative persistent state if a Discord view timed
+        # out or the process briefly lost its in-memory combat cache. Never let
+        # a stale UI create a second battle or silently lose the real one.
+        if not state:
+            persisted=await self._load_combat_session(guild_id,user_id)
+            if persisted:
+                try:
+                    if persisted.get("mode") in {"adventure","dungeon"} and (persisted.get("enemy") or {}).get("name") and float(persisted.get("enemy_hp",0))>0:
+                        state=persisted
+                        self.active_combats[key]=state
+                except (TypeError,ValueError):
+                    state=None
         if not state:return {"error":"No active battle."}
+        # A completed enemy must never receive another enemy turn. This guard
+        # lets the final player action resolve cleanly even if a stale Discord
+        # component arrives a moment later.
+        try:
+            if float(state.get("enemy_hp",0))<=0:
+                await self._delete_combat_session(guild_id,user_id)
+                self.active_combats.pop(key,None)
+                return {"finished":True,"win":True,"state":state,"log":[*state.get("log",[]),"🏆 This battle was already completed."]}
+        except (TypeError,ValueError):
+            self.active_combats.pop(key,None); await self._delete_combat_session(guild_id,user_id)
+            return {"error":"Horizon cleared an invalid battle state. You can start a new battle."}
         p=await self.player(guild_id,user_id)
         if not p:return {"error":"Character not found."}
         pet_bonus=await self._pet_bonus(guild_id,user_id)
