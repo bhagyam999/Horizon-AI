@@ -23,7 +23,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
-from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES
+from rpg import RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, RACE_PROFILES, CLASS_PROFILES, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES
 from storage import backup_database, migrate_legacy_database, resolve_database_path
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -1253,15 +1253,12 @@ async def help_command(interaction: discord.Interaction):
 
 
 # -------------------- Prefix commands / compact game mode --------------------
-# Prefix mode is the compact, low-noise way to play Horizon games. Commands
-# are deleted when possible, and the bot edits one pinned-in-place game message
-# instead of creating a new message for every move.
+# Prefix commands stay visible in the channel. The helper is retained as a
+# compatibility no-op because older command handlers call it. This prevents
+# those handlers from deleting the user's command message.
 
 async def _quiet_delete(message: discord.Message):
-    try:
-        await message.delete()
-    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-        pass
+    return
 
 async def _edit_game_message(channel: discord.abc.Messageable, session, content=None, view=None):
     message_id = session.get("message_id") if session else None
@@ -2492,8 +2489,9 @@ async def rpg_classes(ctx):
     await _rpg_delete(ctx)
     rows=[(k,v) for k,v in CLASSES.items() if k not in SECRET_CLASS_KEYS]
     def fmt(x):
-        key,data=x; skills=SKILLS.get(key,[])[:4]
+        key,data=x; skills=SKILLS.get(key,[])[:4]; profile=CLASS_PROFILES.get(key,{"strength":data['desc'],"weakness":"No special weakness listed."})
         return (f"**{key.replace('_',' ').title()}** · {data.get('resource','Resource')}\n{data['desc']}\n"
+                f"🟢 {profile['strength']}\n🔴 {profile['weakness']}\n"
                 f"❤️ HP +{data['hp']} • 💧 MP +{data['mp']} • ⚔️ ATK +{data['atk']} • 🛡️ DEF +{data['def']} • 💨 SPD +{data['spd']} • 🎯 Crit +{data['crit']}%\n"
                 f"✨ Starter skills: {', '.join(sk['name'] for sk in skills)}\n`!rpg class {key}` for full details, strengths and counters.")
     await _rpg_panel(ctx,_rpg_pages("Class Selection Guide",rows,page_size=4,icon="⚔️",formatter=fmt))
@@ -2516,12 +2514,15 @@ async def rpg_class_info(ctx, *, class_name: str = ""):
     data=CLASSES[key]; skills=SKILLS.get(key,[])
     strong=[k.replace('_',' ').title() for k,v in CLASS_MATCHUPS.get(key,{}).items() if v>1]
     weak=[k.replace('_',' ').title() for k,v in CLASS_MATCHUPS.items() if key in v and v[key]<1]
+    profile=CLASS_PROFILES.get(key,{"strength":data.get("desc","Flexible class"),"weakness":"No special weakness listed."})
     body=(f"**{data['desc']}**\n\n**Resource:** {data.get('resource','Resource')}\n"
           f"❤️ HP +{data['hp']} • 💧 MP +{data['mp']} • ⚔️ ATK +{data['atk']} • 🛡️ DEF +{data['def']} • 💨 SPD +{data['spd']} • 🎯 Crit +{data['crit']}%\n\n"
-          f"**Strengths:** {', '.join(strong) or 'No hard counter; flexible matchup.'}\n"
-          f"**Weaker against:** {', '.join(weak) or 'No hard counter.'}\n\n"
-          "**Skill progression:** 20 distinct skills total. Start with 3; later skills unlock at Lv 6, 11, 16 and onward. Only 4 can be active at once.\n"
-          + "\n".join(f"`{sk['key']}` · **{sk['name']}** · Lv {sk['unlock']} · {sk['cost']} MP · {sk['mechanic']} — {sk['desc']}" for sk in skills[:12])
+          f"🟢 **Core strength:** {profile['strength']}\n"
+          f"🔴 **Core weakness:** {profile['weakness']}\n"
+          f"**Matchup advantages:** {', '.join(strong) or 'None'}\n"
+          f"**Matchup disadvantages:** {', '.join(weak) or 'None'}\n\n"
+          "**Skill progression:** 20 skills per class. The first 12 are class-defining; start with 3 and unlock more from Lv 6 onward. Only 4 can be active at once.\n"
+          + "\n".join(f"`{sk['key']}` · **{sk['name']}** · Lv {sk['unlock']} · {sk['cost']} MP · **{sk['mechanic']}** — {sk['desc']}" for sk in skills[:12])
           + "\n\nUse `!rpg skills` to browse all unlocked skills and `!rpg equip-skill <skill_key> <slot>` to choose your four active skills.")
     e=_rpg_embed(f"⚔️ {key.title()} — Full Class Preview",body); e.set_image(url=_rpg_image_url("character",key)); await _rpg_panel(ctx,[e])
 
@@ -2541,8 +2542,8 @@ async def rpg_race_info(ctx, *, race: str = ""):
     await _rpg_delete(ctx); key=race.lower().strip()
     if key not in RACES:
         await _rpg_action_panel(ctx,"Race Details","Use `!rpg races` first, then `!rpg race <race>`.",False); return
-    data=RACES[key]; strong=[k.replace('_',' ').title() for k,v in RACE_MATCHUPS.get(key,{}).items() if v>1]; weak=[k.replace('_',' ').title() for k,v in RACE_MATCHUPS.items() if key in v and v[key]<1]; ability,ability_desc=RACE_ABILITIES.get(key,("Unknown",""))
-    e=_rpg_embed(f"🧬 {key.title()} — Full Race Preview",f"**{data['desc']}**\n\n**Racial ability:** {ability} — {ability_desc}\n\n❤️ HP {data['hp']:+} • ⚔️ ATK {data['atk']:+} • 🛡️ DEF {data['def']:+} • 💨 SPD {data['spd']:+} • 🎯 Crit {data['crit']:+}%\n\n**Advantages:** {', '.join(strong) or 'Balanced'}\n**Weaknesses:** {', '.join(weak) or 'Balanced'}\n\nMatchups are intentionally mild so no race hard-locks another build.\n\nUse `!rpg subraces {key}` to see the subraces available to this race.")
+    data=RACES[key]; strong=[k.replace('_',' ').title() for k,v in RACE_MATCHUPS.get(key,{}).items() if v>1]; weak=[k.replace('_',' ').title() for k,v in RACE_MATCHUPS.items() if key in v and v[key]<1]; ability,ability_desc=RACE_ABILITIES.get(key,("Unknown","")); profile=RACE_PROFILES.get(key,{"strength":data.get("desc","Balanced"),"weakness":"No special weakness listed."})
+    e=_rpg_embed(f"🧬 {key.title()} — Full Race Preview",f"**{data['desc']}**\n\n**Racial ability:** {ability} — {ability_desc}\n\n❤️ HP {data['hp']:+} • ⚔️ ATK {data['atk']:+} • 🛡️ DEF {data['def']:+} • 💨 SPD {data['spd']:+} • 🎯 Crit {data['crit']:+}%\n\n🟢 **Core strength:** {profile['strength']}\n🔴 **Core weakness:** {profile['weakness']}\n\n**Matchup advantages:** {', '.join(strong) or 'None'}\n**Matchup disadvantages:** {', '.join(weak) or 'None'}\n\nRace matchups are now meaningful enough to matter, but not so extreme that they hard-lock a build.\n\nUse `!rpg subraces {key}` to see the subraces available to this race.")
     e.set_image(url=_rpg_image_url("character",key)); await _rpg_panel(ctx,[e])
 
 @rpg_root.command(name="subraces")

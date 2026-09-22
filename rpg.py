@@ -117,29 +117,29 @@ CLASSES.update({
 # Matchups are intentionally mild (+/- 10%) so counters matter without making
 # a build unwinnable. These are shown before selection and applied only in PvP.
 RACE_MATCHUPS = {
-    "human": {"vampire": 1.08, "golem": 0.96},
-    "elf": {"orc": 1.08, "golem": 0.94},
-    "dwarf": {"golem": 1.08, "dragonkin": 0.96},
-    "orc": {"dwarf": 1.06, "elf": 0.96},
-    "kitsune": {"golem": 0.94, "vampire": 1.05},
-    "fae": {"golem": 0.94, "orc": 1.07},
-    "vampire": {"fae": 1.06, "human": 0.92},
-    "golem": {"orc": 1.06, "elf": 1.06},
-    "dragonkin": {"golem": 1.04, "dwarf": 1.04},
+    "human": {"vampire": 1.14, "golem": 0.92},
+    "elf": {"orc": 1.14, "golem": 0.90},
+    "dwarf": {"golem": 1.16, "dragonkin": 0.92},
+    "orc": {"dwarf": 1.14, "elf": 0.90},
+    "kitsune": {"golem": 0.90, "vampire": 1.12},
+    "fae": {"golem": 0.90, "orc": 1.14},
+    "vampire": {"fae": 1.14, "human": 0.88},
+    "golem": {"orc": 1.14, "elf": 1.14},
+    "dragonkin": {"golem": 1.10, "dwarf": 1.08},
 }
 RACE_ABILITIES = {
-    "human": ("Adaptability", "Gain a small balanced bonus to all core combat stats."),
-    "elf": ("Keen Sight", "Higher critical chance and precision."),
-    "dwarf": ("Stonebody", "Defense percentage is increased."),
-    "orc": ("Bloodrage", "Attack rises when below half HP."),
-    "kitsune": ("Trickster Step", "Improved evasion and speed."),
+    "human": ("Adaptability", "Gain a small balanced bonus to core combat stats; no major weakness, but no extreme specialty."),
+    "elf": ("Keen Sight", "Critical-focused attacks gain extra precision; elves trade durability for speed."),
+    "dwarf": ("Stonebody", "Defense is reinforced, making damage easier to absorb; speed remains the trade-off."),
+    "orc": ("Bloodrage", "Attack rises when below half HP, rewarding dangerous low-health play."),
+    "kitsune": ("Trickster Step", "Improves speed and evasion, but the race has low durability."),
     "halfling": ("Lucky", "Higher critical chance and lucky outcomes."),
     "tiefling": ("Infernal Blood", "Attack is stronger against holy builds, but holy counters it slightly."),
     "dragonkin": ("Dragonhide", "Extra defense and HP resilience."),
     "beastfolk": ("Predator Instinct", "Speed and critical chance are improved."),
     "fae": ("Feystep", "Improved evasion and magic mobility."),
-    "vampire": ("Blood Hunger", "A small life-steal effect in combat; holy matchups counter it."),
-    "golem": ("Stoneform", "Large HP/defense resilience at the cost of speed."),
+    "vampire": ("Blood Hunger", "Restores roughly 28% of damage dealt, with a minimum 4 HP and a cap of 8% max HP per hit; holy opponents counter the sustain."),
+    "golem": ("Stoneform", "Massively reinforces HP and defense, but its low speed makes it easy to outmaneuver."),
 }
 
 CLASS_MATCHUPS = {
@@ -158,7 +158,82 @@ CLASS_MATCHUPS = {
 def matchup_multiplier(attacker_race, attacker_class, defender_race, defender_class):
     value=float(RACE_MATCHUPS.get(attacker_race,{}).get(defender_race,1.0))
     value*=float(CLASS_MATCHUPS.get(attacker_class,{}).get(defender_class,1.0))
-    return max(.90,min(1.10,value))
+    return max(.82,min(1.18,value))
+
+# Clear identity cards. These are intentionally visible in class/race menus so
+# players can understand the trade-offs before choosing a build.
+RACE_PROFILES = {
+    "human": {"strength":"Adaptable all-rounder","weakness":"No specialized peak; relies on good build choices"},
+    "elf": {"strength":"Speed, precision and critical hits","weakness":"Lower durability; struggles in prolonged trades"},
+    "dwarf": {"strength":"Defense, HP and sustained frontline play","weakness":"Low speed; poor at chasing evasive targets"},
+    "orc": {"strength":"High physical damage, especially while wounded","weakness":"Lower defense and mobility"},
+    "kitsune": {"strength":"Speed, evasion and burst magic","weakness":"Fragile against heavy hits"},
+    "halfling": {"strength":"Luck, crits and evasive play","weakness":"Low HP makes mistakes costly"},
+    "tiefling": {"strength":"Aggressive damage and spell pressure","weakness":"Lower defense; vulnerable to holy pressure"},
+    "dragonkin": {"strength":"High HP, defense and reliable damage","weakness":"Slow and less explosive"},
+    "beastfolk": {"strength":"Speed, crits and sustained pursuit","weakness":"Moderate defenses; dislikes burst damage"},
+    "fae": {"strength":"Extreme mobility and magical pressure","weakness":"Very low HP and poor direct durability"},
+    "vampire": {"strength":"Sustain through damage and strong offensive stats","weakness":"Holy opponents counter its sustain; weak if it cannot attack"},
+    "golem": {"strength":"Exceptional HP and defense","weakness":"Very slow and poor at evasion/initiative"},
+}
+
+CLASS_PROFILES = {
+    "warrior":{"strength":"Balanced frontline: damage + defense","weakness":"Lacks extreme ranged pressure or burst"},
+    "berserker":{"strength":"Highest sustained physical pressure when wounded","weakness":"Low defense and resource efficiency"},
+    "knight":{"strength":"Defense, guarding and safe attrition","weakness":"Slow and lower burst damage"},
+    "mage":{"strength":"Elemental control, range and resource-heavy burst","weakness":"Fragile when pressured"},
+    "rogue":{"strength":"Speed, poison, evasion and flexible burst","weakness":"Low defense; mistakes are punished"},
+    "ranger":{"strength":"Reliable ranged damage, marks and control","weakness":"Less effective when pinned down"},
+    "paladin":{"strength":"Defense, healing and holy pressure","weakness":"Slow and resource-dependent"},
+    "summoner":{"strength":"Pet synergy, sustained pressure and utility","weakness":"Lower direct burst without setup"},
+    "cleric":{"strength":"Healing, cleansing and defensive support","weakness":"Low direct physical damage"},
+    "druid":{"strength":"Flexible sustain, terrain and damage-over-time","weakness":"Needs time to build pressure"},
+    "monk":{"strength":"Combo chains, counters and mobility","weakness":"Requires timing; weaker when resource-starved"},
+    "bard":{"strength":"Team buffs, healing and disruption","weakness":"Lower solo burst"},
+    "necromancer":{"strength":"Sustain, curses and summon pressure","weakness":"Fragile and vulnerable to holy pressure"},
+    "warlock":{"strength":"High-risk damage, curses and self-sustain","weakness":"Pays HP/resources for power"},
+    "alchemist":{"strength":"Flexible consumables, debuffs and recovery","weakness":"Lower raw stats and setup dependency"},
+    "engineer":{"strength":"Turrets, repair and controlled ranged pressure","weakness":"Needs setup and positioning"},
+    "duelist":{"strength":"Single-target timing, counters and tempo","weakness":"Less effective against multiple threats"},
+    "lancer":{"strength":"Mobile reach, gap-closing and finishing power","weakness":"More predictable than rogue-style classes"},
+    "spellblade":{"strength":"Hybrid physical/magic pressure and anti-defense tools","weakness":"Jack-of-all-trades; less specialized than pure classes"},
+    "void_knight":{"strength":"Defensive anti-magic melee","weakness":"Slow and resource hungry"},
+    "chronomancer":{"strength":"Tempo, delayed damage and control","weakness":"Low durability"},
+    "dragon_lord":{"strength":"Massive burst and dragon durability","weakness":"Slow and expensive skills"},
+    "soul_reaper":{"strength":"Single-target execution and life drain","weakness":"Weak sustained defense and holy counters"},
+}
+
+# Class kits use different mechanics, not just different names. Every class
+# keeps 20 slots for save compatibility, while the first 12 are deliberately
+# class-defining and unlock by level.
+CLASS_SKILL_EXTRA_POOL = ["focus","cleanse","reflect","stamina","resource","dispel","terrain","pet_boost","summon","chain","aoe","team_buff","sacrifice","emergency","stance","mana_burst","curse","silence","delayed","mark","vulnerability","true_damage","execute","lifesteal","armor_break","counter","barrier","dodge","freeze","burn","poison","bleed","multi","heavy","heal","def_buff","attack_buff","mana_drain","percent_damage","signature","mythic","ultimate"]
+
+CLASS_SKILL_EFFECTS = {
+    "warrior":["damage","heavy","def_buff","armor_break","counter","barrier","attack_buff","multi","vulnerability","execute","true_damage","ultimate"],
+    "berserker":["heavy","bleed","sacrifice","attack_buff","emergency","lifesteal","multi","attack_buff","combo","execute","true_damage","ultimate"],
+    "knight":["def_buff","heavy","barrier","counter","defend","armor_break","team_buff","heal","vulnerability","true_damage","execute","ultimate"],
+    "mage":["burn","freeze","mana_drain","aoe","delayed","silence","vulnerability","true_damage","mana_burst","curse","execute","ultimate"],
+    "rogue":["multi","poison","dodge","bleed","mark","combo","armor_break","counter","lifesteal","execute","true_damage","ultimate"],
+    "assassin":["dodge","poison","bleed","mark","silence","delayed","lifesteal","vulnerability","combo","execute","true_damage","ultimate"],
+    "ranger":["damage","multi","mark","armor_break","poison","burn","freeze","dodge","delayed","true_damage","execute","ultimate"],
+    "paladin":["heal","def_buff","barrier","counter","attack_buff","burn","vulnerability","team_buff","lifesteal","true_damage","execute","ultimate"],
+    "summoner":["summon","pet_boost","chain","team_buff","barrier","heal","mana_drain","vulnerability","aoe","execute","true_damage","ultimate"],
+    "cleric":["heal","team_buff","def_buff","dispel","silence","barrier","vulnerability","mana_drain","recovery","true_damage","execute","ultimate"],
+    "druid":["poison","heal","terrain","freeze","lifesteal","def_buff","aoe","delayed","vulnerability","execute","true_damage","ultimate"],
+    "monk":["combo","multi","counter","dodge","attack_buff","def_buff","lifesteal","armor_break","stamina","execute","true_damage","ultimate"],
+    "bard":["team_buff","heal","vulnerability","silence","dodge","attack_buff","def_buff","mana_drain","dispel","combo","true_damage","ultimate"],
+    "necromancer":["lifesteal","summon","curse","poison","sacrifice","barrier","mana_drain","delayed","vulnerability","execute","true_damage","ultimate"],
+    "warlock":["curse","lifesteal","sacrifice","poison","silence","mana_drain","vulnerability","delayed","emergency","execute","true_damage","ultimate"],
+    "alchemist":["poison","burn","heal","armor_break","random","resource","dodge","vulnerability","dispel","execute","true_damage","ultimate"],
+    "engineer":["summon","pet_boost","barrier","armor_break","mark","delayed","resource","def_buff","aoe","execute","true_damage","ultimate"],
+    "duelist":["counter","multi","dodge","mark","attack_buff","armor_break","combo","def_buff","true_damage","execute","vulnerability","ultimate"],
+    "lancer":["heavy","multi","stamina","armor_break","bleed","dodge","attack_buff","counter","execute","true_damage","sacrifice","ultimate"],
+    "spellblade":["damage","burn","freeze","mana_burst","armor_break","counter","vulnerability","lifesteal","true_damage","execute","mana_drain","ultimate"],
+    "void_knight":["def_buff","barrier","silence","armor_break","counter","true_damage","vulnerability","execute","lifesteal","stance","ultimate","signature"],
+    "chronomancer":["delayed","freeze","dodge","mana_drain","dodge","vulnerability","chain","resource","silence","true_damage","execute","ultimate"],
+    "dragon_lord":["heavy","burn","multi","def_buff","attack_buff","aoe","armor_break","sacrifice","true_damage","execute","vulnerability","ultimate"],
+    "soul_reaper":["lifesteal","bleed","curse","mark","silence","armor_break","delayed","vulnerability","execute","true_damage","sacrifice","ultimate"],
+}
 
 SUBCLASSES = {
     "vanguard": ("warrior", "Durable frontline specialist", {"hp": 20, "def": 3}),
@@ -358,52 +433,78 @@ _CLASS_SKILL_NAMES = {
     "spellblade": ["Arcane Slash", "Elemental Edge", "Rune Flurry", "Bleeding Rune", "Ether Renewal", "Mana Guard", "Arcane Might", "Rune Break", "Venom Rune", "Inferno Edge", "Frost Edge", "Soul Edge", "Mana Siphon", "Blink Blade", "Runic Counter", "Ether Barrier", "Expose Rune", "Ether Execution", "Astral Edge", "Reality Break"],
 }
 
+_CLASS_SKILL_NAMES.update({
+    "void_knight":["Null Guard","Void Cleave","Abyssal Wall","Spell Sever","Gravitic Counter","Null Barrier","Void Brand","Eventide Slash","Black Oath","Final Null","Eclipse Pierce","Void Judgment","Abyss Step","Anti-Magic Pulse","Oblivion Guard","Null Field","Void Rend","Execution Zero","Starless Edge","Knight of Nothing"],
+    "chronomancer":["Second Hand","Time Fracture","Temporal Anchor","Rewind Pulse","Haste Loop","Stolen Moment","Clockwork Delay","Future Sight","Time Stop","Paradox Cut","Chrono Pierce","End of Seconds","Backstep","Time Siphon","Frozen Moment","Causal Break","Borrowed Future","Age the Wound","Timeline Collapse","Eternal Clock"],
+    "dragon_lord":["Drakefang","Inferno Breath","Wingstorm","Scale Guard","Dragon Roar","Molten Brand","Skyfire Dive","Ancient Might","Cataclysm Wing","Worldfire","Dragon Pierce","King of Dragons","Aerial Dominion","Scorching Talon","Imperial Scale","Elder Flame","Draconic Ruin","Heavenbreaker","Starfire Maw","Dragon Apocalypse"],
+    "soul_reaper":["Soul Rend","Grave Step","Reaper's Mark","Bleeding Echo","Soul Feast","Death Veil","Echo Harvest","Spirit Sever","Funeral Bell","Last Breath","Requiem Pierce","Soul Reaping","Wraith Step","Memory Drain","Death Counter","Grave Barrier","Final Echo","Execution Reaper","Oblivion Scythe","End of Souls"],
+})
+
 _CLASS_FLAVOUR = {k:k for k in _CLASS_SKILL_NAMES}
 
 
 def _build_class_skills():
     result = {}
-    for class_name in CLASSES:
-        names = _CLASS_SKILL_NAMES.get(class_name, [f"{class_name.title()} Skill {i}" for i in range(1, 21)])
+    for class_name in list(CLASSES) + ["void_knight","chronomancer","dragon_lord","soul_reaper"]:
+        names = _CLASS_SKILL_NAMES.get(class_name, [])
+        if not names:
+            # Secret classes use distinct names instead of generic Skill N labels.
+            prefixes={"void_knight":"Void Knight","chronomancer":"Chronomancer","dragon_lord":"Dragon Lord","soul_reaper":"Soul Reaper"}
+            base=prefixes.get(class_name,class_name.replace('_',' ').title())
+            names=[f"{base} Technique {i}" for i in range(1,21)]
+        effects=CLASS_SKILL_EFFECTS.get(class_name, CLASS_SKILL_EFFECTS.get("warrior"))
+        # Keep 20 stable keys. Slots 1-12 are class-defining; 13-20 remain
+        # available as secondary tools for existing characters.
         skills=[]
-        for i, (effect, mechanic_name, mechanic_desc) in enumerate(SKILL_ARCHETYPES):
-            name = names[i]
-            # Damage multipliers are intentionally moderate; equipment and
-            # matchup bonuses remain meaningful instead of skills deleting foes.
-            mult = round(0.78 + i * 0.035, 3)
-            if effect == "heavy": mult = 1.18
-            elif effect == "multi": mult = 0.48
-            elif effect in {"heal", "def_buff", "attack_buff", "dodge", "counter", "barrier"}: mult = 0.35
-            elif effect in {"true_damage", "execute"}: mult = 1.05 + i * 0.01
-            elif effect == "ultimate": mult = 1.48
-            buff_text = {
-                "def_buff": "+18% DEF for 3 turns",
-                "attack_buff": "+15% ATK for 3 turns",
-                "dodge": "+20% evasion for 3 turns",
-                "counter": "counter the next incoming attack",
-                "barrier": "65% damage reduction for the next 2 hits",
-            }.get(effect, "None")
-            debuff_text = {
-                "bleed": "Bleed: 3 turns",
-                "armor_break": "-18% DEF for 3 turns",
-                "poison": "Poison: 4 turns",
-                "burn": "Burn: 3 turns",
-                "freeze": "Slow: 2 turns",
-                "vulnerability": "+20% damage taken for 2 turns",
-            }.get(effect, "None")
-            heal_pct = {"heal": .24, "lifesteal": .28, "ultimate": .08}.get(effect, 0)
-            damage_cap = .28 if effect not in {"heavy", "execute", "ultimate"} else .34
-            skills.append({
-                "key": f"skill_{i+1}", "name": name, "cost": SKILL_COSTS[i], "mult": mult,
-                "effect": effect, "cooldown": SKILL_COOLDOWNS[i], "unlock": SKILL_UNLOCK_LEVELS[i],
-                "mechanic": mechanic_name, "desc": mechanic_desc, "buff_text": buff_text,
-                "debuff_text": debuff_text, "heal_pct": heal_pct, "damage_cap": damage_cap,
-            })
+        for i in range(20):
+            if i < len(effects):
+                effect=effects[i]
+            else:
+                # Give each class a different secondary toolkit instead of the
+                # same generic eight skills. The rotation is deterministic so
+                # saves remain stable across restarts.
+                class_index=list(CLASSES).index(class_name) if class_name in CLASSES else 20 + ["void_knight","chronomancer","dragon_lord","soul_reaper"].index(class_name)
+                used=set(effects)
+                candidates=CLASS_SKILL_EXTRA_POOL[class_index % len(CLASS_SKILL_EXTRA_POOL):] + CLASS_SKILL_EXTRA_POOL[:class_index % len(CLASS_SKILL_EXTRA_POOL)]
+                extras=[e for e in candidates if e not in used]
+                effect=extras[i-len(effects)]
+            name=names[i] if i < len(names) else f"{class_name.replace('_',' ').title()} Technique {i+1}"
+            mechanic_name={
+                "damage":"Core Strike","heavy":"Power Blow","multi":"Rapid Sequence","bleed":"Bleeding Wound","heal":"Recovery","def_buff":"Defensive Stance","attack_buff":"Offensive Stance","armor_break":"Defense Break","poison":"Poison","burn":"Burn","freeze":"Freeze","lifesteal":"Life Drain","mana_drain":"Mana Siphon","dodge":"Evasive Step","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Execution","true_damage":"Piercing Damage","ultimate":"Signature Finisher","summon":"Summon","pet_boost":"Companion Empowerment","chain":"Chain Attack","team_buff":"Battle Rally","defend":"Guard","sacrifice":"Blood Price","emergency":"Desperation","attack_buff":"Rage Surge","combo":"Combo Technique","mana_burst":"Mana Burst","curse":"Curse","silence":"Silence","delayed":"Delayed Strike","stance":"Adaptive Stance","terrain":"Terrain Control","dispel":"Dispel","resource":"Resource Surge","random":"Volatile Mixture","dodge":"Haste","signature":"Class Signature","aoe":"Area Strike","recovery":"Recovery Pulse","stamina":"Stamina Surge","mark":"Target Mark","focus":"Focus"}.get(effect,effect.replace('_',' ').title())
+            mechanic_desc={
+                "summon":"Calls a class-specific companion effect for sustained pressure.","pet_boost":"Empowers your companion and refreshes its combat rhythm.","chain":"Builds pressure from consecutive attacks.","team_buff":"Raises offensive and defensive combat performance.","sacrifice":"Spend HP to gain stronger damage.","emergency":"Becomes stronger when you are badly wounded.","attack_buff":"Converts momentum into stronger offense.","combo":"Scales with consecutive successful techniques.","mana_burst":"Deals damage while refunding some mana.","curse":"Applies a lingering vulnerability curse.","silence":"Disrupts enemy abilities for a short duration.","delayed":"Stores damage and detonates it later.","stance":"Chooses an offensive or defensive stance based on HP.","terrain":"Changes the battlefield to create an opening.","dispel":"Removes enemy advantages and punishes them.","resource":"Restores combat resources while attacking.","random":"A volatile effect with a controlled random outcome.","dodge":"Improves combat tempo and evasion.","signature":"A high-impact class-defining finisher.","aoe":"A wider attack pattern with capped damage.","stamina":"Restores stamina while maintaining pressure.","mark":"Marks the target for stronger follow-up attacks.","focus":"Improves critical consistency for a short window.",}.get(effect, f"A {class_name.replace('_',' ')}-specific combat technique.")
+            mult=round(.78 + min(i,11)*.035,3)
+            if effect in {"heavy","sacrifice","ultimate","signature"}: mult=1.16 if effect=="heavy" else (1.34 if effect=="sacrifice" else (1.48 if effect=="ultimate" else 1.42))
+            elif effect=="multi": mult=.48
+            elif effect in {"heal","def_buff","attack_buff","dodge","counter","barrier","team_buff","defend","pet_boost","resource","stamina","focus"}: mult=.35
+            elif effect in {"true_damage","execute"}: mult=1.05 + min(i,11)*.01
+            heal_pct={"heal":.24,"lifesteal":.30,"ultimate":.08,"recovery":.34}.get(effect,0)
+            damage_cap=.28 if effect not in {"heavy","execute","ultimate","signature","sacrifice"} else .34
+            skills.append({"key":f"skill_{i+1}","name":name,"cost":SKILL_COSTS[i],"mult":mult,"effect":effect,"cooldown":SKILL_COOLDOWNS[i],"unlock":SKILL_UNLOCK_LEVELS[i],"mechanic":mechanic_name,"desc":mechanic_desc,"buff_text":"Class-specific effect","debuff_text":"Class-specific effect","heal_pct":heal_pct,"damage_cap":damage_cap})
         result[class_name]=skills
     return result
 
 
 SKILLS = _build_class_skills()
+
+async def _migrate_skill_loadouts(db_path):
+    """Remove obsolete skill keys from saved loadouts after the class-kit rebalance."""
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            cur=await db.execute("SELECT DISTINCT class_name FROM rpg_players")
+            classes={r[0] for r in await cur.fetchall()}
+            for cls in classes:
+                valid={x["key"] for x in SKILLS.get(cls,[])}
+                if not valid: continue
+                cur=await db.execute("SELECT guild_id,user_id,slot,skill_key FROM rpg_skill_loadout")
+                rows=await cur.fetchall()
+                for guild_id,user_id,slot,key in rows:
+                    if key not in valid:
+                        await db.execute("DELETE FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+            await db.commit()
+    except Exception:
+        # Migration is best-effort; normal startup must remain safe for old DBs.
+        pass
 
 
 # Combat constants: damage is deliberately slower than character growth so
@@ -1208,6 +1309,13 @@ class RPGService:
                 intrinsic_json TEXT NOT NULL DEFAULT '{}', set_key TEXT NOT NULL DEFAULT '', created_at REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_rpg_equipment_storage_owner ON rpg_equipment_storage(guild_id,user_id,slot);
+            CREATE TABLE IF NOT EXISTS rpg_equipment_instances (
+                instance_uid TEXT PRIMARY KEY, guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                slot TEXT NOT NULL, item_key TEXT NOT NULL, upgrade_level INTEGER NOT NULL DEFAULT 0,
+                intrinsic_json TEXT NOT NULL DEFAULT '{}', set_key TEXT NOT NULL DEFAULT '',
+                enchant_key TEXT NOT NULL DEFAULT '', enchant_level INTEGER NOT NULL DEFAULT 0, created_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_equipment_instances_owner ON rpg_equipment_instances(guild_id,user_id,item_key);
             CREATE TABLE IF NOT EXISTS rpg_economy_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, guild_id INTEGER NOT NULL,
                 user_id INTEGER NOT NULL, event_type TEXT NOT NULL, item_key TEXT NOT NULL DEFAULT '',
@@ -1721,6 +1829,7 @@ class RPGService:
         await self._phase4_fresh_start()
         await self._v15_remove_retired_systems()
         await self._v16_migrate()
+        await self._v19_migrate()
 
     async def _v16_migrate(self):
         async with aiosqlite.connect(self.path) as db:
@@ -1731,6 +1840,24 @@ class RPGService:
             now=time.time()
             await db.execute("UPDATE rpg_players SET last_stamina_tick=? WHERE last_stamina_tick<=0",(now,))
             await db.commit()
+
+    async def _v19_migrate(self):
+        """Balance migration: clean stale skill loadout rows and keep normal gear visible on unequip."""
+        try:
+            async with aiosqlite.connect(self.path) as db:
+                cur=await db.execute("SELECT DISTINCT class_name FROM rpg_players")
+                classes={r[0] for r in await cur.fetchall()}
+                cur=await db.execute("SELECT guild_id,user_id,slot,skill_key FROM rpg_skill_loadout")
+                rows=await cur.fetchall()
+                for guild_id,user_id,slot,key in rows:
+                    pcls=next(iter(classes),None) if len(classes)==1 else None
+                    # Validate against every known class; invalid keys are removed
+                    # only when they cannot exist in any current class kit.
+                    if not any(key in {x["key"] for x in SKILLS.get(cls,[])} for cls in SKILLS):
+                        await db.execute("DELETE FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+                await db.commit()
+        except Exception:
+            pass
 
     async def _refresh_stamina(self, guild_id, user_id):
         now=time.time()
@@ -2114,37 +2241,38 @@ class RPGService:
         item_key=item_key.lower().strip(); item=ITEMS.get(item_key)
         allowed={"weapon","armor","offhand","accessory","ring","amulet","relic"}
         if not item or item.get("slot") not in allowed: return False,"That item cannot be equipped. Check `!rpg items <category>`."
-        inv=dict(await self.inventory(guild_id,user_id))
-        if inv.get(item_key,0)<1: return False,"You don't own that item."
         req=int(item.get("level_req",1))
         if int(p["level"])<req:return False,f"**{item['name']}** requires level **{req}**. You are level **{p['level']}**."
-        set_key=_set_key_for_item(item,item_key)
-        intrinsics=_roll_intrinsics(item)
-        uid=uuid.uuid4().hex
         async with aiosqlite.connect(self.path) as db:
             await db.execute("BEGIN IMMEDIATE")
-            # Re-check the stack while holding the transaction lock.
-            cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,item_key))
-            row=await cur.fetchone()
-            if not row or int(row[0])<1:
+            cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,item_key)); invrow=await cur.fetchone()
+            if not invrow or int(invrow[0])<1:
                 await db.rollback(); return False,"You don't own that item."
-            # Existing gear is returned to inventory before replacement. Its
-            # upgrades/intrinsics remain in the equipment row only while equipped;
-            # a future item-instance system can persist unequipped variants.
-            cur=await db.execute("SELECT item_key,upgrade_level,intrinsic_json,set_key,instance_uid FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,item["slot"]))
-            old=await cur.fetchone()
+            slot=item["slot"]
+            cur=await db.execute("SELECT instance_uid,upgrade_level,intrinsic_json,set_key,enchant_key,enchant_level FROM rpg_equipment_instances WHERE guild_id=? AND user_id=? AND item_key=? ORDER BY created_at ASC LIMIT 1",(guild_id,user_id,item_key))
+            stored=await cur.fetchone()
+            if stored:
+                uid,upgrade,intrinsic_json,set_key,enchant_key,enchant_level=stored
+                intrinsics=json.loads(intrinsic_json or "{}")
+                upgrade=int(upgrade); enchant_level=int(enchant_level)
+            else:
+                uid=uuid.uuid4().hex; upgrade=0; intrinsics=_roll_intrinsics(item); set_key=_set_key_for_item(item,item_key); enchant_key=""; enchant_level=0
+            cur=await db.execute("SELECT item_key,upgrade_level,intrinsic_json,set_key,instance_uid FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot)); old=await cur.fetchone()
             if old:
-                # Preserve the complete old gear instance instead of collapsing it
-                # back into a stack. This is the key anti-loss guarantee for Phase 2.
-                await db.execute("INSERT OR REPLACE INTO rpg_equipment_storage(instance_uid,guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(old[4] or uuid.uuid4().hex,guild_id,user_id,item["slot"],old[0],int(old[1]),old[2] or "{}",old[3] or "",time.time()))
-                await db.execute("DELETE FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,item["slot"]))
+                cur=await db.execute("SELECT enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot)); oe=await cur.fetchone()
+                await db.execute("INSERT OR REPLACE INTO rpg_equipment_instances(instance_uid,guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,enchant_key,enchant_level,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(old[4] or uuid.uuid4().hex,guild_id,user_id,slot,old[0],int(old[1]),old[2] or "{}",old[3] or "",oe[0] if oe else "",int(oe[1]) if oe else 0,time.time()))
+                await db.execute("DELETE FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
+                await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,1) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+1",(guild_id,user_id,old[0]))
             await db.execute("UPDATE rpg_inventory SET quantity=quantity-1 WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,item_key))
-            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,instance_uid) VALUES(?,?,?,?,0,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key,upgrade_level=0,intrinsic_json=excluded.intrinsic_json,set_key=excluded.set_key,instance_uid=excluded.instance_uid",(guild_id,user_id,item["slot"],item_key,json.dumps(intrinsics,separators=(",",":")),set_key,uid))
-            await self._economy_log(db,guild_id,user_id,"equip",item_key=item_key,quantity=-1,metadata={"slot":item["slot"],"instance_uid":uid,"intrinsics":intrinsics,"set_key":set_key})
+            await db.execute("INSERT INTO rpg_equipment(guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,instance_uid) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET item_key=excluded.item_key,upgrade_level=excluded.upgrade_level,intrinsic_json=excluded.intrinsic_json,set_key=excluded.set_key,instance_uid=excluded.instance_uid",(guild_id,user_id,slot,item_key,upgrade,json.dumps(intrinsics,separators=(",",":")),set_key,uid))
+            if stored: await db.execute("DELETE FROM rpg_equipment_instances WHERE instance_uid=?",(uid,))
+            if enchant_key and enchant_level>0:
+                await db.execute("INSERT OR REPLACE INTO rpg_equipment_enchants(guild_id,user_id,slot,enchant_key,level) VALUES(?,?,?,?,?)",(guild_id,user_id,slot,enchant_key,enchant_level))
+            await self._economy_log(db,guild_id,user_id,"equip",item_key=item_key,quantity=-1,metadata={"slot":slot,"instance_uid":uid,"intrinsics":intrinsics,"set_key":set_key})
             await db.commit()
-        intrinsic_text=" • ".join(f"+{v}{('%' if k.endswith('_pct') else '')} {k.replace('_pct','').replace('_flat','').upper()}" for k,v in intrinsics.items())
+        intrinsic_text=" • ".join(f"+{v}{('%' if k.endswith('_pct') else '')} {k.replace('_pct','').replace('_flat','').upper()}" for k,v in intrinsics.items()) or "None"
         set_text=f" • Set: {set_key.replace('_set','').title()}" if set_key else ""
-        return True,f"Equipped **{item['name']}** in **{item['slot']}**.\n✨ Intrinsics: {intrinsic_text}{set_text}"
+        return True,f"Equipped **{item['name']}** in **{slot}**.\n✨ Intrinsics: {intrinsic_text}{set_text}"
 
     async def unequip_slot(self, guild_id, user_id, slot):
         slot=str(slot or "").strip().lower()
@@ -2157,18 +2285,15 @@ class RPGService:
             row=await cur.fetchone()
             if not row:
                 await db.rollback(); return False, f"Nothing is equipped in **{slot.title()}**."
-            # Preserve unique state in the gear vault. Basic unupgraded gear is
-            # also returned to the normal stack for backward compatibility.
-            unique=int(row[1])>0 or row[2] not in ("", "{}") or bool(row[4])
-            if unique:
-                await db.execute("INSERT OR REPLACE INTO rpg_equipment_storage(instance_uid,guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,created_at) VALUES(?,?,?,?,?,?,?,?,?)",(row[4] or uuid.uuid4().hex,guild_id,user_id,slot,row[0],int(row[1]),row[2] or "{}",row[3] or "",time.time()))
-            else:
-                await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,1) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+1",(guild_id,user_id,row[0]))
+            cur=await db.execute("SELECT enchant_key,level FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot)); ench=await cur.fetchone()
+            uid=row[4] or uuid.uuid4().hex
+            await db.execute("INSERT OR REPLACE INTO rpg_equipment_instances(instance_uid,guild_id,user_id,slot,item_key,upgrade_level,intrinsic_json,set_key,enchant_key,enchant_level,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",(uid,guild_id,user_id,slot,row[0],int(row[1]),row[2] or "{}",row[3] or "",ench[0] if ench else "",int(ench[1]) if ench else 0,time.time()))
+            await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,1) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+1",(guild_id,user_id,row[0]))
             await db.execute("DELETE FROM rpg_equipment WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,slot))
             await db.execute("DELETE FROM rpg_equipment_enchants WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,slot))
-            await self._economy_log(db,guild_id,user_id,"unequip",item_key=row[0],quantity=1,metadata={"slot":slot,"instance_uid":row[4]})
+            await self._economy_log(db,guild_id,user_id,"unequip",item_key=row[0],quantity=1,metadata={"slot":slot,"instance_uid":uid,"returned_to_inventory":True})
             await db.commit()
-        return True, f"Unequipped **{ITEMS.get(row[0], {'name':row[0]}).get('name',row[0])}** from **{slot.title()}**."
+        return True, f"Unequipped **{ITEMS.get(row[0], {'name':row[0]}).get('name',row[0])}** from **{slot.title()}** and returned it to your inventory. Its upgrades and properties are preserved."
 
     async def equipment_details(self,guild_id,user_id):
         async with aiosqlite.connect(self.path) as db:
@@ -3584,7 +3709,7 @@ class RPGService:
         elif race=="halfling": stats["crit"]+=2
         elif race=="dragonkin": stats["max_hp"]+=max(1,round(stats["max_hp"]*.04)); stats["hp"]+=max(1,round(stats["hp"]*.04)); stats["defense"]+=2
         elif race=="beastfolk": stats["speed"]+=3; stats["crit"]+=2
-        elif race=="vampire": stats["atk"]+=3; stats["lifesteal_pct"]=.08
+        elif race=="vampire": stats["atk"]+=3; stats["lifesteal_pct"]=.28; stats["lifesteal_min"]=4; stats["lifesteal_cap_pct"]=.08
         elif race=="golem": stats["max_hp"]+=max(1,round(stats["max_hp"]*.06)); stats["hp"]+=max(1,round(stats["hp"]*.06)); stats["defense"]+=3; stats["speed"]=max(1,stats["speed"]-2)
         stats["crit"]=min(35,stats["crit"])
         return stats
@@ -3798,7 +3923,7 @@ class RPGService:
             log.append(f"❄️ **{skill['name']}** dealt **{dmg}** and applied **Freeze** for 2 turns.")
         elif effect=="crit":
             state["buffs"]["crit_up"]=12; state["buffs"]["crit_turns"]=2; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.18))); log.append(f"🎯 **{skill['name']}** sharpened your critical chance.")
-        elif effect in {"dodge","haste"}:
+        elif effect in {"dodge","dodge"}:
             state["buffs"]["evasion"]=0.18 if effect=="dodge" else .24; state["buffs"]["evasion_turns"]=3; state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.14))); log.append(f"💨 **{skill['name']}** increased your evasion.")
         elif effect=="mana_drain":
             state["enemy_hp"]-=min(dmg,max(2,int(enemy["hp"]*.20))); gain=max(5,int(stats["max_mp"]*.12)); state["player_mp"]=min(stats["max_mp"],state["player_mp"]+gain); log.append(f"💧 **{skill['name']}** dealt **{dmg}** and restored **{gain} MP**.")
@@ -3872,7 +3997,7 @@ class RPGService:
         state["last_skill_effect"]=effect
         dealt=max(0,start_enemy_hp-state["enemy_hp"])
         if stats.get("lifesteal_pct") and dealt:
-            heal=max(1,int(dealt*float(stats["lifesteal_pct"]))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
+            heal=min(max(1,int(stats.get("max_hp",100)*float(stats.get("lifesteal_cap_pct",1)))), max(int(stats.get("lifesteal_min",1)),int(dealt*float(stats["lifesteal_pct"])))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
         return log,defending
 
     async def combat_action(self,guild_id,user_id,action):
@@ -3899,7 +4024,7 @@ class RPGService:
             dmg=min(dmg, max(2,int(state["enemy"].get("hp",1)*0.28)))
             state["enemy_hp"]-=dmg; log.append(f"⚔️ You hit **{state['enemy']['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
             if stats.get("lifesteal_pct"):
-                heal=max(1,int(dmg*float(stats["lifesteal_pct"]))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
+                heal=min(max(1,int(stats.get("max_hp",100)*float(stats.get("lifesteal_cap_pct",1)))), max(int(stats.get("lifesteal_min",1)),int(dmg*float(stats["lifesteal_pct"])))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
         elif action.startswith("skill:") or action=="skill":
             loadout=await self.skill_loadout(guild_id,user_id)
             equipped={skill["key"] for _slot,skill in loadout if skill}
