@@ -2153,7 +2153,7 @@ async def rpg_help(ctx):
         _rpg_embed("🎒 Horizon RPG — Items & Gear", "`!rpg inventory` — your owned items\n`!rpg items [category] [page]` — classified item codex\n`!rpg iteminfo <item_key>` — detailed item inspection\n`!rpg equipment` — interactive gear loadout with a dropdown for every equipment slot\n`!rpg equip <item_key>` — equip gear directly\n`!rpg use [item_key] [qty]` — consume food/potions\n\nThe world now contains **8,000+ base items** across weapons, armor, offhands, accessories, rings, amulets, relics, consumables, food, materials, eggs and chests. Gear names are no longer enchantment variants: every piece is a clean base item with empty enchantment slots. Open `!rpg iteminfo <item_key>` for the full preview and every enchantment compatible with that item."),
         _rpg_embed("✨ Horizon RPG — Enchanting & Gacha", "`!rpg gacha` — view rates, pity and Gems\n`!rpg gacha 1` — single pull\n`!rpg gacha 10` — ten-pull\n`!rpg open-chest <key>` — open a gacha chest\n`!rpg enchantments` — see enchant types\n`!rpg enchant <slot> <item> <enchant>` — upgrade equipped gear\n\nGacha uses earned in-game Gems and published rates. Pity guarantees Epic+ at the configured threshold and Mythic at the higher threshold."),
         _rpg_embed("🐾 Horizon RPG — Pets", "`!rpg pets` — full pet inventory\n`!rpg pet` — equipped companion\n`!rpg equip-pet <pet_id>` — switch companions\n`!rpg unequip-pet` — store the active companion\n`!rpg adopt <name>` — starter companion\n`!rpg eggs` — owned eggs\n`!rpg hatch <egg> <name>` — hatch an egg\n`!rpg rename <name>` — rename equipped pet\n`!rpg release` — release equipped pet\n\nPets are now stored as a collection, so switching pets does **not** require releasing the others. Each pet shows its actual ability and passive stats."),
-        _rpg_embed("🗺️ Horizon RPG — World & Progression", "`!rpg areas` — world atlas\n`!rpg travel <area_key>` — travel\n`!rpg quests` — quest board\n`!rpg daily` — daily reward\n`!rpg rest` — recover\n`!rpg shop` / `buy` / `sell` / `craft` / `market` — economy\n`!rpg trade @player` — direct trading of gear, items, pets, Gold and Diamonds\n`!rpg trades` / `tradeview` / `tradeadd` / `tradepet` / `tradegold` / `tradediamonds` / `tradeaccept` / `tradecancel` — trade controls\n`!rpg party ...` / `guild ...` / `kingdom ...` — multiplayer systems\n\nThe world now has dozens of additional areas. Level XP scales increasingly with level, so late-game progression takes substantially more XP than early progression."),
+        _rpg_embed("🗺️ Horizon RPG — World & Progression", "`!rpg areas` — world atlas\n`!rpg travel <area_key>` — travel\n`!rpg quests` — quest board\n`!rpg daily` — daily reward\n`!rpg rest` — recover\n`!rpg shop` / `buy` / `sell` / `recipes` / `craft` / `gather` / `mine` / `fish` / `market` / `economy` — economy + professions\n`!rpg trade @player` — direct trading of gear, items, pets, Gold and Diamonds\n`!rpg trades` / `tradeview` / `tradeadd` / `tradepet` / `tradegold` / `tradediamonds` / `tradeaccept` / `tradecancel` — trade controls\n`!rpg party ...` / `guild ...` / `kingdom ...` / `bounty ...` — multiplayer systems\n`!rpg housing` / `house-upgrade` / `life-path` — player life systems\n\nThe world now has dozens of additional areas. Level XP scales increasingly with level, so late-game progression takes substantially more XP than early progression."),
         _rpg_embed("👑 Horizon RPG — Phase 5 Endgame", "`!rpg arena @player` — ranked PvP match\n`!rpg season` — current PvP leaderboard\n`!rpg raid` — inspect the weekly server raid\n`!rpg raid attack` — damage the shared Raid Boss\n`!rpg secretclasses` — secret class requirements\n`!rpg awaken <class>` — awaken a secret class\n`!rpg legendary` — legendary endgame trials\n`!rpg challenge <key>` — attempt a legendary trial\n\nArena ratings are seasonal. Raid HP is shared across the server. Secret classes are hidden from normal character creation and require endgame requirements."),
     ]
     await _rpg_panel(ctx,pages)
@@ -2653,6 +2653,28 @@ async def rpg_mine(ctx):
     await _rpg_delete(ctx); ok,msg=await bot.rpg.gather(ctx.guild.id,ctx.author.id,"mine"); await _rpg_action_panel(ctx, "Mining", msg, ok)
 
 
+@rpg_root.command(name="professions", aliases=["prof"])
+async def rpg_professions(ctx):
+    await _rpg_delete(ctx); rows=await bot.rpg.professions(ctx.guild.id,ctx.author.id)
+    text="\n".join(f"**{name.title()}** — Lv **{level}** • {xp} XP" for name,level,xp in rows)
+    await _rpg_action_panel(ctx,"🛠️ Professions",text+"\n\nGathering Lv 10+ yields an extra material.",True)
+
+@rpg_root.command(name="social", aliases=["reputation","rep"])
+async def rpg_social(ctx):
+    await _rpg_delete(ctx); data=await bot.rpg.social_stats(ctx.guild.id,ctx.author.id)
+    text=(f"🤝 Helpful actions: **{data['helpful']}**\n"
+          f"🛡️ Party runs: **{data['party_runs']}**\n"
+          f"🔄 Completed trades: **{data['trades_completed']}**\n"
+          f"🏰 Guild contributions: **{data['guild_contributions']}**")
+    await _rpg_action_panel(ctx,"🤝 Social Reputation",text,True)
+
+@rpg_root.command(name="economy", aliases=["wallet","econ"])
+async def rpg_economy(ctx):
+    await _rpg_delete(ctx); data=await bot.rpg.economy_summary(ctx.guild.id,ctx.author.id)
+    if not data: await _rpg_action_panel(ctx,"Economy","Create a hero first.",False); return
+    text=f"💰 Gold: **{data['gold']}**\n💎 Gems: **{data['gems']}**\n\nGold earned: **{data['earned']}**\nGold spent: **{data['spent']}**\nEconomy events: **{data['events']}**\nMarket sales: **{data['market_sold']}**"
+    await _rpg_action_panel(ctx,"📊 Personal Economy",text,True)
+
 @rpg_root.group(name="quests", invoke_without_command=True)
 async def rpg_quests(ctx):
     await _rpg_delete(ctx)
@@ -3092,6 +3114,19 @@ async def rpg_equip_pet(ctx, pet_id: int = 0):
 async def rpg_unequip_pet(ctx):
     await _rpg_delete(ctx); ok,msg=await bot.rpg.unequip_pet(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx,"Pet Equipment",msg,ok)
 
+@rpg_root.command(name="petfeed", aliases=["feedpet","pet-feed"])
+async def rpg_pet_feed(ctx, pet_id:int=0):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.pet_feed(ctx.guild.id,ctx.author.id,pet_id or None); await _rpg_action_panel(ctx,"🐾 Pet Care",msg,ok)
+
+@rpg_root.command(name="petcollection", aliases=["petdex","pet-collection"])
+async def rpg_pet_collection(ctx):
+    await _rpg_delete(ctx); rows=await bot.rpg.pet_collection(ctx.guild.id,ctx.author.id)
+    known={r[0]:r for r in rows}; lines=[]
+    for species,data in PET_SPECIES.items():
+        lines.append(("🟢" if species in known else "⚪")+f" **{species}** — {data['rarity'].title()}"+(f" • seen {known[species][1]}x" if species in known else " • undiscovered"))
+    pages=_rpg_pages("🐾 Pet Codex",[(i,"\n".join(lines[i*8:(i+1)*8])) for i in range((len(lines)+7)//8)],page_size=1,icon="🐾",formatter=lambda x:x[1])
+    await _rpg_panel(ctx,pages)
+
 @rpg_root.command(name="gacha", aliases=["summon","draw"])
 async def rpg_gacha(ctx, count: int = 0):
     await _rpg_delete(ctx)
@@ -3155,6 +3190,16 @@ async def rpg_titles(ctx):
 async def rpg_housing(ctx):
     await _rpg_delete(ctx); h=await bot.rpg.housing(ctx.guild.id,ctx.author.id)
     await _rpg_action_panel(ctx,"🏠 Your Housing",f"**{h['house_key'].replace('_',' ').title()}**\nLevel **{h['level']}** • XP **{h['xp']}**\nStorage bonus **+{h['storage_bonus']}** • Comfort **{h['comfort']}",True)
+
+@rpg_root.command(name="house-upgrade", aliases=["upgradehouse","houseupgrade"])
+async def rpg_house_upgrade(ctx):
+    await _rpg_delete(ctx); ok,msg=await bot.rpg.housing_upgrade(ctx.guild.id,ctx.author.id); await _rpg_action_panel(ctx,"🏠 Home Upgrade",msg,ok)
+
+@rpg_root.command(name="life-path", aliases=["lifepath","path"])
+async def rpg_life_path(ctx, path:str=""):
+    await _rpg_delete(ctx)
+    if not path: await _rpg_action_panel(ctx,"🌱 Life Path","Choose: adventurer, merchant, craftsman, scholar, ruler.",False); return
+    ok,msg=await bot.rpg.set_life_path(ctx.guild.id,ctx.author.id,path); await _rpg_action_panel(ctx,"🌱 Life Path",msg,ok)
 
 
 @rpg_root.command(name="achievements", aliases=["achieve"])

@@ -1544,6 +1544,40 @@ class RPGService:
             for guild_id,user_id,class_name in await cur.fetchall():
                 for skill_key in ("skill_1","skill_2","skill_3"):
                     await db.execute("INSERT OR IGNORE INTO rpg_skill_mastery(guild_id,user_id,skill_key,rank) VALUES(?,?,?,1)", (guild_id,user_id,skill_key))
+            # Batch v12 — Phases 5-9 progression tables. These are additive and
+            # intentionally do not reset existing RPG data.
+            await db.executescript("""
+            CREATE TABLE IF NOT EXISTS rpg_professions (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, profession TEXT NOT NULL,
+                level INTEGER NOT NULL DEFAULT 1, xp INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(guild_id,user_id,profession)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_recipe_unlocks (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, recipe_key TEXT NOT NULL,
+                unlocked_at REAL NOT NULL, PRIMARY KEY(guild_id,user_id,recipe_key)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_pet_collection (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL, species TEXT NOT NULL,
+                first_seen REAL NOT NULL, times_seen INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY(guild_id,user_id,species)
+            );
+            CREATE TABLE IF NOT EXISTS rpg_social_reputation (
+                guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                helpful INTEGER NOT NULL DEFAULT 0, party_runs INTEGER NOT NULL DEFAULT 0,
+                trades_completed INTEGER NOT NULL DEFAULT 0, guild_contributions INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(guild_id,user_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpg_market_seller_status ON rpg_market(guild_id,seller_id,status);
+            """)
+            cur=await db.execute("PRAGMA table_info(rpg_pet_inventory)")
+            pet_inv_existing={row[1] for row in await cur.fetchall()}
+            for column,definition in {
+                "bond":"INTEGER NOT NULL DEFAULT 0",
+                "mood":"INTEGER NOT NULL DEFAULT 50",
+                "total_xp":"INTEGER NOT NULL DEFAULT 0",
+            }.items():
+                if column not in pet_inv_existing:
+                    await db.execute(f"ALTER TABLE rpg_pet_inventory ADD COLUMN {column} {definition}")
             await db.commit()
 
         # Phase 4 launches on a clean RPG economy/progression state. This is a
@@ -2867,6 +2901,8 @@ class RPGService:
             await db.execute("UPDATE rpg_players SET gold=gold-?+?,gems=gems-?+? WHERE guild_id=? AND user_id=?",(pg,gg,pd,gd,guild_id,proposer))
             await db.execute("UPDATE rpg_players SET gold=gold-?+?,gems=gems-?+? WHERE guild_id=? AND user_id=?",(gg,pg,gd,pd,guild_id,target))
             await db.execute("UPDATE rpg_trades SET status='completed',updated_at=? WHERE id=?",(time.time(),int(trade_id)))
+            await db.execute("INSERT INTO rpg_social_reputation(guild_id,user_id,trades_completed) VALUES(?,?,1) ON CONFLICT(guild_id,user_id) DO UPDATE SET trades_completed=trades_completed+1",(guild_id,proposer))
+            await db.execute("INSERT INTO rpg_social_reputation(guild_id,user_id,trades_completed) VALUES(?,?,1) ON CONFLICT(guild_id,user_id) DO UPDATE SET trades_completed=trades_completed+1",(guild_id,target))
             await db.commit()
         return True,f"Trade `#{trade_id}` completed successfully. Assets were transferred atomically."
 
@@ -2923,14 +2959,17 @@ class RPGService:
             if not p or int(p[0])<total: await db.rollback(); return False,f"You need {total} gold."
             cur=await db.execute("SELECT user_id FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,seller));
             if not await cur.fetchone(): await db.rollback(); return False,"Seller no longer has a valid RPG character."
+            tax=max(1,total*5//100)
+            seller_net=total-tax
             await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(total,guild_id,user_id))
-            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(total,guild_id,seller))
+            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(seller_net,guild_id,seller))
             await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,user_id,item,qty))
             await db.execute("UPDATE rpg_market SET status='sold',buyer_id=?,sold_at=? WHERE id=? AND status='open'",(user_id,time.time(),int(listing_id)))
             await self._economy_log(db,guild_id,user_id,"market_buy",item_key=item,quantity=qty,gold_delta=-total,metadata={"listing_id":int(listing_id),"seller_id":int(seller),"listing_token":token})
-            await self._economy_log(db,guild_id,seller,"market_sale",item_key=item,quantity=qty,gold_delta=total,metadata={"listing_id":int(listing_id),"buyer_id":int(user_id),"listing_token":token})
+            await self._economy_log(db,guild_id,seller,"market_sale",item_key=item,quantity=qty,gold_delta=seller_net,metadata={"listing_id":int(listing_id),"buyer_id":int(user_id),"listing_token":token,"tax":tax})
+            await self._economy_log(db,guild_id,seller,"market_tax",gold_delta=-tax,metadata={"listing_id":int(listing_id)})
             await db.commit()
-        return True,f"Bought **{ITEMS.get(item,{'name':item}).get('name',item)} ×{qty}** for **{total} gold**."
+        return True,f"Bought **{ITEMS.get(item,{'name':item}).get('name',item)} ×{qty}** for **{total} gold**. Market fee: **{tax} gold**."
 
     async def economy_log(self,guild_id,user_id,limit=20):
         async with aiosqlite.connect(self.path) as db:
@@ -2969,6 +3008,7 @@ class RPGService:
             cur=await db.execute("INSERT INTO rpg_pet_inventory(guild_id,user_id,name,species,level,xp,bonus_atk,bonus_def,bonus_hp,bonus_mp,bonus_speed,bonus_crit,ability,equipped) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (guild_id,user_id,name[:24],species,1,0,data.get("atk",2),data.get("def",2),data.get("hp",5),0,data.get("spd",2),data.get("crit",1),data.get("ability","Pounce"),1 if equipped else 0))
             pet_id=cur.lastrowid
+            await db.execute("INSERT INTO rpg_pet_collection(guild_id,user_id,species,first_seen,times_seen) VALUES(?,?,?,?,1) ON CONFLICT(guild_id,user_id,species) DO UPDATE SET times_seen=times_seen+1",(guild_id,user_id,species,time.time()))
             if equipped:
                 await self._sync_legacy_pet_cache(db,guild_id,user_id)
             await db.commit()
@@ -3006,6 +3046,34 @@ class RPGService:
             return False,"You have no equipped pet. Use `!rpg pets` to choose one from your collection or `!rpg adopt <name>`."
         data=PET_SPECIES.get(current["species"],{})
         return True,f"**{current['name']}** · **{current['species']}** · Pet #{current['pet_id']} · Lv {current['level']}\n⚔️ +{current['bonus_atk']} ATK • 🛡️ +{current['bonus_def']} DEF • ❤️ +{current.get('bonus_hp',0)} HP • 💨 +{current.get('bonus_speed',0)} SPD • 🎯 +{current.get('bonus_crit',0)}% Crit\n🐾 **{current.get('ability') or data.get('ability','Pounce')}** — {data.get('ability_desc','A passive combat companion effect.')}\n\nYour other pets remain safely stored in `!rpg pets`."
+
+    async def pet_feed(self,guild_id,user_id,pet_id=None):
+        pets=await self.pet_inventory(guild_id,user_id); current=next((x for x in pets if x.get("equipped")),None) if pet_id is None else next((x for x in pets if int(x["pet_id"])==int(pet_id)),None)
+        if not current:return False,"Pet not found."
+        food="food_hearty_stew"
+        inv=dict(await self.inventory(guild_id,user_id))
+        if inv.get(food,0)<1:
+            return False,"You need **Hearty Stew** to feed a pet."
+        await self.remove_item(guild_id,user_id,food,1,event_type="pet_feed")
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_pet_inventory SET bond=min(100,bond+8),mood=min(100,mood+15),total_xp=total_xp+30,xp=xp+30 WHERE pet_id=? AND guild_id=? AND user_id=?",(current["pet_id"],guild_id,user_id))
+            await db.commit()
+        await self._level_pet(guild_id,user_id,int(current["pet_id"]))
+        return True,f"Fed **{current['name']}**. Bond increased and the pet gained **30 XP**."
+
+    async def _level_pet(self,guild_id,user_id,pet_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT species,level,total_xp FROM rpg_pet_inventory WHERE pet_id=? AND guild_id=? AND user_id=?",(pet_id,guild_id,user_id)); row=await cur.fetchone()
+            if not row:return
+            species,level,total_xp=row; new_level=min(50,1+int(total_xp)//100)
+            if new_level<=int(level):return
+            base=PET_SPECIES.get(species,{})
+            await db.execute("UPDATE rpg_pet_inventory SET level=?,bonus_atk=?,bonus_def=?,bonus_hp=?,bonus_speed=?,bonus_crit=? WHERE pet_id=?",(new_level,int(base.get("atk",2))+new_level-1,int(base.get("def",2))+new_level-1,int(base.get("hp",5))+5*(new_level-1),int(base.get("spd",2))+new_level//2,int(base.get("crit",1))+new_level//3),(pet_id,))
+            await self._sync_legacy_pet_cache(db,guild_id,user_id); await db.commit()
+
+    async def pet_collection(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT species,times_seen,first_seen FROM rpg_pet_collection WHERE guild_id=? AND user_id=? ORDER BY species",(guild_id,user_id)); return await cur.fetchall()
 
     async def _gacha_state(self,guild_id,user_id,banner="horizon"):
         async with aiosqlite.connect(self.path) as db:
@@ -3155,7 +3223,122 @@ class RPGService:
             await self.add_item(guild_id,uid,"arcane_shard" if floors>=4 else "iron_ore",max(1,floors//2))
             await self.progress_quests(guild_id,uid,"dungeon",1)
             rewards.append((uid,rxp,rgold))
+        async with aiosqlite.connect(self.path) as db:
+            for uid,_role in members:
+                await db.execute("INSERT INTO rpg_social_reputation(guild_id,user_id,party_runs) VALUES(?,?,1) ON CONFLICT(guild_id,user_id) DO UPDATE SET party_runs=party_runs+1",(guild_id,uid))
+            await db.commit()
         return {"win":True,"name":n,"members":len(members),"chance":chance,"rewards":rewards,"log":[f"The party cleared all **{floors} floors**.",f"Team power check passed with **{power}** combined combat power."]}
+
+    async def profession_data(self,guild_id,user_id,profession=None):
+        async with aiosqlite.connect(self.path) as db:
+            if profession:
+                cur=await db.execute("SELECT profession,level,xp FROM rpg_professions WHERE guild_id=? AND user_id=? AND profession=?",(guild_id,user_id,profession.lower()))
+            else:
+                cur=await db.execute("SELECT profession,level,xp FROM rpg_professions WHERE guild_id=? AND user_id=? ORDER BY profession",(guild_id,user_id))
+            return await cur.fetchall()
+
+    async def _profession_xp(self,guild_id,user_id,profession,amount):
+        profession=str(profession).lower(); amount=max(0,int(amount))
+        if not amount:return
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT OR IGNORE INTO rpg_professions(guild_id,user_id,profession,level,xp) VALUES(?,?,?,?,0)",(guild_id,user_id,profession,1))
+            cur=await db.execute("SELECT level,xp FROM rpg_professions WHERE guild_id=? AND user_id=? AND profession=?",(guild_id,user_id,profession)); row=await cur.fetchone()
+            level,xp=int(row[0]),int(row[1])+amount
+            while level<50 and xp >= level*level*100:
+                xp-=level*level*100; level+=1
+            await db.execute("UPDATE rpg_professions SET level=?,xp=? WHERE guild_id=? AND user_id=? AND profession=?",(level,xp,guild_id,user_id,profession)); await db.commit()
+        return level,xp
+
+    async def professions(self,guild_id,user_id):
+        rows=await self.profession_data(guild_id,user_id)
+        known={r[0]:r for r in rows}
+        out=[]
+        for key in ("gathering","mining","fishing","crafting"):
+            r=known.get(key,(key,1,0)); out.append(r)
+        return out
+
+    async def craft(self,guild_id,user_id,item_key,quantity=1):
+        item_key=item_key.lower(); recipe=RECIPES.get(item_key)
+        if not recipe:return False,"Recipe not found. Use `!rpg recipes`."
+        quantity=max(1,min(int(quantity),20))
+        prof=await self.profession_data(guild_id,user_id,"crafting"); level=int(prof[0][1]) if prof else 1
+        if level < int(recipe.get("level_req",1)) if isinstance(recipe,dict) else False:
+            return False,f"Your crafting level is too low for **{ITEMS.get(item_key,{'name':item_key})['name']}**."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("BEGIN IMMEDIATE")
+            for mat,need in recipe.items():
+                if mat=="_meta": continue
+                cur=await db.execute("SELECT quantity FROM rpg_inventory WHERE guild_id=? AND user_id=? AND item_key=?",(guild_id,user_id,mat)); row=await cur.fetchone()
+                if not row or int(row[0])<need*quantity:
+                    await db.rollback(); return False,f"Missing **{ITEMS.get(mat,{'name':mat})['name']}** ×{need*quantity}."
+            for mat,need in recipe.items():
+                if mat=="_meta": continue
+                await db.execute("UPDATE rpg_inventory SET quantity=quantity-? WHERE guild_id=? AND user_id=? AND item_key=?",(need*quantity,guild_id,user_id,mat))
+                await self._economy_log(db,guild_id,user_id,"craft_material",item_key=mat,quantity=-(need*quantity),metadata={"output":item_key,"output_qty":quantity})
+            await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,item_key) DO UPDATE SET quantity=quantity+excluded.quantity",(guild_id,user_id,item_key,quantity))
+            await self._economy_log(db,guild_id,user_id,"craft_output",item_key=item_key,quantity=quantity,metadata={"recipe":recipe})
+            await db.commit()
+        level_xp=await self._profession_xp(guild_id,user_id,"crafting",25*quantity)
+        await self.check_achievements(guild_id,user_id)
+        return True,f"Crafted **{ITEMS[item_key]['name']} ×{quantity}**. Crafting Lv **{level_xp[0]}** (+{25*quantity} XP)."
+
+    async def gather(self,guild_id,user_id,kind="gather"):
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        kind=str(kind or "gather").lower()
+        settings={
+            "gather": ("last_gather",30,[("herb",.45),("wolf_pelt",.30),("iron_ore",.15),("arcane_shard",.10)],"Gathering","gathering"),
+            "mine": ("last_mine",45,[("iron_ore",.50),("arcane_shard",.18),("wolf_pelt",.12),("herb",.20)],"Mining","mining"),
+            "fish": ("last_fish",40,[("food_grilled_fish",.55),("arcane_shard",.08),("herb",.20),("wolf_pelt",.17)],"Fishing","fishing"),
+        }
+        field,cooldown,pool,label,profession=settings.get(kind,settings["gather"])
+        remaining=await self._cooldown(p,field,cooldown)
+        if remaining>0:return False,f"⏳ **{label}** is on cooldown. Try again in **{int(remaining)+1}s**."
+        if p["stamina"]<10:return False,"You are exhausted. Use `!rpg rest`."
+        roll=random.random(); acc=0.0; item=pool[-1][0]
+        for key,chance in pool:
+            acc+=chance
+            if roll<=acc:item=key; break
+        qty=random.randint(1,2) + (1 if (await self.profession_data(guild_id,user_id,profession) and int((await self.profession_data(guild_id,user_id,profession))[0][1])>=10) else 0)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(f"UPDATE rpg_players SET stamina=stamina-10, {field}=? WHERE guild_id=? AND user_id=?",(time.time(),guild_id,user_id)); await db.commit()
+        await self.add_item(guild_id,user_id,item,qty,event_type=f"{profession}_gather")
+        level_xp=await self._profession_xp(guild_id,user_id,profession,20)
+        await self.progress_quests(guild_id,user_id,"gather",1)
+        return True,f"**{label} successful!** You obtained **{ITEMS[item]['name']} ×{qty}**. {label} Lv **{level_xp[0]}**. Next attempt in **{cooldown}s**."
+
+    async def social_stats(self,guild_id,user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT helpful,party_runs,trades_completed,guild_contributions FROM rpg_social_reputation WHERE guild_id=? AND user_id=?",(guild_id,user_id)); row=await cur.fetchone()
+        return {"helpful":row[0],"party_runs":row[1],"trades_completed":row[2],"guild_contributions":row[3]} if row else {"helpful":0,"party_runs":0,"trades_completed":0,"guild_contributions":0}
+
+    async def economy_summary(self,guild_id,user_id):
+        p=await self.player(guild_id,user_id)
+        if not p:return None
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT COALESCE(SUM(CASE WHEN gold_delta>0 THEN gold_delta ELSE 0 END),0),COALESCE(SUM(CASE WHEN gold_delta<0 THEN -gold_delta ELSE 0 END),0),COUNT(*) FROM rpg_economy_log WHERE guild_id=? AND user_id=?",(guild_id,user_id)); earned,spent,events=await cur.fetchone()
+            cur=await db.execute("SELECT COUNT(*) FROM rpg_market WHERE guild_id=? AND seller_id=? AND status='sold'",(guild_id,user_id)); sold=(await cur.fetchone())[0]
+        return {"gold":p["gold"],"gems":p["gems"],"earned":earned,"spent":spent,"events":events,"market_sold":sold}
+
+    async def housing_upgrade(self,guild_id,user_id):
+        house=await self.housing(guild_id,user_id); level=int(house["level"]); cost=1000*level
+        p=await self.player(guild_id,user_id)
+        if p["gold"]<cost:return False,f"House upgrade costs **{cost} gold**."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id))
+            await db.execute("UPDATE rpg_housing SET level=level+1,xp=xp+?,storage_bonus=storage_bonus+5,comfort=comfort+10 WHERE guild_id=? AND user_id=?",(cost//10,guild_id,user_id)); await db.commit()
+        return True,f"Your home reached **Level {level+1}**. Storage +5, Comfort +10."
+
+    async def set_life_path(self,guild_id,user_id,path):
+        paths={"adventurer":"Balanced exploration rewards","merchant":"Improved trade income","craftsman":"Improved crafting progression","scholar":"Improved lore/quest rewards","ruler":"Improved social and kingdom reputation"}
+        path=str(path).lower().strip()
+        if path not in paths:return False,"Choose: adventurer, merchant, craftsman, scholar, ruler."
+        p=await self.player(guild_id,user_id)
+        if not p:return False,"Create a hero first."
+        if p["life_path"] and p["life_path"]!=path and p["level"]<20:return False,"Your first life-path choice is locked until level 20. Choose carefully."
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("UPDATE rpg_players SET life_path=? WHERE guild_id=? AND user_id=?",(path,guild_id,user_id)); await db.commit()
+        return True,f"Life path set to **{path.title()}** — {paths[path]}."
 
     async def guild_deposit(self,guild_id,user_id,amount):
         amount=max(1,amount); info=await self.guild_info(guild_id,user_id=user_id)
@@ -3163,7 +3346,8 @@ class RPGService:
         p=await self.player(guild_id,user_id)
         if p["gold"]<amount:return False,"You don't have enough gold."
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(amount,guild_id,user_id)); await db.execute("UPDATE rpg_guilds SET bank=bank+?,xp=xp+? WHERE guild_id=? AND name=?",(amount,amount//2,guild_id,info[0][1])); await db.commit()
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(amount,guild_id,user_id)); await db.execute("UPDATE rpg_guilds SET bank=bank+?,xp=xp+? WHERE guild_id=? AND name=?",(amount,amount//2,guild_id,info[0][1]))
+            await db.execute("INSERT INTO rpg_social_reputation(guild_id,user_id,guild_contributions) VALUES(?,?,1) ON CONFLICT(guild_id,user_id) DO UPDATE SET guild_contributions=guild_contributions+1",(guild_id,user_id)); await db.commit()
         return True,f"Deposited **{amount} gold** into **{info[0][1]}**."
 
     async def guild_upgrade(self,guild_id,user_id):
