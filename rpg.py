@@ -3774,11 +3774,37 @@ class RPGService:
         p=await self.player(guild_id,user_id)
         if not p:return {"error":"Create a hero first."}
         key=(guild_id,user_id)
-        if key in self.active_combats:return {"error":"You are already in a battle. Finish it first."}
+
+        # Recover persisted battles before rejecting an "active" in-memory entry.
+        # This makes combat recoverable after a bot restart, a timed-out Discord
+        # View, or a stale in-memory flag. A completed/corrupt persisted state is
+        # cleared instead of trapping the player in a permanent battle lock.
         persisted=await self._load_combat_session(guild_id,user_id)
         if persisted:
+            try:
+                enemy_hp=float(persisted.get("enemy_hp",0))
+                enemy=persisted.get("enemy") or {}
+                valid=bool(persisted.get("mode") in {"adventure","dungeon"} and enemy.get("name") and enemy_hp>0)
+            except (TypeError,ValueError):
+                valid=False
+            if not valid:
+                self.active_combats.pop(key,None)
+                await self._delete_combat_session(guild_id,user_id)
+                return {"error":"Your previous battle state was incomplete, so Horizon cleared it. You can start a new battle now."}
             self.active_combats[key]=persisted
             return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
+
+        if key in self.active_combats:
+            # The in-memory flag can survive longer than the actual battle.
+            # Drop it when it is clearly no longer actionable.
+            active=self.active_combats.get(key) or {}
+            try:
+                if float(active.get("enemy_hp",0))<=0 or not active.get("enemy"):
+                    self.active_combats.pop(key,None)
+                else:
+                    return {"error":"You are already in a battle. Finish it first."}
+            except (TypeError,ValueError):
+                self.active_combats.pop(key,None)
         if p["hp"]<=0:return {"error":"You are down. Use `!rpg rest` first."}
         pet_bonus=await self._pet_bonus(guild_id,user_id)
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus)
@@ -4077,7 +4103,9 @@ class RPGService:
         elif action=="defend":
             defending=True; state["shield_turns"]=1; log.append("🛡️ You brace for the next hit, reducing incoming damage.")
         elif action=="flee":
-            if state["mode"]=="dungeon" and state["floor"]>1:return {"error":"You cannot flee after the first dungeon floor."}
+            # Fleeing is allowed from every dungeon floor. A flee abandons the
+            # entire run and gives no dungeon-clear reward, but never traps the
+            # player on a later floor.
             if random.random()<0.65:
                 self.active_combats.pop(key,None); await self._save_combat_hp(guild_id,user_id,state); await self._delete_combat_session(guild_id,user_id)
                 return {"finished":True,"win":False,"fled":True,"log":[*state["log"],"🏃 You escaped the battle."]}

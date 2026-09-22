@@ -2259,6 +2259,9 @@ class RPGCombatView(discord.ui.View):
     async def flee(self,interaction,button): await self._act(interaction,"flee")
 
     async def on_timeout(self):
+        # The Discord UI can time out while the persistent combat session is
+        # still valid. Remove only the in-memory lock; !rpg dungeon/adventure
+        # can then rebuild a fresh combat view from the saved session.
         bot.rpg.active_combats.pop((self.ctx.guild.id,self.ctx.author.id),None)
         for child in self.children: child.disabled=True
         if self.message:
