@@ -2022,6 +2022,9 @@ def _combat_embed(state, result=None):
     if result and result.get("finished"):
         if result.get("win"):
             desc += f"\n\n🏆 **Victory!** +{result.get('xp',0)} XP • +{result.get('gold',0)} gold • **{ITEMS.get(result.get('drop'),{'name':result.get('drop','loot')})['name']}**"
+            if result.get("reward_status") == "recovery_needed":
+                failed=", ".join(result.get("reward_errors",[])) or "some rewards"
+                desc += f"\n⚠️ **Victory secured.** Reward processing failed for: **{failed}**. The battle will not be replayed or lost."
             if result.get("pet_xp"):
                 desc += f"\n🐾 Equipped pet gained **+{result['pet_xp']} XP**"
             if result.get("extra_loot"):
@@ -2276,7 +2279,17 @@ class RPGCombatView(discord.ui.View):
             if result.get("finished"):
                 self.resolved=True
                 self._set_action_buttons(True)
-                await interaction.edit_original_response(embed=_combat_embed(self.state,result),view=self)
+                # Victory is terminal. If editing the deferred interaction fails,
+                # fall back to a follow-up message so the player still sees the
+                # result instead of an apparently dead battle panel.
+                victory_embed=_combat_embed(self.state,result)
+                try:
+                    await interaction.edit_original_response(embed=victory_embed,view=self)
+                except discord.HTTPException:
+                    try:
+                        await interaction.followup.send(embed=victory_embed,view=self)
+                    except discord.HTTPException:
+                        log.exception("Failed to deliver final victory panel: guild=%s user=%s",self.ctx.guild.id,self.ctx.author.id)
                 self.stop()
                 return
             self.processing=False
