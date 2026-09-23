@@ -876,13 +876,7 @@ for _pet in PET_SPECIES.values():
     _pet["ability_desc"] = PET_ABILITY_DESCRIPTIONS.get(_pet.get("ability",""), "A passive companion ability that helps during battle.")
 
 
-def _build_expanded_items()
-
-# Pet eggs live in the dedicated pet system. They are inventory objects for
-# hatching, but are excluded from the normal item/shop catalogue.
-for _egg_key, (_egg_name, _rarity, _price) in PET_EGGS.items():
-    ITEMS[_egg_key]={"name":_egg_name,"slot":"egg","rarity":_rarity,"price":_price,
-                     "pet_egg":True,"level_req":rarity_level.get(_rarity,1) if "rarity_level" in globals() else 1}:
+def _build_expanded_items():
     """Build a compact, curated item catalogue.
 
     Eggs and pets are intentionally kept in PET_EGGS/PET_SPECIES and are NOT
