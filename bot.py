@@ -2242,6 +2242,11 @@ class RPGPaginationView(discord.ui.View):
                 self._select = discord.ui.Select(placeholder="Info...", min_values=1, max_values=1, options=options)
                 self._select.callback = self._select_changed
                 self.add_item(self._select)
+        if not deletable:
+            for child in list(self.children):
+                if getattr(child, "custom_id", None) == "rpg:delete":
+                    self.remove_item(child)
+                    break
         self._sync()
 
     def _sync(self):
