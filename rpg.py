@@ -2189,12 +2189,19 @@ class RPGService:
     async def _queue_pending_reward(self, guild_id, user_id, reward_type, payload, *, source="combat"):
         """Persist a reward that could not be delivered automatically."""
         payload = dict(payload or {})
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute(
-                "INSERT INTO rpg_pending_rewards(guild_id,user_id,reward_type,payload_json,source,created_at) VALUES(?,?,?,?,?,?)",
-                (guild_id,user_id,str(reward_type),json.dumps(payload,separators=(",",":"),sort_keys=True),str(source),time.time())
-            )
-            await db.commit()
+        try:
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute(
+                    "INSERT INTO rpg_pending_rewards(guild_id,user_id,reward_type,payload_json,source,created_at) VALUES(?,?,?,?,?,?)",
+                    (guild_id,user_id,str(reward_type),json.dumps(payload,separators=(",",":"),sort_keys=True),str(source),time.time())
+                )
+                await db.commit()
+            return True
+        except Exception:
+            # Never let a recovery-ledger failure break the already-resolved
+            # victory result. The combat panel remains authoritative.
+            log.exception("Could not save pending reward: guild=%s user=%s type=%s",guild_id,user_id,reward_type)
+            return False
 
     async def pending_rewards(self, guild_id, user_id):
         async with aiosqlite.connect(self.path) as db:
