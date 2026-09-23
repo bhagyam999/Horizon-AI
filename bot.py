@@ -2224,9 +2224,10 @@ class RPGPaginationView(discord.ui.View):
     one message in place. Only the command author can navigate it, and the
     trash button removes the panel when they are finished.
     """
-    def __init__(self, ctx, pages, *, select_options=None, select_callback=None, select_options_by_page=None):
+    def __init__(self, ctx, pages, *, select_options=None, select_callback=None, select_options_by_page=None, deletable=True):
         super().__init__(timeout=300)
         self.ctx = ctx
+        self.deletable = deletable
         self.pages = pages or [discord.Embed(title="Horizon RPG", description="Nothing to display.", colour=discord.Colour.blurple())]
         self.index = 0
         self.message = None
@@ -2291,6 +2292,9 @@ class RPGPaginationView(discord.ui.View):
 
     @discord.ui.button(label="", emoji="🗑️", style=discord.ButtonStyle.danger, custom_id="rpg:delete")
     async def delete(self, interaction, button):
+        if not self.deletable:
+            await interaction.response.defer()
+            return
         await interaction.response.defer()
         try:
             await interaction.message.delete()
@@ -2490,8 +2494,8 @@ class RPGConfirmationView(discord.ui.View):
             except Exception: pass
 
 
-async def _rpg_panel(ctx, pages, *, select_options=None, select_callback=None, select_options_by_page=None):
-    view = RPGPaginationView(ctx, pages, select_options=select_options, select_callback=select_callback, select_options_by_page=select_options_by_page)
+async def _rpg_panel(ctx, pages, *, select_options=None, select_callback=None, select_options_by_page=None, deletable=True):
+    view = RPGPaginationView(ctx, pages, select_options=select_options, select_callback=select_callback, select_options_by_page=select_options_by_page, deletable=deletable)
     view.message = await ctx.send(embed=pages[0], view=view)
     return view
 
@@ -2520,7 +2524,7 @@ def _rpg_action_embed(title, message, ok=True):
 
 
 async def _rpg_action_panel(ctx, title, message, ok=True):
-    return await _rpg_panel(ctx, [_rpg_action_embed(title, message, ok)])
+    return await _rpg_panel(ctx, [_rpg_action_embed(title, message, ok)], deletable=False)
 
 def _combat_embed(state, result=None):
     enemy=state["enemy"]
@@ -2986,7 +2990,7 @@ async def rpg_help(ctx):
         "rpg tradeclear": "Remove your offered items/currency from a trade.",
         "rpg tradeaccept": "Accept the current trade after reviewing it.",
         "rpg tradecancel": "Cancel an active trade.",
-        "rpg quests": "Open the quest board and current quest information.",
+        "rpg quests": "Open the unified Quest 2.0 board.",
         "rpg quests accept": "Accept an available quest.",
         "rpg quests claim": "Claim the reward for a completed quest.",
         "rpg quest": "Open a specific quest by its ID.",
@@ -3603,34 +3607,75 @@ async def rpg_economy_info(ctx):
     text=f"💰 Gold: **{data['gold']}**\n💎 Gems: **{data['gems']}**\n\nGold earned: **{data['earned']}**\nGold spent: **{data['spent']}**\nEconomy events: **{data['events']}**\nMarket sales: **{data['market_sold']}**"
     await _rpg_action_panel(ctx,"📊 Personal Economy",text,True)
 
-@rpg_root.group(name="quests", invoke_without_command=True)
+class QuestBoardView(discord.ui.View):
+    CATEGORIES = [
+        ("story","📖","Main Story"),("daily","☀️","Daily"),("weekly","📅","Weekly"),("monthly","🗓️","Monthly"),
+        ("class","⚔️","Class"),("race","🧬","Race"),("faction","🏛️","Faction"),("bounty","🎯","Bounty"),
+        ("secret","❓","Secret"),("legendary","👑","Legendary"),
+    ]
+
+    def __init__(self, ctx, data):
+        super().__init__(timeout=600)
+        self.ctx=ctx; self.data=data; self.message=None
+        for idx,(key,emoji,label) in enumerate(self.CATEGORIES):
+            button=discord.ui.Button(label=label,emoji=emoji,style=discord.ButtonStyle.secondary,row=idx//5)
+            async def callback(interaction, key=key):
+                if not await self.interaction_check(interaction): return
+                self.data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
+                await interaction.response.edit_message(embed=self.render(key),view=self)
+            button.callback=callback
+            self.add_item(button)
+        remove=discord.ui.Button(label="Remove Message",emoji="🗑️",style=discord.ButtonStyle.danger,row=2)
+        async def remove_callback(interaction):
+            if not await self.interaction_check(interaction): return
+            await interaction.response.defer()
+            try: await interaction.message.delete()
+            except (discord.NotFound, discord.Forbidden): pass
+            self.stop()
+        remove.callback=remove_callback; self.add_item(remove)
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This quest board belongs to another hero.",ephemeral=True)
+            return False
+        return True
+
+    def _time_line(self):
+        status=bot.rpg.rotation_status()
+        def stamp(period):
+            key,nxt=status[period]
+            return f"**{key}** • next reset <t:{int(nxt.timestamp())}:R>"
+        return f"🛒 Shop: {stamp('shop')}\\n☀️ Daily: {stamp('daily')}\\n📅 Weekly: {stamp('weekly')}\\n🗓️ Monthly: {stamp('monthly')}"
+
+    def render(self, category="story"):
+        names={k:f"{e} {n}" for k,e,n in self.CATEGORIES}
+        rows=self.data.get(category,[])
+        if not rows:
+            body="**No active quests in this category yet.**\\n\\nThis category is now part of the unified Quest 2.0 board."
+        else:
+            lines=[]
+            for q in rows[:10]:
+                target=int(q.get("target",1)); progress=int(q.get("progress",0))
+                state="✅ COMPLETE" if progress>=target else "📌 ACTIVE"
+                reward=f"+{q.get('reward_xp',0)} XP • +{q.get('reward_gold',0)}g"
+                if q.get("reward_item"):
+                    item=ITEMS.get(q["reward_item"],{"name":q["reward_item"]})
+                    reward+=f" • {item.get('name',q['reward_item'])} ×{q.get('reward_qty',1)}"
+                lines.append(f"**{q.get('title','Quest')}** — {state}\\n{q.get('description','')}\\nProgress: **{progress}/{target}** • {reward}")
+            body="\\n\\n".join(lines)
+        e=_rpg_embed(f"📜 Quest Board • {names.get(category,'📖 Main Story')}",body)
+        e.set_footer(text="Quest 2.0 • All shared rotation changes happen at 17:30 IST")
+        e.add_field(name="⏱ Shared Rotation Clock",value=self._time_line(),inline=False)
+        return e
+
+
+@rpg_root.command(name="quests", aliases=["questboard","quest-board"])
 async def rpg_quests(ctx):
     await _rpg_delete(ctx)
-    rows=await bot.rpg.quests(ctx.guild.id,ctx.author.id)
-    def fmt(x):
-        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status,kind,chain_key,chain_step=x
-        mark="🟢" if status=="active" else "⚪" if status=="available" else "✅"
-        reward=f"+{xp} XP • +{gold}g" + (f" • {ITEMS.get(item,{'name':item})['name']} ×{qty}" if item else "")
-        return f"{mark} **#{qid} {title}**" + (f" · Story {chain_step}" if kind=="story" else "") + f"\n{desc}\nLv {lvl}+ • Progress **{progress}/{target}** • {reward}"
-    pages=_rpg_pages("Quest Board",rows,page_size=4,icon="📜",formatter=fmt)
-    options=[(str(q[0]),q[1],f"{q[11].title()} • {q[10]}/{q[4]}") for q in rows[:25]]
-    async def info(interaction,value):
-        q=next((x for x in rows if str(x[0])==value),None)
-        if not q:
-            await interaction.response.send_message("Quest not found.",ephemeral=True); return
-        qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status,kind,chain_key,chain_step=q
-        reward=f"+{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{'name':item})['name']} ×{qty}" if item else "")
-        e=_rpg_embed(f"📜 Quest #{qid} — {title}",f"{desc}\n\n**Required:** Level {lvl}+\n**Progress:** {progress}/{target}\n**Status:** {status.title()}\n**Reward:** {reward}\n\nAccept: `!rpg quest accept {qid}`\nClaim: `!rpg quest claim {qid}`")
-        await interaction.response.send_message(embed=e,ephemeral=True)
-    await _rpg_panel(ctx,pages,select_options=options,select_callback=info)
-@rpg_quests.command(name="accept")
-async def rpg_quest_accept(ctx,quest_id:int=0):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.accept_quest(ctx.guild.id,ctx.author.id,quest_id); await _rpg_action_panel(ctx, "Quest Accepted", msg, ok)
-
-
-@rpg_quests.command(name="claim")
-async def rpg_quest_claim(ctx,quest_id:int=0):
-    await _rpg_delete(ctx); ok,msg=await bot.rpg.claim_quest(ctx.guild.id,ctx.author.id,quest_id); await _rpg_action_panel(ctx, "Quest Reward", msg, ok)
+    data=await bot.rpg.quest2_categories(ctx.guild.id,ctx.author.id)
+    view=QuestBoardView(ctx,data)
+    view.message=await ctx.send(embed=view.render("story"),view=view)
+    return view
 
 
 @rpg_root.command(name="quest")
@@ -3643,9 +3688,29 @@ async def rpg_quest(ctx,quest_id:int=0):
     if not q:
         await _rpg_action_panel(ctx,"Quest","Quest not found.",False); return
     qid,title,desc,lvl,target,ptype,xp,gold,item,qty,progress,status,kind,chain_key,chain_step=q
-    reward=f"+{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{"name":item})['name']} ×{qty}" if item else "")
-    e=_rpg_embed(f"📜 Quest #{qid} — {title}",f"{desc}\n\n**Required:** Level {lvl}+\n**Progress:** {min(progress,target)}/{target}\n**Status:** {status.title()}\n**Reward:** {reward}\n\nAccept: `!rpg quest accept {qid}`\nClaim: `!rpg quest claim {qid}`")
+    reward=f"+{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{'name':item})['name']} ×{qty}" if item else "")
+    e=_rpg_embed(f"📜 Quest #{qid} — {title}",f"{desc}\\n\\n**Required:** Level {lvl}+\\n**Progress:** {min(progress,target)}/{target}\\n**Status:** {status.title()}\\n**Reward:** {reward}\\n\\nAccept: `rpg questactions accept {qid}`\\nClaim: `rpg questactions claim {qid}`")
     await _rpg_panel(ctx,[e])
+
+
+@rpg_root.group(name="questactions", invoke_without_command=True)
+async def rpg_questactions(ctx):
+    await _rpg_delete(ctx)
+    await _rpg_action_panel(ctx,"Quest Actions","Use `!rpg questactions accept <id>` or `!rpg questactions claim <id>`.",True)
+
+
+@rpg_questactions.command(name="accept")
+async def rpg_quest_accept(ctx,quest_id:int=0):
+    await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.accept_quest(ctx.guild.id,ctx.author.id,quest_id)
+    await _rpg_action_panel(ctx,"Quest Accepted",msg,ok)
+
+
+@rpg_questactions.command(name="claim")
+async def rpg_quest_claim(ctx,quest_id:int=0):
+    await _rpg_delete(ctx)
+    ok,msg=await bot.rpg.claim_quest(ctx.guild.id,ctx.author.id,quest_id)
+    await _rpg_action_panel(ctx,"Quest Reward",msg,ok)
 
 
 @rpg_root.command(name="claim")
