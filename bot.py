@@ -2213,32 +2213,69 @@ class RPGCombatView(discord.ui.View):
         self.ctx=ctx
         self.state=state
         self.message=None
+        # Prevent rapid taps/stale Discord component interactions from
+        # resolving multiple turns against the same battle message.
+        self.processing=False
+        self.resolved=False
 
     async def interaction_check(self, interaction):
         if interaction.user.id!=self.ctx.author.id:
             await interaction.response.send_message("This battle belongs to another hero.", ephemeral=True)
             return False
+        if self.resolved:
+            await interaction.response.send_message("This battle has already been resolved.", ephemeral=True)
+            return False
         return True
 
+    def _set_action_buttons(self, disabled):
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                child.disabled=disabled
+
     async def _act(self, interaction, action):
-        result=await bot.rpg.combat_action(self.ctx.guild.id,self.ctx.author.id,action)
-        if result.get("error"):
-            await interaction.response.send_message(result["error"], ephemeral=True)
+        if self.processing or self.resolved:
+            await interaction.response.send_message("That battle action is already being processed.", ephemeral=True)
             return
-        if result.get("choose_item"):
-            choices=result.get("items",[])
-            await interaction.response.send_message("🧪 **Choose exactly which item to use:**",ephemeral=True,view=RPGCombatItemView(self,choices))
-            return
-        if result.get("choose_skill"):
-            await interaction.response.send_message("✨ **Choose a skill:**",ephemeral=True,view=RPGCombatSkillView(self,result.get("skills",[])))
-            return
-        self.state=result.get("state",self.state)
-        if result.get("finished"):
-            for child in self.children: child.disabled=True
-            await interaction.response.edit_message(embed=_combat_embed(self.state,result),view=self)
-            self.stop()
-            return
-        await interaction.response.edit_message(embed=_combat_embed(self.state),view=self)
+        self.processing=True
+        self._set_action_buttons(True)
+        try:
+            result=await bot.rpg.combat_action(self.ctx.guild.id,self.ctx.author.id,action)
+            if result.get("error"):
+                self.processing=False
+                self._set_action_buttons(False)
+                await interaction.response.send_message(result["error"], ephemeral=True)
+                return
+            if result.get("already_completed"):
+                self.resolved=True
+                self._set_action_buttons(True)
+                await interaction.response.send_message("🏆 This battle has already been resolved. No additional turn or rewards were applied.", ephemeral=True)
+                self.stop()
+                return
+            if result.get("choose_item"):
+                self.processing=False
+                self._set_action_buttons(False)
+                choices=result.get("items",[])
+                await interaction.response.send_message("🧪 **Choose exactly which item to use:**",ephemeral=True,view=RPGCombatItemView(self,choices))
+                return
+            if result.get("choose_skill"):
+                self.processing=False
+                self._set_action_buttons(False)
+                await interaction.response.send_message("✨ **Choose a skill:**",ephemeral=True,view=RPGCombatSkillView(self,result.get("skills",[])))
+                return
+            self.state=result.get("state",self.state)
+            if result.get("finished"):
+                self.resolved=True
+                self._set_action_buttons(True)
+                await interaction.response.edit_message(embed=_combat_embed(self.state,result),view=self)
+                self.stop()
+                return
+            self.processing=False
+            self._set_action_buttons(False)
+            await interaction.response.edit_message(embed=_combat_embed(self.state),view=self)
+        except Exception:
+            self.processing=False
+            self._set_action_buttons(False)
+            raise
 
     @discord.ui.button(label="Attack",emoji="⚔️",style=discord.ButtonStyle.primary)
     async def attack(self,interaction,button): await self._act(interaction,"attack")
