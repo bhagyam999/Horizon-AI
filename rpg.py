@@ -3644,33 +3644,41 @@ class RPGService:
             await db.execute("UPDATE rpg_guilds SET level=level+1,xp=xp-? WHERE guild_id=? AND name=?",(cost,guild_id,g[1])); await db.commit()
         return True,f"**{g[1]}** reached guild level **{level+1}**."
 
-    async def spend_stat(self,guild_id,user_id,stat):
+    async def spend_stat(self,guild_id,user_id,stat,amount=1):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         stat=stat.lower()
         mapping={"attack":"atk","atk":"atk","defense":"defense","def":"defense","speed":"speed","spd":"speed","crit":"crit","hp":"max_hp","mana":"max_mp","mp":"max_mp"}
         column=mapping.get(stat)
         if not column:return False,"Choose `attack`, `defense`, `speed`, `crit`, `hp`, or `mana`."
-        if p["stat_points"]<1:return False,"You have no stat points. Level up to earn one."
-        amount=5 if column in {"max_hp","max_mp"} else 1
+        try: amount=int(amount)
+        except (TypeError,ValueError): return False,"The number of points must be a whole number."
+        amount=max(1,min(amount,25))
+        if p["stat_points"]<amount:return False,f"You only have **{p['stat_points']} stat points**."
+        gain=amount*5 if column in {"max_hp","max_mp"} else amount
         async with aiosqlite.connect(self.path) as db:
-            await db.execute(f"UPDATE rpg_players SET {column}={column}+?,stat_points=stat_points-1 WHERE guild_id=? AND user_id=?",(amount,guild_id,user_id)); await db.commit()
-        return True,f"Stat point spent on **{stat.title()}** (+{amount})."
+            await db.execute(f"UPDATE rpg_players SET {column}={column}+?,stat_points=stat_points-? WHERE guild_id=? AND user_id=?",(gain,amount,guild_id,user_id)); await db.commit()
+        return True,f"Spent **{amount}** stat point(s) on **{stat.title()}** (+{gain})."
 
-    async def skill_mastery(self,guild_id,user_id,skill_key):
+    async def skill_mastery(self,guild_id,user_id,skill_key,amount=1):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         skill=self._skill(p["class_name"],skill_key.lower())
         if not skill:return False,"That skill does not belong to your current class."
-        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
-        if p["skill_points"]<1:return False,"You have no skill points. Level up to earn one."
+        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}."
+        try: amount=int(amount)
+        except (TypeError,ValueError): return False,"The number of skill points must be a whole number."
+        amount=max(1,min(amount,SKILL_MAX_RANK))
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT rank FROM rpg_skill_mastery WHERE guild_id=? AND user_id=? AND skill_key=?",(guild_id,user_id,skill["key"]))
             row=await cur.fetchone(); rank=int(row[0]) if row else 0
             if rank>=SKILL_MAX_RANK:return False,f"**{skill['name']}** is already at Mastery **{SKILL_MAX_RANK}**."
-            await db.execute("INSERT INTO rpg_skill_mastery(guild_id,user_id,skill_key,rank) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,skill_key) DO UPDATE SET rank=rank+1",(guild_id,user_id,skill["key"],max(1,rank+1)))
-            await db.execute("UPDATE rpg_players SET skill_points=skill_points-1 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
-        return True,f"✨ **{skill['name']}** mastered to **Rank {rank+1}/{SKILL_MAX_RANK}**. Each rank improves its scaling slightly."
+            amount=min(amount,SKILL_MAX_RANK-rank)
+            if p["skill_points"]<amount:return False,f"You only have **{p['skill_points']} skill points**."
+            new_rank=rank+amount
+            await db.execute("INSERT INTO rpg_skill_mastery(guild_id,user_id,skill_key,rank) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,skill_key) DO UPDATE SET rank=excluded.rank",(guild_id,user_id,skill["key"],new_rank))
+            await db.execute("UPDATE rpg_players SET skill_points=skill_points-? WHERE guild_id=? AND user_id=?",(amount,guild_id,user_id)); await db.commit()
+        return True,f"✨ **{skill['name']}** mastered to **Rank {new_rank}/{SKILL_MAX_RANK}**. Spent **{amount}** Skill Point(s)."
 
     async def skill_masteries(self,guild_id,user_id):
         async with aiosqlite.connect(self.path) as db:
@@ -3692,20 +3700,25 @@ class RPGService:
             cur=await db.execute("SELECT tree,talent_key,rank FROM rpg_talents WHERE guild_id=? AND user_id=?",(guild_id,user_id)); rows=await cur.fetchall()
         return {(tree,key):int(rank) for tree,key,rank in rows}
 
-    async def spend_talent(self,guild_id,user_id,tree,talent_key):
+    async def spend_talent(self,guild_id,user_id,tree,talent_key,amount=1):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         tree=tree.lower(); talent_key=talent_key.lower()
         if tree not in {"class","race"}:return False,"Choose the `class` or `race` talent tree."
         nodes=self._talent_nodes(p,tree); node=next((x for x in nodes if x[0]==talent_key),None)
         if not node:return False,"That talent is not available in your current tree."
-        if p["talent_points"]<1:return False,"You have no talent points. Level up to earn one."
+        try: amount=int(amount)
+        except (TypeError,ValueError): return False,"The number of talent points must be a whole number."
+        amount=max(1,min(amount,5))
         ranks=await self.talent_ranks(guild_id,user_id); current=ranks.get((tree,talent_key),0)
         if current>=5:return False,f"**{node[1]}** is already at Rank **5/5**."
+        amount=min(amount,5-current)
+        if p["talent_points"]<amount:return False,f"You only have **{p['talent_points']} talent points**."
+        new_rank=current+amount
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("INSERT INTO rpg_talents(guild_id,user_id,tree,talent_key,rank) VALUES(?,?,?,?,1) ON CONFLICT(guild_id,user_id,tree,talent_key) DO UPDATE SET rank=rank+1",(guild_id,user_id,tree,talent_key))
-            await db.execute("UPDATE rpg_players SET talent_points=talent_points-1 WHERE guild_id=? AND user_id=?",(guild_id,user_id)); await db.commit()
-        return True,f"🌟 **{node[1]}** is now **Rank {current+1}/5**. {node[2]}"
+            await db.execute("INSERT INTO rpg_talents(guild_id,user_id,tree,talent_key,rank) VALUES(?,?,?,?,?) ON CONFLICT(guild_id,user_id,tree,talent_key) DO UPDATE SET rank=excluded.rank",(guild_id,user_id,tree,talent_key,new_rank))
+            await db.execute("UPDATE rpg_players SET talent_points=talent_points-? WHERE guild_id=? AND user_id=?",(amount,guild_id,user_id)); await db.commit()
+        return True,f"🌟 **{node[1]}** is now **Rank {new_rank}/5**. Spent **{amount}** Talent Point(s). {node[2]}"
 
     def _talent_bonuses(self,p,ranks):
         bonus={"atk_pct":0.0,"def_pct":0.0,"hp_pct":0.0,"mp_pct":0.0,"crit":0.0,"skill_pct":0.0,"heal_pct":0.0,"finisher_pct":0.0}
