@@ -2058,11 +2058,14 @@ class RPGCombatSkillView(discord.ui.View):
     async def choose(self,interaction):
         if interaction.user.id!=self.battle_view.ctx.author.id:
             await interaction.response.send_message("This battle belongs to another hero.",ephemeral=True); return
+        # Acknowledge immediately; resolving a skill can take long enough to
+        # exceed Discord's interaction response window.
+        await interaction.response.defer()
         skill=self.children[0].values[0]
         result=await bot.rpg.combat_action(self.battle_view.ctx.guild.id,self.battle_view.ctx.author.id,f"skill:{skill}")
         if result.get("error"):
-            await interaction.response.send_message(result["error"],ephemeral=True); return
-        await interaction.response.defer(); self.stop()
+            await interaction.followup.send(result["error"],ephemeral=True); return
+        self.stop()
         self.battle_view.state=result.get("state",self.battle_view.state)
         if result.get("finished"):
             for child in self.battle_view.children: child.disabled=True
@@ -2182,11 +2185,13 @@ class RPGCombatItemView(discord.ui.View):
     async def choose(self,interaction):
         if interaction.user.id!=self.battle_view.ctx.author.id:
             await interaction.response.send_message("This battle belongs to another hero.",ephemeral=True); return
+        # Acknowledge immediately; item use can also perform several database
+        # operations before the combat result is ready.
+        await interaction.response.defer()
         item=self.children[0].values[0]
         result=await bot.rpg.combat_action(self.battle_view.ctx.guild.id,self.battle_view.ctx.author.id,f"potion:{item}")
         if result.get("error"):
-            await interaction.response.send_message(result["error"],ephemeral=True); return
-        await interaction.response.defer()
+            await interaction.followup.send(result["error"],ephemeral=True); return
         self.stop()
         self.battle_view.state=result.get("state",self.battle_view.state)
         if result.get("finished"):
@@ -2196,8 +2201,7 @@ class RPGCombatItemView(discord.ui.View):
             except discord.HTTPException: pass
             self.battle_view.stop()
         else:
-            try:
-                await self.battle_view.message.edit(embed=_combat_embed(self.battle_view.state),view=self.battle_view)
+            try: await self.battle_view.message.edit(embed=_combat_embed(self.battle_view.state),view=self.battle_view)
             except discord.HTTPException: pass
 
     async def on_timeout(self):
@@ -2236,6 +2240,12 @@ class RPGCombatView(discord.ui.View):
         if self.processing or self.resolved:
             await interaction.response.send_message("That battle action is already being processed.", ephemeral=True)
             return
+        # A combat turn can touch SQLite, loot, XP, pets, and several other
+        # systems. Discord requires an interaction to be acknowledged quickly;
+        # waiting for combat_action() before deferring can cause the client to
+        # show "This application did not respond" even though the turn
+        # actually completed on the server. Acknowledge first, then process.
+        await interaction.response.defer()
         self.processing=True
         self._set_action_buttons(True)
         try:
@@ -2243,35 +2253,35 @@ class RPGCombatView(discord.ui.View):
             if result.get("error"):
                 self.processing=False
                 self._set_action_buttons(False)
-                await interaction.response.send_message(result["error"], ephemeral=True)
+                await interaction.followup.send(result["error"], ephemeral=True)
                 return
             if result.get("already_completed"):
                 self.resolved=True
                 self._set_action_buttons(True)
-                await interaction.response.send_message("🏆 This battle has already been resolved. No additional turn or rewards were applied.", ephemeral=True)
+                await interaction.followup.send("🏆 This battle has already been resolved. No additional turn or rewards were applied.", ephemeral=True)
                 self.stop()
                 return
             if result.get("choose_item"):
                 self.processing=False
                 self._set_action_buttons(False)
                 choices=result.get("items",[])
-                await interaction.response.send_message("🧪 **Choose exactly which item to use:**",ephemeral=True,view=RPGCombatItemView(self,choices))
+                await interaction.followup.send("🧪 **Choose exactly which item to use:**",ephemeral=True,view=RPGCombatItemView(self,choices))
                 return
             if result.get("choose_skill"):
                 self.processing=False
                 self._set_action_buttons(False)
-                await interaction.response.send_message("✨ **Choose a skill:**",ephemeral=True,view=RPGCombatSkillView(self,result.get("skills",[])))
+                await interaction.followup.send("✨ **Choose a skill:**",ephemeral=True,view=RPGCombatSkillView(self,result.get("skills",[])))
                 return
             self.state=result.get("state",self.state)
             if result.get("finished"):
                 self.resolved=True
                 self._set_action_buttons(True)
-                await interaction.response.edit_message(embed=_combat_embed(self.state,result),view=self)
+                await interaction.edit_original_response(embed=_combat_embed(self.state,result),view=self)
                 self.stop()
                 return
             self.processing=False
             self._set_action_buttons(False)
-            await interaction.response.edit_message(embed=_combat_embed(self.state),view=self)
+            await interaction.edit_original_response(embed=_combat_embed(self.state),view=self)
         except Exception:
             self.processing=False
             self._set_action_buttons(False)
