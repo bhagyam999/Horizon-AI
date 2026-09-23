@@ -3840,7 +3840,30 @@ class RPGService:
             state={"mode":"adventure","enemy":enemy,"enemy_hp":enemy["hp"],"floor":1,"floors":1,"name":"Adventure","log":[f"You encountered **{enemy['name']}** in {AREAS.get(p.get('area_key','horizon_village'),AREAS['horizon_village'])['name']}."],"started":time.time(),**base}
         else:
             available=[d for d in DUNGEONS if p["level"]>=d[1]]
-            d=next((x for x in available if dungeon_name and x[0].lower()==dungeon_name.lower()),None) if dungeon_name else (available[-1] if available else None)
+
+            # Accept the same dungeon identifiers players see in `!rpg dungeons`:
+            # the display name ("Goblin Caves"), the command key/slug
+            # ("goblin_caves"), and a simple 1-based index among unlocked dungeons.
+            # The old code only accepted the exact display name, so a player who
+            # copied the key shown by the atlas could not switch dungeons even
+            # though the dungeon was unlocked.
+            d=None
+            if dungeon_name:
+                raw=str(dungeon_name).strip()
+                folded=raw.casefold()
+                slug="_".join(raw.casefold().replace("'", "").replace("’", "").split())
+                if folded.isdigit():
+                    idx=int(folded)-1
+                    if 0 <= idx < len(available):
+                        d=available[idx]
+                if d is None:
+                    d=next((x for x in available if x[0].casefold()==folded),None)
+                if d is None:
+                    d=next((x for x in available if x[0].casefold().replace(" ","_").replace("'","").replace("’","")==slug),None)
+                if d is None:
+                    return {"error":f"Dungeon **{raw}** is not unlocked or was not found. Use `!rpg dungeons` and enter the dungeon name or key shown there."}
+            else:
+                d=available[-1] if available else None
             if not d:return {"error":"No dungeon unlocked yet."}
             n,req,floors,xp,gold,desc=d
             stamina_cost=15 + max(0, floors-3)*3
@@ -4073,7 +4096,7 @@ class RPGService:
             if float(state.get("enemy_hp",0))<=0:
                 await self._delete_combat_session(guild_id,user_id)
                 self.active_combats.pop(key,None)
-                return {"finished":True,"win":True,"state":state,"log":[*state.get("log",[]),"🏆 This battle was already completed."]}
+                return {"finished":True,"win":False,"state":state,"log":[*state.get("log",[]),"🏆 This battle was already completed. No additional rewards were granted."]}
         except (TypeError,ValueError):
             self.active_combats.pop(key,None); await self._delete_combat_session(guild_id,user_id)
             return {"error":"Horizon cleared an invalid battle state. You can start a new battle."}
