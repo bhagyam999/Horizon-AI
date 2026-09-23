@@ -2996,6 +2996,45 @@ class RPGService:
         ]
         return {"story":story,"daily":[x for x in rows if x["period"]=="daily"],"weekly":[x for x in rows if x["period"]=="weekly"],"monthly":[x for x in rows if x["period"]=="monthly"],"class":class_quests,"race":race_quests,"faction":faction_quests,"bounty":bounty,"secret":secret,"legendary":legendary}
 
+    async def claim_objective(self, guild_id, user_id, period, objective_key, period_key=None):
+        """Claim a completed Quest 2.0 rotating objective exactly once."""
+        period=str(period).lower()
+        if period not in {"daily","weekly","monthly"}:
+            return False, "This quest is not a claimable rotating objective."
+        if period_key is None:
+            period_key=self._objective_period_key(period)
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute(
+                "SELECT target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,title FROM rpg_objectives WHERE guild_id=? AND user_id=? AND period=? AND objective_key=? AND period_key=?",
+                (guild_id,user_id,period,objective_key,period_key),
+            )
+            row=await cur.fetchone()
+            if not row:
+                return False, "Quest not found or it has rotated out."
+            target,progress,xp,gold,item,qty,claimed,title=row
+            if int(claimed):
+                return False, "You already claimed this quest."
+            if int(progress) < int(target):
+                return False, f"Quest is not complete yet: {progress}/{target}."
+            await db.execute(
+                "UPDATE rpg_objectives SET claimed=1 WHERE guild_id=? AND user_id=? AND period=? AND objective_key=? AND period_key=? AND claimed=0",
+                (guild_id,user_id,period,objective_key,period_key),
+            )
+            await db.commit()
+        await self.add_rewards(guild_id,user_id,int(xp or 0),0)
+        if int(gold or 0):
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(int(gold),guild_id,user_id))
+                await db.commit()
+        if item:
+            await self.add_item(guild_id,user_id,item,int(qty or 1),event_type="quest_reward")
+        reward_parts=[]
+        if int(xp or 0): reward_parts.append(f"+{int(xp)} XP")
+        if int(gold or 0): reward_parts.append(f"+{int(gold)} gold")
+        if item:
+            reward_parts.append(f"{ITEMS.get(item,{'name':item}).get('name',item)} ×{int(qty or 1)}")
+        return True, f"Claimed **{title}** — " + (" • ".join(reward_parts) if reward_parts else "no reward")
+
     def rotation_status(self):
         return {p: rotation_info(p) for p in ("shop","daily","weekly","monthly")}
 
