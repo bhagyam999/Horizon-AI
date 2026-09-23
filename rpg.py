@@ -279,9 +279,8 @@ SUBCLASSES = {
 
 # ---------------------------------------------------------------------------
 # Specialization combat identities.
-# Every existing sub-race gets a distinct passive mechanic. Subclasses only
-# exist for classes that currently have them; Paladin and Summoner intentionally
-# remain subclass-free until their own specialization trees are designed.
+# Every existing sub-race gets a distinct passive mechanic. Subclasses use
+# combat traits so choosing one changes gameplay instead of only adding stats.
 # ---------------------------------------------------------------------------
 SUBRACE_TRAITS = {
  "high_elf":{"name":"Arcane Precision","desc":"+8% skill damage; finisher skills deal 10% more.","skill_pct":8,"finisher_pct":10},
@@ -4046,6 +4045,7 @@ class RPGService:
         stats["trait_low_hp_skill_pct"]=sum(float(t.get("low_hp_skill_pct",0)) for t in traits)
         stats["trait_low_hp_evasion"]=sum(float(t.get("low_hp_evasion",0)) for t in traits)
         stats["trait_high_target_pct"]=sum(float(t.get("high_target_pct",0)) for t in traits)
+        stats["trait_low_target_pct"]=sum(float(t.get("low_target_pct",0)) for t in traits)
         stats["trait_combo_pct"]=sum(float(t.get("combo_pct",0)) for t in traits)
         stats["trait_next_skill_pct"]=sum(float(t.get("next_skill_pct",0)) for t in traits)
         stats["trait_skill_evasion"]=sum(float(t.get("skill_evasion",0)) for t in traits)
@@ -4279,6 +4279,8 @@ class RPGService:
             mult*=1+float(stats["trait_low_hp_skill_pct"])/100
         if stats.get("trait_high_target_pct") and state.get("enemy_hp",0)>=enemy.get("hp",1)*.70:
             mult*=1+float(stats["trait_high_target_pct"])/100
+        if stats.get("trait_low_target_pct") and state.get("enemy_hp",0)<=enemy.get("hp",1)*.40:
+            mult*=1+float(stats["trait_low_target_pct"])/100
         if stats.get("trait_combo_pct"):
             mult*=1+min(.40,float(stats["trait_combo_pct"])*float(state.get("combo",0))/100)
         if stats.get("trait_next_skill_pct") and state.get("trait_next_skill_bonus",0):
