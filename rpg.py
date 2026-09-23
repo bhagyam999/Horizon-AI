@@ -5043,7 +5043,8 @@ class RPGService:
             for uid,(stored_hp,stored_mp) in persisted.items():
                 await db.execute("UPDATE rpg_players SET hp=?,mp=? WHERE guild_id=? AND user_id=?",(stored_hp,stored_mp,guild_id,uid))
             await db.commit()
-        state["turn"]=None; state["winner"]=winner_id; state["loser"]=loser_id        if state.get("arena"):
+        state["turn"]=None; state["winner"]=winner_id; state["loser"]=loser_id
+        if state.get("arena"):
             try:
                 delta=await self._record_arena_result(guild_id,state.get("season_id"),winner_id,loser_id,key)
                 await self.add_rewards(guild_id,winner_id,300,450)
