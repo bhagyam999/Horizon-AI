@@ -3994,7 +3994,8 @@ class RPGService:
                     persisted = None
                 else:
                     self.active_combats[key]=persisted
-                    return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}            else:
+                    return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
+            else:
                 self.active_combats[key]=persisted
                 return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
 
