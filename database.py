@@ -99,6 +99,31 @@ class Database:
                 user_id INTEGER NOT NULL,
                 PRIMARY KEY (event_id, user_id)
             );
+            CREATE TABLE IF NOT EXISTS reaction_roles (
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                emoji TEXT NOT NULL,
+                role_id INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, message_id, emoji)
+            );
+            CREATE TABLE IF NOT EXISTS giveaways (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                prize TEXT NOT NULL,
+                winners INTEGER DEFAULT 1,
+                ends_at REAL NOT NULL,
+                host_id INTEGER NOT NULL,
+                ended INTEGER DEFAULT 0,
+                created_at REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE TABLE IF NOT EXISTS giveaway_entries (
+                giveaway_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                PRIMARY KEY (giveaway_id, user_id)
+            );
             CREATE TABLE IF NOT EXISTS warnings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 guild_id INTEGER NOT NULL,
@@ -296,6 +321,68 @@ class Database:
     async def signup(self, event_id, user_id):
         async with aiosqlite.connect(self.path) as db:
             await db.execute('INSERT OR IGNORE INTO event_signups(event_id,user_id) VALUES(?,?)', (event_id,user_id)); await db.commit()
+
+    async def add_reaction_role(self, guild_id, channel_id, message_id, emoji, role_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute('INSERT OR REPLACE INTO reaction_roles(guild_id,channel_id,message_id,emoji,role_id) VALUES(?,?,?,?,?)', (guild_id,channel_id,message_id,str(emoji),role_id))
+            await db.commit()
+
+    async def reaction_role(self, guild_id, message_id, emoji):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute('SELECT role_id FROM reaction_roles WHERE guild_id=? AND message_id=? AND emoji=?', (guild_id,message_id,str(emoji)))
+            row=await cur.fetchone()
+            return row[0] if row else None
+
+    async def reaction_roles(self, guild_id, message_id=None):
+        async with aiosqlite.connect(self.path) as db:
+            if message_id:
+                cur=await db.execute('SELECT message_id,emoji,role_id,channel_id FROM reaction_roles WHERE guild_id=? AND message_id=? ORDER BY message_id', (guild_id,message_id))
+            else:
+                cur=await db.execute('SELECT message_id,emoji,role_id,channel_id FROM reaction_roles WHERE guild_id=? ORDER BY message_id', (guild_id,))
+            return await cur.fetchall()
+
+    async def remove_reaction_role(self, guild_id, message_id, emoji):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute('DELETE FROM reaction_roles WHERE guild_id=? AND message_id=? AND emoji=?', (guild_id,message_id,str(emoji)))
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def create_giveaway(self, guild_id, channel_id, message_id, prize, winners, ends_at, host_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute('INSERT INTO giveaways(guild_id,channel_id,message_id,prize,winners,ends_at,host_id) VALUES(?,?,?,?,?,?,?)', (guild_id,channel_id,message_id,prize,winners,ends_at,host_id))
+            await db.commit(); return cur.lastrowid
+
+    async def giveaway(self, giveaway_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute('SELECT * FROM giveaways WHERE id=?', (giveaway_id,))
+            row=await cur.fetchone(); return dict(row) if row else None
+
+    async def active_giveaways(self):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute('SELECT * FROM giveaways WHERE ended=0')
+            return [dict(r) for r in await cur.fetchall()]
+
+    async def add_giveaway_entry(self, giveaway_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute('INSERT OR IGNORE INTO giveaway_entries(giveaway_id,user_id) VALUES(?,?)', (giveaway_id,user_id))
+            await db.commit(); return cur.rowcount > 0
+
+    async def remove_giveaway_entry(self, giveaway_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute('DELETE FROM giveaway_entries WHERE giveaway_id=? AND user_id=?', (giveaway_id,user_id))
+            await db.commit(); return cur.rowcount > 0
+
+    async def giveaway_entries(self, giveaway_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute('SELECT user_id FROM giveaway_entries WHERE giveaway_id=?', (giveaway_id,))
+            return [r[0] for r in await cur.fetchall()]
+
+    async def end_giveaway(self, giveaway_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute('UPDATE giveaways SET ended=1 WHERE id=? AND ended=0', (giveaway_id,))
+            await db.commit(); return cur.rowcount > 0
 
     async def add_warning(self, guild_id, user_id, moderator_id, reason):
         async with aiosqlite.connect(self.path) as db:
