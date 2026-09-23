@@ -274,6 +274,75 @@ SUBCLASSES = {
 
 
 # ---------------------------------------------------------------------------
+# Specialization combat identities.
+# Every existing sub-race gets a distinct passive mechanic. Subclasses only
+# exist for classes that currently have them; Paladin and Summoner intentionally
+# remain subclass-free until their own specialization trees are designed.
+# ---------------------------------------------------------------------------
+SUBRACE_TRAITS = {
+ "high_elf":{"name":"Arcane Precision","desc":"+8% skill damage and +15% critical damage.","skill_pct":8,"crit_damage_pct":15},
+ "wood_elf":{"name":"Forest Renewal","desc":"Successful skills restore 3% max HP and 4 MP.","skill_heal_pct":3,"resource_gain":4},
+ "dark_elf":{"name":"Shadow Veins","desc":"Skills deal +18% damage against targets below 50% HP.","low_target_pct":18},
+ "mountain_dwarf":{"name":"Granite Stance","desc":"Take 8% less damage while above 70% HP.","damage_reduction":8,"damage_condition":"high_hp"},
+ "hill_dwarf":{"name":"Last Stand","desc":"Take 15% less damage while below 40% HP.","low_hp_reduction":15},
+ "forest_dwarf":{"name":"Rooted Guard","desc":"Defensive skills gain 1 extra shield turn.","shield_turn_bonus":1},
+ "high_orc":{"name":"War Cry","desc":"Below 60% HP, skill damage increases by 14%.","low_hp_skill_pct":14},
+ "half_orc":{"name":"Brutal Momentum","desc":"Every 3 combo stacks add another 8% skill damage.","combo_pct":8},
+ "red_kitsune":{"name":"Foxfire","desc":"Burn skills deal 25% more damage.","effect_bonus":{"burn":25}},
+ "white_kitsune":{"name":"Moonstep","desc":"Using a skill grants 10% evasion for 2 turns.","skill_evasion":10},
+ "dragonborn":{"name":"Draconic Surge","desc":"Finisher skills deal 12% more damage and restore 5% max MP.","finisher_pct":12,"resource_pct":5},
+ "drakeborn":{"name":"Wyrmheart","desc":"Skills gain 10% damage while below 50% HP.","low_hp_skill_pct":10},
+ "catfolk":{"name":"Predator Rhythm","desc":"Multi-hit and critical-focused skills deal 15% more damage.","effect_bonus":{"multi":15,"crit":15}},
+ "wolfkin":{"name":"Pack Hunter","desc":"Each combo stack adds 3% skill damage, capped at 15%.","combo_pct":3},
+ "foxkin":{"name":"Mirage Pounce","desc":"Skills gain 25% damage after a dodge state is active.","next_skill_pct":25},
+ "spring_fae":{"name":"Spring Bloom","desc":"Skills restore 4% max HP while below 60% HP.","conditional_skill_heal":4},
+ "night_fae":{"name":"Night Veil","desc":"Below 50% HP, gain 10% skill damage and 12% evasion.","low_hp_skill_pct":10,"low_hp_evasion":12},
+ "blood_vampire":{"name":"Blood Feast","desc":"Restore 6% of skill damage as HP, capped at 5% max HP per action.","trait_lifesteal":6,"trait_lifesteal_cap":5},
+ "noble_vampire":{"name":"Royal Hunger","desc":"Finisher skills deal 15% more damage and restore 3% max HP.","finisher_pct":15,"finisher_heal":3},
+ "iron_golem":{"name":"Iron Shell","desc":"Begin combat with a 25% shield for 2 turns.","start_shield":25,"start_shield_turns":2},
+ "crystal_golem":{"name":"Prism Core","desc":"Reflect 20% of damage while your shield is active.","reflect":20},
+ "storm_human":{"name":"Stormfoot","desc":"Using a skill grants 8% evasion for 2 turns.","skill_evasion":8},
+ "desert_human":{"name":"Sunforged","desc":"Critical hits against you deal 7% less damage.","crit_damage_reduction":7},
+}
+
+SUBCLASS_TRAITS = {
+ "vanguard":{"name":"Hold the Line","desc":"Defending gives an additional 18% damage reduction.","defend_reduction":18},
+ "blade_master":{"name":"Weapon Flow","desc":"Heavy and multi-hit skills deal 15% more damage.","effect_bonus":{"heavy":15,"multi":15}},
+ "berserk_lord":{"name":"Blood Frenzy","desc":"Below 50% HP, skills deal 20% more damage.","low_hp_skill_pct":20},
+ "iron_guardian":{"name":"Fortress Core","desc":"Begin combat with a 20% shield for 2 turns.","start_shield":20,"start_shield_turns":2},
+ "arcane_knight":{"name":"Arcane Guard","desc":"Barrier skills restore 8% max MP and deal 15% more damage.","effect_bonus":{"barrier":15},"resource_on_effect":{"barrier":8}},
+ "fire_mage":{"name":"Inferno Mastery","desc":"Burn skills deal 30% more damage.","effect_bonus":{"burn":30}},
+ "frost_mage":{"name":"Absolute Zero","desc":"Freeze skills deal 25% more damage.","effect_bonus":{"freeze":25}},
+ "battle_mage":{"name":"Spellfist","desc":"After using a skill, your next incoming hit is reduced by 10%.","post_skill_reduction":10},
+ "shadow_assassin":{"name":"Death from Shadows","desc":"Critical damage is increased by 25%.","crit_damage_pct":25},
+ "nightblade":{"name":"Crimson Dance","desc":"Bleed and multi-hit skills deal 18% more damage.","effect_bonus":{"bleed":18,"multi":18}},
+ "sniper":{"name":"Deadeye","desc":"Skills deal 18% more damage while the enemy is above 70% HP.","high_target_pct":18},
+ "beast_master":{"name":"Beast Bond","desc":"Pet attacks deal 25% more damage.","pet_damage_pct":25},
+ "holy_priest":{"name":"Sacred Grace","desc":"Healing skills restore 25% more HP.","heal_skill_pct":25},
+ "battle_cleric":{"name":"Martyr's Oath","desc":"Below 50% HP, take 8% less damage and receive 25% more healing.","low_hp_reduction":8,"low_hp_heal_pct":25},
+ "storm_druid":{"name":"Stormcaller","desc":"Terrain, Burn and Freeze skills deal 18% more damage.","effect_bonus":{"terrain":18,"burn":18,"freeze":18}},
+ "wild_druid":{"name":"Wildshape","desc":"Below 50% HP, gain 15% skill damage and 10% damage reduction.","low_hp_skill_pct":15,"low_hp_reduction":10},
+ "dragon_monk":{"name":"Dragon Combo","desc":"Combo-based skills gain 10% damage per combo stack, capped at 40%.","combo_pct":10},
+ "shadow_monk":{"name":"Afterimage","desc":"After a skill, gain 15% evasion for 1 turn.","skill_evasion":15},
+ "minstrel":{"name":"Encore","desc":"Healing skills are 20% stronger and skills restore 3 MP.","heal_skill_pct":20,"resource_gain":3},
+ "war_chanter":{"name":"War Chorus","desc":"Attack-buff skills also grant 8% critical chance.","attack_buff_crit":8},
+ "bone_lord":{"name":"Grave Legion","desc":"Summon skills deal 25% more damage.","effect_bonus":{"summon":25}},
+ "soul_reaper":{"name":"Soul Harvest","desc":"Execute and lifesteal skills deal 20% more damage.","effect_bonus":{"execute":20,"lifesteal":20}},
+ "demon_pact":{"name":"Pact of Ruin","desc":"Sacrifice skills deal 30% more damage.","effect_bonus":{"sacrifice":30}},
+ "void_caller":{"name":"Reality Fracture","desc":"Vulnerability and true-damage skills deal 22% more damage.","effect_bonus":{"vulnerability":22,"true_damage":22}},
+ "bombardier":{"name":"Chain Reaction","desc":"Burn and Area skills deal 20% more damage.","effect_bonus":{"burn":20,"aoe":20}},
+ "transmuter":{"name":"Efficient Catalyst","desc":"Successful skills restore 4% max MP.","resource_pct":4},
+ "artificer":{"name":"Construct Command","desc":"Pet and summon skills deal 25% more damage.","effect_bonus":{"pet_boost":25,"summon":25}},
+ "machinist":{"name":"Overclock","desc":"After a skill, the next skill gains 20% damage.","next_skill_pct":20},
+ "fencer":{"name":"Perfect Riposte","desc":"Counter and multi-hit skills deal 20% more damage.","effect_bonus":{"counter":20,"multi":20}},
+ "champion":{"name":"Arena Momentum","desc":"Each combo stack adds 4% skill damage, capped at 16%.","combo_pct":4},
+ "dragoon":{"name":"Aerial Assault","desc":"Heavy and multi-hit skills deal 18% more damage.","effect_bonus":{"heavy":18,"multi":18}},
+ "templar":{"name":"Holy Spear","desc":"Defending gives an additional 20% damage reduction.","defend_reduction":20},
+ "spellbreaker":{"name":"Null Edge","desc":"True-damage and armor-break skills deal 25% more damage.","effect_bonus":{"true_damage":25,"armor_break":25}},
+ "arcane_fencer":{"name":"Runic Tempo","desc":"Successful skills restore 4% max MP and the next skill deals 8% more damage.","resource_pct":4,"next_skill_pct":8},
+}
+
+# ---------------------------------------------------------------------------
 # Combat skills. Each class has a small, readable kit so battles are about
 # choosing the right action instead of pressing one "Skill" button forever.
 # Keys are stable so old characters automatically receive their class kit.
@@ -3957,6 +4026,38 @@ class RPGService:
         elif race=="beastfolk": stats["speed"]+=3; stats["crit"]+=2
         elif race=="vampire": stats["atk"]+=3; stats["lifesteal_pct"]=.28; stats["lifesteal_min"]=4; stats["lifesteal_cap_pct"]=.08
         elif race=="golem": stats["max_hp"]+=max(1,round(stats["max_hp"]*.06)); stats["hp"]+=max(1,round(stats["hp"]*.06)); stats["defense"]+=3; stats["speed"]=max(1,stats["speed"]-2)
+        subrace_trait=SUBRACE_TRAITS.get(p.get("subrace") or "",{})
+        subclass_trait=SUBCLASS_TRAITS.get(p.get("subclass") or "",{})
+        traits=(subrace_trait,subclass_trait)
+        stats["trait_names"]=[t.get("name") for t in traits if t]
+        stats["trait_skill_pct"]=sum(float(t.get("skill_pct",0)) for t in traits)
+        stats["trait_finisher_pct"]=sum(float(t.get("finisher_pct",0)) for t in traits)
+        stats["trait_crit_damage_pct"]=sum(float(t.get("crit_damage_pct",0)) for t in traits)
+        stats["trait_damage_reduction"]=sum(float(t.get("damage_reduction",0)) for t in traits)
+        stats["trait_low_hp_reduction"]=sum(float(t.get("low_hp_reduction",0)) for t in traits)
+        stats["trait_low_hp_skill_pct"]=sum(float(t.get("low_hp_skill_pct",0)) for t in traits)
+        stats["trait_low_hp_evasion"]=sum(float(t.get("low_hp_evasion",0)) for t in traits)
+        stats["trait_high_target_pct"]=sum(float(t.get("high_target_pct",0)) for t in traits)
+        stats["trait_combo_pct"]=sum(float(t.get("combo_pct",0)) for t in traits)
+        stats["trait_next_skill_pct"]=sum(float(t.get("next_skill_pct",0)) for t in traits)
+        stats["trait_skill_evasion"]=sum(float(t.get("skill_evasion",0)) for t in traits)
+        stats["trait_crit_damage_reduction"]=sum(float(t.get("crit_damage_reduction",0)) for t in traits)
+        stats["trait_defend_reduction"]=sum(float(t.get("defend_reduction",0)) for t in traits)
+        stats["trait_lifesteal"]=sum(float(t.get("trait_lifesteal",0)) for t in traits)
+        stats["trait_lifesteal_cap"]=max([float(t.get("trait_lifesteal_cap",0)) for t in traits] or [0])
+        stats["trait_skill_heal_pct"]=sum(float(t.get("skill_heal_pct",0)) for t in traits)
+        stats["trait_conditional_skill_heal"]=sum(float(t.get("conditional_skill_heal",0)) for t in traits)
+        stats["trait_resource_gain"]=sum(float(t.get("resource_gain",0)) for t in traits)
+        stats["trait_resource_pct"]=sum(float(t.get("resource_pct",0)) for t in traits)
+        stats["trait_effect_bonus"]={}
+        for trait in traits:
+            for effect,value in trait.get("effect_bonus",{}).items():
+                stats["trait_effect_bonus"][effect]=stats["trait_effect_bonus"].get(effect,0)+float(value)
+        starts=[t for t in traits if t.get("start_shield")]
+        if starts:
+            stats["trait_start_shield"]=max(float(t["start_shield"]) for t in starts)/100
+            stats["trait_start_shield_turns"]=max(int(t.get("start_shield_turns",1)) for t in starts)
+        stats["trait_reflect"]=sum(float(t.get("reflect",0)) for t in traits)
         stats["crit"]=min(35,stats["crit"])
         return stats
 
@@ -4074,7 +4175,7 @@ class RPGService:
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus)
         pet=await self.pet_record(guild_id,user_id)
         loadout=await self.skill_loadout(guild_id,user_id)
-        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"],"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill],"buffs":{},"enemy_debuffs":{},"enemy_statuses":{},"enemy_dot":0,"enemy_dot_turns":0,"enemy_ability_cooldowns":{},"enemy_guard_turns":0,"enemy_guard_pct":0,"player_dot":0,"player_dot_turns":0,"combo":0,"combo_chain":[],"last_skill_effect":"","delayed_damage":0}
+        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"subrace":p.get("subrace") or "","subclass":p.get("subclass") or "","turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"],"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill],"buffs":{},"enemy_debuffs":{},"enemy_statuses":{},"enemy_dot":0,"enemy_dot_turns":0,"enemy_ability_cooldowns":{},"enemy_guard_turns":0,"enemy_guard_pct":0,"player_dot":0,"player_dot_turns":0,"combo":0,"combo_chain":[],"last_skill_effect":"","delayed_damage":0,"shield_turns":int(stats.get("trait_start_shield_turns",0)),"shield_pct":float(stats.get("trait_start_shield",0))}
         if mode=="adventure":
             remaining=await self._cooldown(p,"last_adventure",20)
             if remaining>0:return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
@@ -4158,6 +4259,25 @@ class RPGService:
         if skill.get("finisher") or skill.get("effect") in {"execute","ultimate","signature","mythic"}:
             if stats.get("finisher_pct"):
                 mult*=1+float(stats.get("finisher_pct",0))/100
+            if stats.get("trait_finisher_pct"):
+                mult*=1+float(stats.get("trait_finisher_pct",0))/100
+        mult*=1+float(stats.get("trait_skill_pct",0))/100
+        effect=skill.get("effect","damage")
+        effect_bonus=float(stats.get("trait_effect_bonus",{}).get(effect,0))
+        if effect_bonus:
+            mult*=1+effect_bonus/100
+        if stats.get("trait_low_hp_skill_pct") and state.get("player_hp",stats.get("max_hp",1))<=stats.get("max_hp",1)*.5:
+            mult*=1+float(stats["trait_low_hp_skill_pct"])/100
+        if stats.get("trait_high_target_pct") and state.get("enemy_hp",0)>=enemy.get("hp",1)*.70:
+            mult*=1+float(stats["trait_high_target_pct"])/100
+        if stats.get("trait_combo_pct"):
+            mult*=1+min(.40,float(stats["trait_combo_pct"])*float(state.get("combo",0))/100)
+        if stats.get("trait_next_skill_pct") and state.get("trait_next_skill_bonus",0):
+            mult*=1+float(stats["trait_next_skill_pct"])/100
+            state["trait_next_skill_bonus"]=0
+        if state.get("trait_dodge_bonus",0):
+            mult*=1+float(state["trait_dodge_bonus"])/100
+            state["trait_dodge_bonus"]=0
         if debuff.get("vulnerable"):
             mult*=1+float(debuff["vulnerable"])
         if debuff.get("marked"):
@@ -4213,7 +4333,9 @@ class RPGService:
             log.append(f"⚔️ **{skill['name']}** struck twice for **{sum(hits)}** total.")
         elif effect in {"heal","team_heal","recovery"}:
             ratio={"heal":0.22,"team_heal":0.30,"recovery":0.34}[effect]
-            ratio*=1+float(stats.get("heal_pct",0))/100
+            ratio*=1+float(stats.get("heal_pct",0)+stats.get("trait_skill_heal_pct",0))/100
+            if state["player_hp"]<=stats["max_hp"]*.60:
+                ratio*=1+float(stats.get("trait_conditional_skill_heal",0))/100
             heal=max(12,int(stats["max_hp"]*ratio)); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
             if effect=="recovery": state["player_mp"]=min(stats["max_mp"],state["player_mp"]+max(8,int(stats["max_mp"]*.22)))
             log.append(f"💚 **{skill['name']}** restored **{heal} HP**.")
@@ -4310,6 +4432,20 @@ class RPGService:
                 state["combo"]=0; state["combo_chain"]=[]
         state["last_skill_effect"]=effect
         dealt=max(0,start_enemy_hp-state["enemy_hp"])
+        if dealt:
+            if stats.get("trait_skill_evasion"):
+                state["buffs"]["evasion"]=max(float(state["buffs"].get("evasion",0)),float(stats["trait_skill_evasion"])/100)
+                state["buffs"]["evasion_turns"]=max(1,int(state["buffs"].get("evasion_turns",0)))
+            if stats.get("trait_resource_gain"):
+                state["player_mp"]=min(stats["max_mp"],state["player_mp"]+int(stats["trait_resource_gain"]))
+            if stats.get("trait_resource_pct"):
+                state["player_mp"]=min(stats["max_mp"],state["player_mp"]+max(1,int(stats["max_mp"]*stats["trait_resource_pct"]/100)))
+            if stats.get("trait_lifesteal"):
+                cap=max(1,int(stats["max_hp"]*max(.01,stats.get("trait_lifesteal_cap",5))/100))
+                heal=min(cap,max(1,int(dealt*stats["trait_lifesteal"]/100)))
+                state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
+            if stats.get("trait_next_skill_pct"):
+                state["trait_next_skill_bonus"]=1
         if stats.get("lifesteal_pct") and dealt:
             heal=min(max(1,int(stats.get("max_hp",100)*float(stats.get("lifesteal_cap_pct",1)))), max(int(stats.get("lifesteal_min",1)),int(dealt*float(stats["lifesteal_pct"])))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
         return log,defending
@@ -4595,7 +4731,15 @@ class RPGService:
                 if "weaken" in enemy_status or "silence" in enemy_status: enemy_atk*=.82
                 if state["enemy"].get("is_boss") and state["enemy_hp"]<state["enemy"].get("hp",1)*.25: enemy_atk*=1.18
                 dmg=self._damage(enemy_atk,effective_def,.90,ENEMY_DAMAGE_VARIANCE); dmg,crit=self._crit_damage(dmg,int(state["enemy"].get("crit",0)))
+                reduction=float(stats.get("trait_damage_reduction",0))
+                if state["player_hp"]<=stats["max_hp"]*.5: reduction+=float(stats.get("trait_low_hp_reduction",0))
+                if crit: reduction+=float(stats.get("trait_crit_damage_reduction",0))
+                if defending: reduction+=float(stats.get("trait_defend_reduction",0))
+                if state["player_hp"]>stats["max_hp"]*.70:
+                    for trait in (SUBRACE_TRAITS.get(state.get("subrace",""),{}),SUBCLASS_TRAITS.get(state.get("subclass",""),{})):
+                        if trait.get("damage_condition")=="high_hp": reduction+=float(trait.get("damage_reduction",0))
                 dmg=min(dmg,max(2,int(stats["max_hp"]*MAX_NORMAL_DAMAGE_FRACTION)))
+                dmg=max(1,int(dmg*(1-min(45,reduction)/100)))
                 shield=state.get("shield_pct",.5) if (defending or state.get("shield_turns",0)>0) else 0
                 if shield:dmg=max(1,int(dmg*(1-shield)))
                 state["player_hp"]-=dmg; state["log"].append(f"🩸 **{state['enemy']['name']}** hit you for **{dmg}**{' CRITICAL' if crit else ''}.")
