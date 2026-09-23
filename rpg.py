@@ -2574,19 +2574,6 @@ class RPGService:
             await db.commit()
         return True,f"Your **{kind}** changed to **{value.replace('_',' ').title()}** for **{cost} gold**."
 
-    async def spend_stat(self,guild_id,user_id,stat,amount=1):
-        p=await self.player(guild_id,user_id)
-        if not p:return False,"Create a hero first."
-        amount=max(1,min(int(amount),25)); stat=stat.lower()
-        mapping={"attack":"atk","atk":"atk","defense":"defense","def":"defense","speed":"speed","spd":"speed","crit":"crit","hp":"max_hp","mana":"max_mp","mp":"max_mp"}
-        column=mapping.get(stat)
-        if not column:return False,"Choose attack, defense, speed, crit, hp or mana."
-        if p["stat_points"]<amount:return False,f"You only have **{p['stat_points']} stat points**."
-        gain=amount*5 if column in {"max_hp","max_mp"} else amount
-        async with aiosqlite.connect(self.path) as db:
-            await db.execute(f"UPDATE rpg_players SET {column}={column}+?, stat_points=stat_points-? WHERE guild_id=? AND user_id=?",(gain,amount,guild_id,user_id)); await db.commit()
-        return True,f"Spent **{amount}** stat point(s) on **{stat}** (+{gain})."
-
     async def create_guild(self,guild_id,user_id,name):
         if await self.player(guild_id,user_id) is None:return False,"Create an RPG character first."
         async with aiosqlite.connect(self.path) as db:
