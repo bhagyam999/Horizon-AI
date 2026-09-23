@@ -4096,7 +4096,7 @@ class RPGService:
             if float(state.get("enemy_hp",0))<=0:
                 await self._delete_combat_session(guild_id,user_id)
                 self.active_combats.pop(key,None)
-                return {"finished":True,"win":False,"state":state,"log":[*state.get("log",[]),"🏆 This battle was already completed. No additional rewards were granted."]}
+                return {"finished":True,"win":False,"already_completed":True,"state":state,"log":[*state.get("log",[]),"🏆 This battle was already completed. No additional rewards were granted."]}
         except (TypeError,ValueError):
             self.active_combats.pop(key,None); await self._delete_combat_session(guild_id,user_id)
             return {"error":"Horizon cleared an invalid battle state. You can start a new battle."}
