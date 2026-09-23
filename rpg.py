@@ -4194,6 +4194,39 @@ class RPGService:
             heal=min(max(1,int(stats.get("max_hp",100)*float(stats.get("lifesteal_cap_pct",1)))), max(int(stats.get("lifesteal_min",1)),int(dealt*float(stats["lifesteal_pct"])))); state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal); log.append(f"🩸 Blood Hunger restored **{heal} HP**.")
         return log,defending
 
+    def _enemy_ability_action(self, state, stats):
+        enemy=state.get("enemy",{})
+        abilities=[k for k in enemy.get("abilities",[]) if k in ENEMY_ABILITIES]
+        if not abilities or state.get("enemy_debuffs",{}).get("silence_turns",0)>0:return []
+        cooldowns=state.setdefault("enemy_ability_cooldowns",{})
+        ready=[k for k in abilities if int(cooldowns.get(k,0))<=0]
+        if not ready:return []
+        chance=min(0.34,0.12+float(enemy.get("speed",5))/350.0+(0.05 if enemy.get("is_boss") else 0))
+        if random.random()>chance:return []
+        key=random.choice(ready); ability=ENEMY_ABILITIES[key]; kind=ability["type"]
+        enemy_atk=float(enemy.get("atk",1))*(1+float(state.get("enemy_atk_up",0)))
+        player_def=float(stats["defense"])*(1-float(state.get("player_debuff_def",0)))
+        if kind=="guard":
+            dmg=self._damage(enemy_atk,player_def,float(ability["mult"]),ENEMY_DAMAGE_VARIANCE); dmg,crit=self._crit_damage(dmg,int(enemy.get("crit",0)))
+            dmg=min(dmg,max(2,int(stats["max_hp"]*.20))); state["player_hp"]-=dmg; state["enemy_guard_pct"]=.35; state["enemy_guard_turns"]=2; cooldowns[key]=int(ability["cooldown"])
+            return [f"🛡️ **{enemy['name']}** used **{ability['name']}** for **{dmg}** damage and raised its guard."]
+        if kind=="pierce": player_def=max(0,player_def*.55)
+        dmg=self._damage(enemy_atk,player_def,float(ability["mult"]),ENEMY_DAMAGE_VARIANCE); dmg,crit=self._crit_damage(dmg,int(enemy.get("crit",0)))
+        dmg=min(dmg,max(2,int(stats["max_hp"]*(.30 if kind in {"burst","magic","pierce"} else .25)))); state["player_hp"]-=dmg
+        logs=[f"✨ **{enemy['name']}** used **{ability['name']}** for **{dmg}**{' CRITICAL' if crit else ''} damage."]
+        if kind=="heal":
+            heal=max(5,int(enemy.get("hp",1)*.10)); state["enemy_hp"]=min(enemy.get("hp",state["enemy_hp"]),state["enemy_hp"]+heal); logs.append(f"💚 **{enemy['name']}** regenerated **{heal} HP**.")
+        elif kind=="drain":
+            heal=max(3,int(dmg*.35)); state["enemy_hp"]=min(enemy.get("hp",state["enemy_hp"]),state["enemy_hp"]+heal); logs.append(f"🩸 **{enemy['name']}** drained **{heal} HP**.")
+        elif kind in {"burn","poison"}:
+            dot=max(2,int(stats["max_hp"]*(.045 if kind=="burn" else .035))); state["player_dot"]=max(int(state.get("player_dot",0)),dot); state["player_dot_turns"]=3; logs.append(f"☠️ You are afflicted with **{'Burn' if kind=='burn' else 'Poison'}** for 3 turns.")
+        elif kind=="buff":
+            state["enemy_atk_up"]=max(float(state.get("enemy_atk_up",0)),.20); state["enemy_atk_turns"]=3; logs.append("🔥 Its attack rose for 3 turns.")
+        elif kind=="debuff":
+            state["player_debuff_def"]=.15; state["player_debuff_def_turns"]=2; logs.append("🔻 Your effective defense was reduced for 2 turns.")
+        cooldowns[key]=int(ability["cooldown"])
+        return logs
+
     async def combat_action(self,guild_id,user_id,action):
         key=(guild_id,user_id)
         lock=self.combat_locks.setdefault(key, asyncio.Lock())
@@ -4418,31 +4451,43 @@ class RPGService:
                 state["log"].append("⚠️ Victory was secured, but some rewards could not be processed. Use !rpg claim to recover the saved rewards without replaying the battle.")
 
             return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"extra_loot":extra_loot,"pet_xp":pet_xp,"state":state,"level_before":old_level,"level_after":new_level,"reward_status":state["reward_status"],"reward_errors":reward_errors}
-        # Enemy turn. Defensive/slow/evasion effects are bounded so no skill can
-        # create a permanent lock or make damage disappear.
+        # Enemy turn: monsters have their own speed, crit chance and active ability kits.
         status_logs=self._tick_enemy_statuses(state)
         if status_logs: state["log"].extend(status_logs)
+        if state.get("player_dot_turns",0)>0 and state.get("player_dot",0)>0 and state["player_hp"]>0:
+            dot=min(int(state["player_dot"]),max(1,int(stats["max_hp"]*.10))); state["player_hp"]-=dot; state["log"].append(f"☠️ Ongoing damage dealt **{dot}** to you."); state["player_dot_turns"]-=1
+            if state["player_dot_turns"]<=0: state["player_dot"]=0
         if state.get("delayed_damage",0)>0:
             delayed=state["delayed_damage"]; state["enemy_hp"]=max(1,state["enemy_hp"]-min(delayed,max(2,int(state["enemy"]["hp"]*.35)))); state["delayed_damage"]=0; state["log"].append(f"⏳ The delayed strike detonated for **{delayed}** damage.")
         enemy_status=state.get("enemy_statuses",{})
         if "stun" in enemy_status or "freeze" in enemy_status:
             state["log"].append(f"💫 **{state['enemy']['name']}** is unable to act because of a status effect.")
-        elif state["enemy_hp"]<=0:
+        elif state["enemy_hp"]<=0 or state["player_hp"]<=0:
             pass
-        elif not defending and random.random()<min(.30,stats["speed"]/220 + float(state.get("buffs",{}).get("evasion",0))):
-            state["log"].append(f"💨 You dodged **{state['enemy']['name']}**.")
         else:
-            def_up=float(state.get("buffs",{}).get("def_up",0)); effective_def=stats["defense"]*(1+def_up)
-            enemy_atk=float(state["enemy"]["atk"])
-            if "weaken" in enemy_status or "silence" in enemy_status: enemy_atk*=.82
-            if state["enemy"].get("is_boss") and state["enemy_hp"]<state["enemy"].get("hp",1)*.25: enemy_atk*=1.18
-            dmg=self._damage(enemy_atk, effective_def, 0.90, ENEMY_DAMAGE_VARIANCE)
-            dmg=min(dmg, max(2, int(stats["max_hp"]*MAX_NORMAL_DAMAGE_FRACTION)))
-            shield=state.get("shield_pct",.5) if (defending or state.get("shield_turns",0)>0) else 0
-            if shield:dmg=max(1,int(dmg*(1-shield)))
-            state["player_hp"]-=dmg; state["log"].append(f"🩸 **{state['enemy']['name']}** hit you for **{dmg}**.")
-            if state.get("buffs",{}).get("reflect"):
-                reflected=max(1,int(dmg*state["buffs"]["reflect"])); state["enemy_hp"]=max(1,state["enemy_hp"]-reflected); state["log"].append(f"↩️ Your barrier reflected **{reflected}** damage.")
+            ability_logs=self._enemy_ability_action(state,stats)
+            if ability_logs: state["log"].extend(ability_logs)
+            elif not defending and random.random()<min(.30,float(state["enemy"].get("speed",5))/220 + float(state.get("buffs",{}).get("evasion",0))):
+                state["log"].append(f"💨 You dodged **{state['enemy']['name']}**.")
+            else:
+                def_up=float(state.get("buffs",{}).get("def_up",0)); effective_def=stats["defense"]*(1+def_up); effective_def*=max(.50,1-float(state.get("player_debuff_def",0)))
+                enemy_atk=float(state["enemy"]["atk"])*(1+float(state.get("enemy_atk_up",0)))
+                if "weaken" in enemy_status or "silence" in enemy_status: enemy_atk*=.82
+                if state["enemy"].get("is_boss") and state["enemy_hp"]<state["enemy"].get("hp",1)*.25: enemy_atk*=1.18
+                dmg=self._damage(enemy_atk,effective_def,.90,ENEMY_DAMAGE_VARIANCE); dmg,crit=self._crit_damage(dmg,int(state["enemy"].get("crit",0)))
+                dmg=min(dmg,max(2,int(stats["max_hp"]*MAX_NORMAL_DAMAGE_FRACTION)))
+                shield=state.get("shield_pct",.5) if (defending or state.get("shield_turns",0)>0) else 0
+                if shield:dmg=max(1,int(dmg*(1-shield)))
+                state["player_hp"]-=dmg; state["log"].append(f"🩸 **{state['enemy']['name']}** hit you for **{dmg}**{' CRITICAL' if crit else ''}.")
+        for enemy_key in list(state.get("enemy_ability_cooldowns",{})): state["enemy_ability_cooldowns"][enemy_key]=max(0,int(state["enemy_ability_cooldowns"][enemy_key])-1)
+        for key2 in ("enemy_guard_turns","enemy_atk_turns","player_debuff_def_turns"):
+            if key2 in state:
+                state[key2]-=1
+                if state[key2]<=0:
+                    state.pop(key2,None)
+                    if key2=="enemy_guard_turns": state["enemy_guard_pct"]=0
+                    elif key2=="enemy_atk_turns": state["enemy_atk_up"]=0
+                    elif key2=="player_debuff_def_turns": state["player_debuff_def"]=0
         for buff_key in ("atk_turns","def_turns","crit_turns","evasion_turns"):
             if buff_key in state.get("buffs",{}):
                 state["buffs"][buff_key]-=1
