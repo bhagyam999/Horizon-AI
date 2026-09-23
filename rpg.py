@@ -60,9 +60,14 @@ def rotation_info(period, now=None):
         week_start = base - timedelta(days=base.weekday())
         nxt = week_start + timedelta(days=7)
     elif period == "monthly":
-        year = base.year + (1 if base.month == 12 else 0)
-        month = 1 if base.month == 12 else base.month + 1
-        nxt = base.replace(year=year, month=month, day=1)
+        # The monthly boundary is the first day of the month at 17:30 IST.
+        current_month_start = base.replace(day=1)
+        if base.day == 1 and local < current_month_start:
+            nxt = current_month_start
+        else:
+            year = base.year + (1 if base.month == 12 else 0)
+            month = 1 if base.month == 12 else base.month + 1
+            nxt = base.replace(year=year, month=month, day=1)
     else:
         nxt = base + timedelta(days=1)
     return rotation_key(period, now), nxt.astimezone(timezone.utc)
