@@ -3633,12 +3633,13 @@ class QuestBoardView(discord.ui.View):
         "legendary":"High-end trials with major rewards.",
     }
 
-    def __init__(self, ctx, data):
+    def __init__(self, ctx, data, category="story"):
         super().__init__(timeout=900)
         self.ctx=ctx
         self.data=data
         self.message=None
-        self.current_category="story"
+        self.current_category=category
+
         options=[
             discord.SelectOption(label=label,value=key,emoji=emoji,description=self.DESCRIPTIONS[key][:100])
             for key,emoji,label in self.CATEGORIES
@@ -3646,16 +3647,21 @@ class QuestBoardView(discord.ui.View):
         select=discord.ui.Select(placeholder="Choose a quest category…",options=options,row=0)
         async def select_callback(interaction):
             if not await self.interaction_check(interaction): return
-            self.data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
-            await interaction.response.edit_message(embed=self.render(select.values[0]),view=self)
+            category=select.values[0]
+            data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
+            new_view=QuestBoardView(self.ctx,data,category=category)
+            await interaction.response.edit_message(embed=new_view.render(category),view=new_view)
         select.callback=select_callback
         self.add_item(select)
+
         self._add_claim_buttons()
+
         refresh=discord.ui.Button(label="Refresh",emoji="🔄",style=discord.ButtonStyle.primary,row=4)
         async def refresh_callback(interaction):
             if not await self.interaction_check(interaction): return
-            self.data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
-            await interaction.response.edit_message(embed=self.render(self.current_category),view=self)
+            data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
+            new_view=QuestBoardView(self.ctx,data,category=self.current_category)
+            await interaction.response.edit_message(embed=new_view.render(self.current_category),view=new_view)
         refresh.callback=refresh_callback
         self.add_item(refresh)
 
@@ -3665,11 +3671,19 @@ class QuestBoardView(discord.ui.View):
         for index,q in enumerate(rows[:10],1):
             if q.get("period") in {"daily","weekly","monthly"} and not int(q.get("claimed",0)) and int(q.get("progress",0)) >= int(q.get("target",1)):
                 result.append((index,q))
-        return result[:3]
+        return result
 
     def _add_claim_buttons(self):
-        for button_index,(index,q) in enumerate(self._claimable(),1):
-            button=discord.ui.Button(label=f"Claim Quest #{index}",emoji="🎁",style=discord.ButtonStyle.success,row=button_index)
+        for button_index,(index,q) in enumerate(self._claimable()):
+            # Five buttons fit on each Discord action-row; completed quests
+            # therefore get their own clearly numbered claim control.
+            row=1+(button_index//5)
+            button=discord.ui.Button(
+                label=f"Claim #{index}",
+                emoji="🎁",
+                style=discord.ButtonStyle.success,
+                row=row,
+            )
             async def claim_callback(interaction,index=index,q=q):
                 if not await self.interaction_check(interaction): return
                 ok,msg=await bot.rpg.claim_objective(
@@ -3679,8 +3693,9 @@ class QuestBoardView(discord.ui.View):
                 if not ok:
                     await interaction.response.send_message(msg,ephemeral=True)
                     return
-                self.data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
-                await interaction.response.edit_message(embed=self.render(self.current_category),view=self)
+                data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
+                new_view=QuestBoardView(self.ctx,data,category=self.current_category)
+                await interaction.response.edit_message(embed=new_view.render(self.current_category),view=new_view)
                 await interaction.followup.send(f"🎁 {msg}",ephemeral=True)
             button.callback=claim_callback
             self.add_item(button)
@@ -3713,7 +3728,7 @@ class QuestBoardView(discord.ui.View):
             if int(q.get("claimed",0)):
                 status="🎁 CLAIMED"
             elif int(q.get("progress",0)) >= int(q.get("target",1)):
-                status="✅ COMPLETE — use the Claim button below"
+                status="✅ COMPLETE — claim button below"
             else:
                 status=f"🔹 ACTIVE — {int(q.get('progress',0))}/{int(q.get('target',1))}"
         elif q.get("target"):
@@ -3746,9 +3761,14 @@ class QuestBoardView(discord.ui.View):
         else:
             for index,q in enumerate(rows[:10],1):
                 embed.add_field(name=f"{index}. {q.get('title','Quest')}",value=self._quest_text(q),inline=False)
-        claimable=len(self._claimable())
+        claimable=self._claimable()
         if claimable:
-            embed.add_field(name="🎁 Rewards Ready",value="Use the green **Claim Quest** button below to collect completed rewards.",inline=False)
+            names_ready=", ".join(f"#{index}" for index,_ in claimable)
+            embed.add_field(
+                name="🎁 Rewards Ready",
+                value=f"Completed quests: {names_ready}\nUse the green **Claim** buttons below to collect them.",
+                inline=False,
+            )
         embed.set_footer(text="Use the category menu above to switch quests • 🔄 Refresh to update progress")
         return embed
 
