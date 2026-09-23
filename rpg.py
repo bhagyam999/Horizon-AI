@@ -986,7 +986,7 @@ for _egg_key, _egg_name, _rarity, _price in [
     ITEMS[_egg_key]={"name":_egg_name,"slot":"egg","rarity":_rarity,"price":_price,"pet_egg":True}
 for _key, (_name, _rarity, _price) in GACHA_CHEST_ITEMS.items():
     ITEMS[_key]={"name":_name,"slot":"chest","rarity":_rarity,"price":_price,"gacha_chest":True,"level_req":rarity_level.get(_rarity,1) if "rarity_level" in globals() else 1}
-SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price") and v.get("slot") == "weapon"]
+SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price")]
 
 # Crafted utility items are intentionally modest: they improve uptime without replacing rest, combat, or gear.
 ITEMS.update({
@@ -997,8 +997,7 @@ ITEMS.update({
 })
 
 RECIPES = {
-    "life_potion": {"iron_ore": 1, "herb": 2},
-    "mana_potion": {"herb": 3, "arcane_shard": 1},
+    "life_potion": {"iron_ore": 1, "herb": 2},    "mana_potion": {"herb": 3, "arcane_shard": 1},
     "steel_blade": {"iron_ore": 5, "arcane_shard": 1},
     "guardian_shield": {"iron_ore": 7, "wolf_pelt": 2},
 }
@@ -1997,8 +1996,7 @@ class RPGService:
             "rpg_gacha_state", "rpg_economy_log", "rpg_equipment_storage", "rpg_equipment",
             "rpg_inventory", "rpg_player_quests", "rpg_quests", "rpg_party_members",
             "rpg_parties", "rpg_guild_members", "rpg_guilds", "rpg_players",
-            "rpg_npc_relationships", "rpg_lore_discoveries", "rpg_hidden_quest_progress",
-            "rpg_server_event_contributions", "rpg_server_events", "rpg_hidden_quests",
+            "rpg_npc_relationships", "rpg_lore_discoveries", "rpg_hidden_quest_progress",            "rpg_server_event_contributions", "rpg_server_events", "rpg_hidden_quests",
             "rpg_lore_entries", "rpg_npcs"
         ]
         async with aiosqlite.connect(self.path) as db:
@@ -2965,27 +2963,79 @@ class RPGService:
             cur=await db.execute("SELECT achievement_key,unlocked_at FROM rpg_achievements WHERE guild_id=? AND user_id=? ORDER BY unlocked_at",(guild_id,user_id)); return await cur.fetchall()
 
     async def shop(self,guild_id=None,user_id=None):
-        # The standard shop is intentionally weapon-only and capped at 24 listings.
-        # The source list is rebuilt from ITEMS so newly added/balanced weapons
-        # automatically appear without maintaining a second stale catalogue.
+        # The shop is a broad rotating catalogue, not a weapon-only storefront.
+        # It deliberately shows many categories while keeping the Discord panel
+        # manageable. The Item Codex remains the complete source of truth.
         level=1
         if guild_id is not None and user_id is not None:
-            p=await self.player(guild_id,user_id); level=int(p["level"]) if p else 1
-        featured=[
-            k for k,v in ITEMS.items()
-            if v.get("price") and v.get("slot")=="weapon"
-            and int(v.get("level_req",1))<=level+5
-        ]
+            p=await self.player(guild_id,user_id)
+            level=int(p["level"]) if p else 1
+
         rarity_order={r:i for i,r in enumerate(RARITIES)}
-        featured.sort(key=lambda k:(int(ITEMS[k].get("level_req",1)),rarity_order.get(ITEMS[k].get("rarity","common"),0),ITEMS[k].get("name",k)))
-        # Keep the shop at exactly/at most 24 weapon listings, with the
-        # player's level window determining which weapons are eligible.
-        if len(featured)>24:
-            eligible=[k for k in featured if int(ITEMS[k].get("level_req",1))<=level+3]
-            pool=eligible if len(eligible)>=24 else featured
-            featured=random.sample(pool,24)
-            featured.sort(key=lambda k:(int(ITEMS[k].get("level_req",1)),rarity_order.get(ITEMS[k].get("rarity","common"),0),ITEMS[k].get("name",k)))
-        return [(k,ITEMS[k]) for k in featured[:24]]
+        category_targets={
+            "weapon":16,
+            "armor":14,
+            "offhand":8,
+            "accessory":8,
+            "ring":6,
+            "amulet":6,
+            "relic":5,
+            "consumable":10,
+            "food":8,
+            "material":6,
+            "egg":5,
+            "chest":4,
+        }
+
+        selected=[]
+        selected_keys=set()
+
+        # Pick from every category independently so one huge generated
+        # equipment category cannot crowd out potions, accessories, eggs, etc.
+        for slot,target in category_targets.items():
+            eligible=[
+                k for k,v in ITEMS.items()
+                if v.get("price")
+                and v.get("slot")==slot
+                and int(v.get("level_req",1))<=level+5
+            ]
+            eligible.sort(key=lambda k:(
+                int(ITEMS[k].get("level_req",1)),
+                rarity_order.get(ITEMS[k].get("rarity","common"),0),
+                ITEMS[k].get("name",k)
+            ))
+            if len(eligible)>target:
+                # Keep the lower-level catalogue useful while still rotating
+                # higher-rarity choices through the shop.
+                low=[k for k in eligible if int(ITEMS[k].get("level_req",1))<=level+3]
+                pool=low if len(low)>=target else eligible
+                chosen=random.sample(pool,target)
+            else:
+                chosen=list(eligible)
+            selected.extend(chosen)
+            selected_keys.update(chosen)
+
+        # If a category is short at a low level, fill the remaining slots from
+        # the global eligible pool rather than leaving the shop tiny.
+        max_listings=96
+        if len(selected)<max_listings:
+            remaining=[
+                k for k,v in ITEMS.items()
+                if k not in selected_keys
+                and v.get("price")
+                and int(v.get("level_req",1))<=level+5
+            ]
+            random.shuffle(remaining)
+            selected.extend(remaining[:max_listings-len(selected)])
+
+        selected=selected[:max_listings]
+        selected.sort(key=lambda k:(
+            str(ITEMS[k].get("slot","item")),
+            int(ITEMS[k].get("level_req",1)),
+            rarity_order.get(ITEMS[k].get("rarity","common"),0),
+            ITEMS[k].get("name",k)
+        ))
+        return [(k,ITEMS[k]) for k in selected]
 
     async def buy(self,guild_id,user_id,item_key,quantity=1):
         p=await self.player(guild_id,user_id); item=ITEMS.get(item_key.lower())
@@ -2997,8 +3047,7 @@ class RPGService:
         faction=await self._faction_passive(guild_id,user_id); discount=int(base_cost*faction.get("shop_pct",0)/100); cost=max(1,base_cost-discount)
         if p["gold"]<cost:return False,f"You need **{cost} gold**."
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id));
-            await self._economy_log(db,guild_id,user_id,"shop_buy",item_key=item_key.lower(),quantity=quantity,gold_delta=-cost,metadata={"base":base_cost,"discount":discount}); await db.commit()
+            await db.execute("UPDATE rpg_players SET gold=gold-? WHERE guild_id=? AND user_id=?",(cost,guild_id,user_id));            await self._economy_log(db,guild_id,user_id,"shop_buy",item_key=item_key.lower(),quantity=quantity,gold_delta=-cost,metadata={"base":base_cost,"discount":discount}); await db.commit()
         await self.add_item(guild_id,user_id,item_key.lower(),quantity); return True,f"Bought **{item['name']} ×{quantity}** for **{cost} gold**." + (f" (−{discount} faction discount)" if discount else "")
 
     async def sell(self,guild_id,user_id,item_key,quantity=1):
@@ -3997,8 +4046,7 @@ class RPGService:
                 if folded.isdigit():
                     idx=int(folded)-1
                     if 0 <= idx < len(available):
-                        d=available[idx]
-                if d is None:
+                        d=available[idx]                if d is None:
                     d=next((x for x in available if x[0].casefold()==folded),None)
                 if d is None:
                     d=next((x for x in available if x[0].casefold().replace(" ","_").replace("'","").replace("’","")==slug),None)
@@ -4997,8 +5045,7 @@ class RPGService:
             for uid,(stored_hp,stored_mp) in persisted.items():
                 await db.execute("UPDATE rpg_players SET hp=?,mp=? WHERE guild_id=? AND user_id=?",(stored_hp,stored_mp,guild_id,uid))
             await db.commit()
-        state["turn"]=None; state["winner"]=winner_id; state["loser"]=loser_id
-        if state.get("arena"):
+        state["turn"]=None; state["winner"]=winner_id; state["loser"]=loser_id        if state.get("arena"):
             try:
                 delta=await self._record_arena_result(guild_id,state.get("season_id"),winner_id,loser_id,key)
                 await self.add_rewards(guild_id,winner_id,300,450)
