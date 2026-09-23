@@ -2925,18 +2925,76 @@ class RPGService:
         return str(rotation_key(period))
 
     async def quest2_categories(self, guild_id, user_id):
+        """Return the complete, readable Quest 2.0 board for one hero."""
         await self.ensure_objectives(guild_id, user_id)
         keys={p:self._objective_period_key(p) for p in ("daily","weekly","monthly")}
         async with aiosqlite.connect(self.path) as db:
             db.row_factory=aiosqlite.Row
-            cur=await db.execute("SELECT period,objective_key,title,description,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND period_key IN (?,?,?) ORDER BY objective_key",(guild_id,user_id,keys["daily"],keys["weekly"],keys["monthly"]))
+            cur=await db.execute(
+                "SELECT period,objective_key,title,description,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND period_key IN (?,?,?) ORDER BY CASE period WHEN 'daily' THEN 0 WHEN 'weekly' THEN 1 ELSE 2 END, objective_key",
+                (guild_id,user_id,keys["daily"],keys["weekly"],keys["monthly"]),
+            )
             rows=[dict(x) for x in await cur.fetchall()]
+            cur=await db.execute("SELECT class_name,race,subclass,subrace,level FROM rpg_players WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            player=await cur.fetchone()
+            cur=await db.execute("SELECT faction_key,reputation,rank FROM rpg_faction_members WHERE guild_id=? AND user_id=?",(guild_id,user_id))
+            faction=await cur.fetchone()
+            cur=await db.execute("SELECT id,target_name,reward,status FROM rpg_bounties WHERE guild_id=? AND status='open' ORDER BY reward DESC,id DESC LIMIT 6",(guild_id,))
+            bounties=[dict(x) for x in await cur.fetchall()]
+
         story=[
-            {"key":"story_first_step","title":"The First Step","description":"Begin your journey by defeating 3 enemies.","target":3,"progress_type":"hunt","reward_xp":300,"reward_gold":500,"reward_item":"life_potion","reward_qty":2},
-            {"key":"story_into_the_wild","title":"Into the Wild","description":"Explore or travel through the world 5 times.","target":5,"progress_type":"explore","reward_xp":700,"reward_gold":1000,"reward_item":"arcane_shard","reward_qty":2},
-            {"key":"story_ruins","title":"Echoes of the Ancient","description":"Clear 3 dungeon floors and uncover the old ruins.","target":3,"progress_type":"dungeon","reward_xp":1200,"reward_gold":1800,"reward_item":"reinforcement_core","reward_qty":2},
+            {"title":"The First Step","description":"Defeat 3 enemies and prove you can survive outside Horizon Village.","target":3,"progress":0,"reward_xp":300,"reward_gold":500,"reward_item":"life_potion","reward_qty":2,"state":"MAIN"},
+            {"title":"Into the Wild","description":"Explore or travel through the world 5 times.","target":5,"progress":0,"reward_xp":700,"reward_gold":1000,"reward_item":"arcane_shard","reward_qty":2,"state":"MAIN"},
+            {"title":"Echoes of the Ancient","description":"Clear 3 dungeon floors and uncover the old ruins.","target":3,"progress":0,"reward_xp":1200,"reward_gold":1800,"reward_item":"reinforcement_core","reward_qty":2,"state":"MAIN"},
         ]
-        return {"story":story,"daily":[x for x in rows if x["period"]=="daily"],"weekly":[x for x in rows if x["period"]=="weekly"],"monthly":[x for x in rows if x["period"]=="monthly"],"class":[],"race":[],"faction":[],"bounty":[],"secret":[],"legendary":[]}
+        if player:
+            class_key=str(player["class_name"] or "warrior").lower()
+            race_key=str(player["race"] or "human").lower()
+            class_name=class_key.replace("_"," ").title()
+            race_name=race_key.replace("_"," ").title()
+            level=int(player["level"] or 1)
+            class_quests=[
+                {"title":f"{class_name} Trial: Master Your Path","description":f"Win 5 battles while progressing as a {class_name}.","reward_xp":500,"reward_gold":750,"state":"AVAILABLE"},
+                {"title":f"{class_name} Trial: Veteran","description":f"Reach level {max(10,level + 5)} to deepen your {class_name} mastery.","reward_xp":900,"reward_gold":1200,"state":"AVAILABLE"},
+                {"title":f"{class_name} Trial: Signature","description":f"Use your class skills in 10 successful battles.","reward_xp":1400,"reward_gold":1800,"state":"AVAILABLE"},
+            ]
+            race_quests=[
+                {"title":f"{race_name} Heritage: Awakening","description":f"Complete 5 adventures while carrying the legacy of the {race_name}.","reward_xp":450,"reward_gold":650,"state":"AVAILABLE"},
+                {"title":f"{race_name} Heritage: Prove Yourself","description":f"Reach level {max(8,level + 3)}.","reward_xp":750,"reward_gold":1000,"state":"AVAILABLE"},
+                {"title":f"{race_name} Heritage: Mastery","description":f"Complete 15 battles using the strengths of your {race_name} lineage.","reward_xp":1200,"reward_gold":1600,"state":"AVAILABLE"},
+            ]
+        else:
+            class_quests=[{"title":"Class Quests Locked","description":"Create a hero to unlock quests based on your class.","state":"LOCKED"}]
+            race_quests=[{"title":"Race Quests Locked","description":"Create a hero to unlock quests based on your race.","state":"LOCKED"}]
+        if faction:
+            faction_key=str(faction["faction_key"])
+            faction_name=faction_key.replace("_"," ").title()
+            rep=int(faction["reputation"] or 0)
+            faction_quests=[
+                {"title":f"{faction_name}: Earn Your Standing","description":f"Raise your reputation with {faction_name} beyond your current {rep} reputation.","reward_xp":650,"reward_gold":900,"state":"AVAILABLE"},
+                {"title":f"{faction_name}: Serve the Cause","description":"Complete 5 RPG activities while representing your faction.","reward_xp":1000,"reward_gold":1500,"state":"AVAILABLE"},
+                {"title":f"{faction_name}: Trusted Ally","description":"Reach 100 reputation with your faction.","reward_xp":1800,"reward_gold":2500,"state":"AVAILABLE"},
+            ]
+        else:
+            faction_quests=[
+                {"title":"Choose Your Allegiance","description":"Join a faction with !rpg factions, then use !rpg factionjoin <faction_key> to unlock faction quests.","reward_xp":0,"reward_gold":0,"state":"LOCKED"},
+                {"title":"Horizon Guard","description":"A defensive faction focused on protecting settlements.","state":"INFO"},
+                {"title":"Free Merchants","description":"A trade-focused faction built around commerce and markets.","state":"INFO"},
+            ]
+        bounty=[{"title":f"Bounty #{b['id']}: {b['target_name']}","description":f"Track down {b['target_name']} and claim the posted bounty.","reward_gold":int(b["reward"] or 0),"state":"OPEN"} for b in bounties]
+        if not bounty:
+            bounty=[{"title":"No Open Bounties","description":"There are no player-posted bounties right now. New bounties will appear here when someone posts one.","state":"INFO"}]
+        secret=[
+            {"title":"??? — The Whispering Door","description":"A hidden path is watching. Discover unusual places and investigate strange events.","reward_xp":1000,"reward_gold":1500,"state":"HIDDEN"},
+            {"title":"??? — The Nameless Echo","description":"Some secrets reveal themselves only after you meet their hidden conditions.","reward_xp":1500,"reward_gold":2200,"state":"HIDDEN"},
+            {"title":"??? — Beyond the Horizon","description":"The final clue has not been revealed. Keep exploring.","reward_xp":2500,"reward_gold":4000,"state":"HIDDEN"},
+        ]
+        legendary=[
+            {"title":"Legendary Trial: World Challenger","description":"Defeat a world boss and prove you can stand against a regional threat.","reward_xp":3000,"reward_gold":5000,"state":"LEGENDARY"},
+            {"title":"Legendary Trial: Dungeon Conqueror","description":"Clear 10 dungeon floors without abandoning the run.","reward_xp":4500,"reward_gold":7000,"state":"LEGENDARY"},
+            {"title":"Legendary Trial: Horizon's Edge","description":"Reach level 50 and enter an endgame region.","reward_xp":6000,"reward_gold":10000,"state":"LEGENDARY"},
+        ]
+        return {"story":story,"daily":[x for x in rows if x["period"]=="daily"],"weekly":[x for x in rows if x["period"]=="weekly"],"monthly":[x for x in rows if x["period"]=="monthly"],"class":class_quests,"race":race_quests,"faction":faction_quests,"bounty":bounty,"secret":secret,"legendary":legendary}
 
     def rotation_status(self):
         return {p: rotation_info(p) for p in ("shop","daily","weekly","monthly")}
