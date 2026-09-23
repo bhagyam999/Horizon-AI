@@ -2921,7 +2921,7 @@ class RPGService:
         if item: await self.add_item(guild_id,user_id,item,qty)
         return True,f"Quest complete: **+{xp} XP**, **+{gold} gold**" + (f", **{ITEMS[item]['name']} ×{qty}**" if item else "")
 
-    async def _objective_period_key(self, period):
+    def _objective_period_key(self, period):
         return str(rotation_key(period))
 
     async def quest2_categories(self, guild_id, user_id):
@@ -2951,28 +2951,28 @@ class RPGService:
         now=time.time()
         async with aiosqlite.connect(self.path) as db:
             for period in ("daily","weekly","monthly"):
-                period_key=await self._objective_period_key(period)
+                period_key=self._objective_period_key(period)
                 for key,title,desc,ptype,target,xp,gold,item,qty in self._rotated_objective_templates(period):
                     await db.execute("INSERT OR IGNORE INTO rpg_objectives(guild_id,user_id,period,objective_key,title,description,progress_type,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(guild_id,user_id,period,key,title,desc,ptype,target,0,xp,gold,item,qty,0,period_key,now))
             await db.commit()
 
     async def progress_objectives(self,guild_id,user_id,ptype,amount=1):
         await self.ensure_objectives(guild_id,user_id)
-        keys=(await self._objective_period_key("daily"),await self._objective_period_key("weekly"),await self._objective_period_key("monthly"))
+        keys=(self._objective_period_key("daily"),self._objective_period_key("weekly"),self._objective_period_key("monthly"))
         async with aiosqlite.connect(self.path) as db:
             await db.execute("UPDATE rpg_objectives SET progress=MIN(target,progress+?) WHERE guild_id=? AND user_id=? AND progress_type=? AND claimed=0 AND period_key IN (?,?,?)",(max(1,int(amount)),guild_id,user_id,ptype,*keys))
             await db.commit()
 
     async def objectives(self,guild_id,user_id):
         await self.ensure_objectives(guild_id,user_id)
-        keys=(await self._objective_period_key("daily"),await self._objective_period_key("weekly"),await self._objective_period_key("monthly"))
+        keys=(self._objective_period_key("daily"),self._objective_period_key("weekly"),self._objective_period_key("monthly"))
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT period,objective_key,title,description,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND period_key IN (?,?,?) ORDER BY CASE period WHEN 'daily' THEN 0 WHEN 'weekly' THEN 1 ELSE 2 END,objective_key",(guild_id,user_id,*keys))
             return await cur.fetchall()
 
     async def claim_objective(self,guild_id,user_id,objective_key):
         await self.ensure_objectives(guild_id,user_id)
-        keys=(await self._objective_period_key("daily"),await self._objective_period_key("weekly"),await self._objective_period_key("monthly"))
+        keys=(self._objective_period_key("daily"),self._objective_period_key("weekly"),self._objective_period_key("monthly"))
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT period,objective_key,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND objective_key=? AND period_key IN (?,?,?)",(guild_id,user_id,objective_key,*keys))
             row=await cur.fetchone()
