@@ -2021,18 +2021,21 @@ def _combat_embed(state, result=None):
     desc += "\n\n" + "\n".join(f"• {line}" for line in state["log"][-5:])
     if result and result.get("finished"):
         if result.get("win"):
-            desc += f"\n\n🏆 **Victory!** +{result.get('xp',0)} XP • +{result.get('gold',0)} gold • **{ITEMS.get(result.get('drop'),{'name':result.get('drop','loot')})['name']}**"
             if result.get("reward_status") == "recovery_needed":
                 failed=", ".join(result.get("reward_errors",[])) or "some rewards"
-                desc += f"\n⚠️ **Victory secured.** Reward processing failed for: **{failed}**. The battle will not be replayed or lost."
-            if result.get("pet_xp"):
-                desc += f"\n🐾 Equipped pet gained **+{result['pet_xp']} XP**"
-            if result.get("extra_loot"):
-                extras=[]
-                for key,qty in result["extra_loot"]:
-                    extras.append(f"{ITEMS.get(key,{'name':key}).get('name',key)} ×{qty}")
-                desc += f"\n🎁 **Bonus loot:** {', '.join(extras)}"
-            if result.get("level_after",0)>result.get("level_before",0): desc += f"\n✨ **LEVEL UP!** Level {result['level_before']} → **{result['level_after']}**"
+                desc += "\n\n🏆 **Victory!**"
+                desc += "\n⚠️ **Victory secured.** Reward processing was incomplete for: **" + failed + "**."
+                desc += "\nThe battle is permanently resolved and will not be replayed because of a reward error."
+            else:
+                desc += f"\n\n🏆 **Victory!** +{result.get('xp',0)} XP • +{result.get('gold',0)} gold • **{ITEMS.get(result.get('drop'),{'name':result.get('drop','loot')})['name']}**"
+                if result.get("pet_xp"):
+                    desc += f"\n🐾 Equipped pet gained **+{result['pet_xp']} XP**"
+                if result.get("extra_loot"):
+                    extras=[]
+                    for key,qty in result["extra_loot"]:
+                        extras.append(f"{ITEMS.get(key,{'name':key}).get('name',key)} ×{qty}")
+                    desc += f"\n🎁 **Bonus loot:** {', '.join(extras)}"
+                if result.get("level_after",0)>result.get("level_before",0): desc += f"\n✨ **LEVEL UP!** Level {result['level_before']} → **{result['level_after']}**"
         elif result.get("fled"): desc += "\n\n🏃 **You escaped.**"
         else: desc += "\n\n💀 **Defeated.** You survived with 1 HP. Rest before trying again."
     e=_rpg_embed(f"⚔️ {state['name']}",desc)
