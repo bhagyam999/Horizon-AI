@@ -3279,7 +3279,7 @@ async def rpg_objectives(ctx):
         state="CLAIMED" if claimed else ("READY" if progress>=target else f"{progress}/{target}")
         reward=f"+{xp} XP • +{gold}g" + (f" • {ITEMS.get(item,{'name':item}).get('name',item)} ×{qty}" if item else "")
         return f"**{title}** · {period.title()} · **{state}**\n{desc}\nReward: {reward}\nKey: `{key}`"
-    pages=_rpg_pages("🎯 Daily & Weekly Objectives",rows,page_size=4,icon="🎯",formatter=fmt)
+    pages=_rpg_pages("🎯 Quest 2.0 • Daily / Weekly / Monthly",rows,page_size=4,icon="🎯",formatter=fmt)
     await _rpg_panel(ctx,pages)
 
 @rpg_root.command(name="objective")
@@ -3542,6 +3542,7 @@ async def rpg_equip(ctx,item_key: str=""):
 async def rpg_shop(ctx):
     await _rpg_delete(ctx)
     items=await bot.rpg.shop(ctx.guild.id,ctx.author.id)
+    from rpg import rotation_label
     pages=_rpg_pages("Horizon Weapon Shop",items,page_size=8,icon="⚔️",formatter=lambda x:f"**{x[1]['name']}**\n`{x[0]}` • {x[1].get('rarity','common').title()} • Lv {x[1].get('level_req',1)}+ • **{x[1]['price']} gold**\n" + (" • ".join(f"+{x[1][k]} {label}" for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit")) if x[1].get(k)) or "Weapon") + f"\nBuy: `!rpg buy {x[0]} [qty]`")
     await _rpg_panel(ctx,pages)
 @rpg_root.command(name="buy")
