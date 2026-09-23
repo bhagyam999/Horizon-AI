@@ -4028,6 +4028,7 @@ class RPGService:
 
     def _skill_damage(self, stats, enemy, skill, state, multiplier=None, ignore_def=False):
         enemy_def=float(enemy.get("def",0))
+        enemy_def*=1+float(state.get("enemy_guard_pct",0))
         debuff=state.get("enemy_debuffs",{})
         enemy_def=max(0,enemy_def*(1-float(debuff.get("def_down",0))))
         mult=float(multiplier if multiplier is not None else skill.get("mult",1.0))
@@ -4279,7 +4280,7 @@ class RPGService:
         stats["crit"]=min(35,stats.get("crit",0)+int(state.get("buffs",{}).get("crit_up",0)))
         action=action.lower().strip(); log=[]; defending=False
         if action=="attack":
-            dmg, crit = self._crit_damage(self._damage(stats["atk"], state["enemy"].get("def",0), 0.85), stats["crit"])
+            dmg, crit = self._crit_damage(self._damage(stats["atk"], state["enemy"].get("def",0)*(1+float(state.get("enemy_guard_pct",0))), 0.85), stats["crit"])
             dmg=min(dmg, max(2,int(state["enemy"].get("hp",1)*0.28)))
             state["enemy_hp"]-=dmg; log.append(f"⚔️ You hit **{state['enemy']['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
             if stats.get("lifesteal_pct"):
@@ -4448,7 +4449,7 @@ class RPGService:
             state["reward_status"]="complete" if not reward_errors else "recovery_needed"
             if reward_errors:
                 state["reward_errors"]=reward_errors
-                state["log"].append("⚠️ Victory was secured, but some rewards could not be processed. Use !rpg claim to recover the saved rewards without replaying the battle.")
+                state["log"].append("⚠️ Victory was secured, but some rewards could not be processed. Use !rpg pending to recover the saved rewards without replaying the battle.")
 
             return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"extra_loot":extra_loot,"pet_xp":pet_xp,"state":state,"level_before":old_level,"level_after":new_level,"reward_status":state["reward_status"],"reward_errors":reward_errors}
         # Enemy turn: monsters have their own speed, crit chance and active ability kits.
