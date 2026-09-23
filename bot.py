@@ -74,6 +74,7 @@ class Horizon(commands.Bot):
         # a slow database/API operation from making a command appear frozen.
         self._rpg_command_locks: dict[tuple[int, int], asyncio.Lock] = {}
         self._rpg_command_timeout = 30
+        self._giveaway_task = None
 
     async def invoke(self, ctx):
         """Run RPG prefix commands with a per-player lock and hard timeout.
@@ -126,6 +127,7 @@ class Horizon(commands.Bot):
         except Exception:
             log.exception("Initial database backup failed; continuing startup.")
         self._db_backup_task = asyncio.create_task(self._database_backup_loop())
+        self._giveaway_task = asyncio.create_task(self._giveaway_loop())
 
         try:
             await self.dashboard.start()
@@ -170,7 +172,7 @@ class Horizon(commands.Bot):
                 log.exception("Scheduled database backup failed.")
 
     async def close(self):
-        for task_name in ('_db_backup_task', '_ai_history_backfill_task'):
+        for task_name in ('_db_backup_task', '_ai_history_backfill_task', '_giveaway_task'):
             task = getattr(self, task_name, None)
             if task:
                 task.cancel()
@@ -285,6 +287,93 @@ class Horizon(commands.Bot):
             location = "this channel" if int(row_channel) == int(channel_id) else "another public server channel"
             lines.append(f"[{location}] {author_name}: {content[:700]}")
         return "\n".join(lines)
+
+    async def _giveaway_loop(self):
+        await asyncio.sleep(8)
+        while True:
+            try:
+                now=time.time()
+                for giveaway in await self.db.active_giveaways():
+                    if giveaway["ends_at"] <= now:
+                        await self._finish_giveaway(giveaway["id"])
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Giveaway worker failed")
+            await asyncio.sleep(15)
+
+    async def _finish_giveaway(self, giveaway_id):
+        giveaway=await self.db.giveaway(giveaway_id)
+        if not giveaway or giveaway["ended"]:
+            return
+        if not await self.db.end_giveaway(giveaway_id):
+            return
+        entries=await self.db.giveaway_entries(giveaway_id)
+        winners=max(1,int(giveaway["winners"]))
+        selected=random.sample(entries,min(winners,len(entries))) if entries else []
+        channel=self.get_channel(giveaway["channel_id"])
+        if channel:
+            try:
+                message=await channel.fetch_message(giveaway["message_id"])
+                if selected:
+                    mentions=", ".join(f"<@{uid}>" for uid in selected)
+                    await message.edit(content=f"🎉 **GIVEAWAY ENDED** — **{giveaway['prize']}**\nWinner(s): {mentions}")
+                    await channel.send(f"🎊 Congratulations {mentions}! You won **{giveaway['prize']}**.")
+                else:
+                    await message.edit(content=f"🎉 **GIVEAWAY ENDED** — **{giveaway['prize']}**\nNo valid entries were received.")
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == self.user.id:
+            return
+        guild=self.get_guild(payload.guild_id) if payload.guild_id else None
+        if not guild:
+            return
+        emoji=str(payload.emoji)
+        role_id=await self.db.reaction_role(guild.id,payload.message_id,emoji)
+        if role_id:
+            member=guild.get_member(payload.user_id)
+            role=guild.get_role(role_id)
+            if member and role and not member.bot:
+                try:
+                    await member.add_roles(role,reason="Horizon reaction role")
+                except discord.Forbidden:
+                    log.warning("Cannot add reaction role %s in guild %s",role_id,guild.id)
+            return
+        # Giveaway entry: the 🎉 reaction is the entry button.
+        active=await self.db.active_giveaways()
+        for giveaway in active:
+            if giveaway["message_id"] != payload.message_id:
+                continue
+            if emoji != "🎉":
+                continue
+            if payload.user_id == giveaway["host_id"]:
+                continue
+            await self.db.add_giveaway_entry(giveaway["id"],payload.user_id)
+            return
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == self.user.id or not payload.guild_id:
+            return
+        guild=self.get_guild(payload.guild_id)
+        if not guild:
+            return
+        emoji=str(payload.emoji)
+        role_id=await self.db.reaction_role(guild.id,payload.message_id,emoji)
+        if role_id:
+            member=guild.get_member(payload.user_id)
+            role=guild.get_role(role_id)
+            if member and role and not member.bot:
+                try:
+                    await member.remove_roles(role,reason="Horizon reaction role removed")
+                except discord.Forbidden:
+                    pass
+            return
+        for giveaway in await self.db.active_giveaways():
+            if giveaway["message_id"] == payload.message_id and emoji == "🎉":
+                await self.db.remove_giveaway_entry(giveaway["id"],payload.user_id)
+                return
 
     async def on_member_join(self, member: discord.Member):
         if member.bot or not member.guild:
