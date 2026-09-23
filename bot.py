@@ -1337,7 +1337,7 @@ async def help_command(interaction: discord.Interaction):
     embed.add_field(name="RPG / Community", value="`!rpg` `!rpg start` `!rpg profile` `!rpg adventure` `!rpg quests` `!rpg party` `!rpg guild` `!rpg dungeon` `!rpg shop` `!rpg craft` `!rpg market` `!rpg pet` `!rpg achievements` `!rpg leaderboard`", inline=False)
     embed.add_field(name="Moderation", value="`!warn @user` `!warnings @user` `!mod on/off` `!modaction <log|warn|timeout>` `!clear <amount>` `!timeout @user <minutes>` `!kick @user` `!ban @user`", inline=False)
     embed.add_field(name="Server / Announcements", value="`!announce <type> <ping> [#channel] | <title> | <message>` `!config show` `!config welcome #channel` `!config logs #channel` `!serverinfo` `!permissions`", inline=False)
-    embed.add_field(name="Help", value="`!help` or `!help <category>` — categories: `ai`, `games`, `rpg`, `moderation`, `announcements`, `server`", inline=False)
+    embed.add_field(name="Help", value="/help for slash commands • /dashboard for server controls • /community giveaway ... and /community reactionrole ... for community tools • !help <category> for prefix commands", inline=False)
     await interaction.response.send_message(embed=embed)
 
 
@@ -1870,6 +1870,287 @@ async def dashboard_embed(guild):
     embed.add_field(name="💡 Planned",value="Auto roles • Tickets • Suggestions • Starboard • Level rewards • Polls",inline=False)
     embed.set_footer(text="Horizon • Server Control Center")
     return embed
+
+
+
+# -------------------- Community slash commands --------------------
+community_group = app_commands.Group(
+    name="community",
+    description="Giveaways, reaction roles and other community tools.",
+)
+community_giveaway = app_commands.Group(
+    name="giveaway",
+    description="Create and manage Horizon giveaways.",
+)
+community_reactionrole = app_commands.Group(
+    name="reactionrole",
+    description="Create and manage reaction roles.",
+)
+
+
+@community_giveaway.command(name="create", description="Create a reaction-based giveaway.")
+@app_commands.describe(
+    prize="What the winner receives.",
+    duration="Duration such as 30m, 2h, 1d or 1h30m.",
+    winners="Number of winners, from 1 to 20.",
+    channel="Channel where the giveaway should be posted.",
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def community_giveaway_create(
+    interaction: discord.Interaction,
+    prize: str,
+    duration: str,
+    winners: int = 1,
+    channel: discord.TextChannel | None = None,
+):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    try:
+        seconds = _parse_duration(duration)
+        winners = int(winners)
+        if winners < 1 or winners > 20:
+            raise ValueError("Winners must be between 1 and 20.")
+    except ValueError as exc:
+        await interaction.response.send_message(str(exc), ephemeral=True)
+        return
+
+    target = channel or interaction.channel
+    if not isinstance(target, discord.TextChannel):
+        await interaction.response.send_message("Choose a text channel for the giveaway.", ephemeral=True)
+        return
+
+    ends = time.time() + seconds
+    embed = discord.Embed(
+        title="🎉 GIVEAWAY",
+        description=(
+            f"Prize: **\${prize.strip()}**\n"
+            f"Winners: **\${winners}**\n"
+            f"Ends: <t:\${int(ends)}:R>\n\n"
+            "React with 🎉 to enter!"
+        ),
+        colour=discord.Colour.gold(),
+    )
+    embed.set_footer(text=f"Hosted by \${interaction.user.display_name}")
+
+    try:
+        message = await target.send(embed=embed)
+        await message.add_reaction("🎉")
+        giveaway_id = await bot.db.create_giveaway(
+            interaction.guild.id,
+            target.id,
+            message.id,
+            prize.strip(),
+            winners,
+            ends,
+            interaction.user.id,
+        )
+    except discord.HTTPException as exc:
+        await interaction.response.send_message(
+            f"I couldn't create the giveaway: {str(exc)[:250]}",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.send_message(
+        f"Giveaway #\${giveaway_id} created in \${target.mention}.",
+        ephemeral=True,
+    )
+
+
+@community_giveaway.command(name="end", description="End an active giveaway immediately.")
+@app_commands.describe(giveaway_id="The giveaway ID shown when it was created.")
+async def community_giveaway_end(interaction: discord.Interaction, giveaway_id: int):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    giveaway = await bot.db.giveaway(giveaway_id)
+    if not giveaway or giveaway["guild_id"] != interaction.guild.id:
+        await interaction.response.send_message("I couldn't find that giveaway in this server.", ephemeral=True)
+        return
+    if giveaway["ended"]:
+        await interaction.response.send_message("That giveaway has already ended.", ephemeral=True)
+        return
+    if giveaway["host_id"] != interaction.user.id and not interaction.user.guild_permissions.manage_guild:
+        await interaction.response.send_message("Only the giveaway host or a server manager can end it.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    await bot._finish_giveaway(giveaway_id)
+    await interaction.followup.send(f"Giveaway #\${giveaway_id} ended.", ephemeral=True)
+
+
+@community_giveaway.command(name="reroll", description="Pick new winner(s) for an ended giveaway.")
+@app_commands.describe(giveaway_id="The giveaway ID to reroll.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def community_giveaway_reroll(interaction: discord.Interaction, giveaway_id: int):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    giveaway = await bot.db.giveaway(giveaway_id)
+    if not giveaway or giveaway["guild_id"] != interaction.guild.id:
+        await interaction.response.send_message("I couldn't find that giveaway in this server.", ephemeral=True)
+        return
+    if not giveaway["ended"]:
+        await interaction.response.send_message("End the giveaway before rerolling it.", ephemeral=True)
+        return
+
+    entries = await bot.db.giveaway_entries(giveaway_id)
+    if not entries:
+        await interaction.response.send_message("There are no recorded entries to reroll.", ephemeral=True)
+        return
+
+    selected = random.sample(entries, min(int(giveaway["winners"]), len(entries)))
+    mentions = ", ".join(f"<@\${uid}>" for uid in selected)
+    channel = interaction.guild.get_channel(giveaway["channel_id"])
+    if isinstance(channel, discord.TextChannel):
+        try:
+            await channel.send(
+                f"Giveaway #\${giveaway_id} reroll! Congratulations \${mentions}! "
+                f"You won **\${giveaway['prize']}**."
+            )
+        except discord.HTTPException:
+            pass
+    await interaction.response.send_message(
+        f"Rerolled giveaway #\${giveaway_id}: \${mentions}",
+        ephemeral=True,
+    )
+
+
+@community_giveaway.command(name="list", description="List active giveaways in this server.")
+async def community_giveaway_list(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    active = [
+        giveaway for giveaway in await bot.db.active_giveaways()
+        if giveaway["guild_id"] == interaction.guild.id
+    ]
+    if not active:
+        await interaction.response.send_message("There are no active giveaways.")
+        return
+
+    lines = []
+    for giveaway in active:
+        lines.append(
+            f"#{giveaway['id']} — {giveaway['prize']} • "
+            f"{giveaway['winners']} winner(s) • channel <#{giveaway['channel_id']}> • "
+            f"ends <t:{int(giveaway['ends_at'])}:R>"
+        )
+    await interaction.response.send_message("\n".join(lines)[:4000])
+
+
+@community_reactionrole.command(name="create", description="Attach a role to a message reaction.")
+@app_commands.describe(
+    channel="Channel containing the target message.",
+    message_id="ID of the target message.",
+    emoji="Emoji users should react with.",
+    role="Role to give when users react.",
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def community_reactionrole_create(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel,
+    message_id: int,
+    emoji: str,
+    role: discord.Role,
+):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    me = interaction.guild.me
+    if not me or not me.guild_permissions.manage_roles:
+        await interaction.response.send_message("Horizon needs Manage Roles to create reaction roles.", ephemeral=True)
+        return
+    if role >= me.top_role:
+        await interaction.response.send_message("That role is above Horizon's highest role.", ephemeral=True)
+        return
+    if role.is_default() or role.managed:
+        await interaction.response.send_message("That role cannot be assigned by Horizon.", ephemeral=True)
+        return
+
+    emoji = emoji.strip()
+    if not emoji:
+        await interaction.response.send_message("Enter an emoji.", ephemeral=True)
+        return
+
+    try:
+        message = await channel.fetch_message(message_id)
+        await message.add_reaction(emoji)
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError) as exc:
+        await interaction.response.send_message(
+            f"I couldn't access that message or emoji: {str(exc)[:250]}",
+            ephemeral=True,
+        )
+        return
+
+    await bot.db.add_reaction_role(
+        interaction.guild.id,
+        channel.id,
+        message_id,
+        emoji,
+        role.id,
+    )
+    await interaction.response.send_message(
+        f"Reaction role created: {emoji} -> {role.mention}",
+        ephemeral=True,
+    )
+
+
+@community_reactionrole.command(name="remove", description="Remove a reaction-role mapping.")
+@app_commands.describe(
+    message_id="ID of the target message.",
+    emoji="Emoji used by the reaction-role mapping.",
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def community_reactionrole_remove(
+    interaction: discord.Interaction,
+    message_id: int,
+    emoji: str,
+):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    removed = await bot.db.remove_reaction_role(interaction.guild.id, message_id, emoji.strip())
+    await interaction.response.send_message(
+        "Reaction role mapping removed." if removed else "No matching reaction-role mapping was found.",
+        ephemeral=True,
+    )
+
+
+@community_reactionrole.command(name="list", description="List this server's reaction-role mappings.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def community_reactionrole_list(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    rows = await bot.db.reaction_roles(interaction.guild.id)
+    if not rows:
+        await interaction.response.send_message("No reaction roles are configured.")
+        return
+    lines = [
+        f"• channel <#{channel_id}> • message {message_id} • {emoji} -> <@&{role_id}>"
+        for message_id, emoji, role_id, channel_id in rows
+    ]
+    await interaction.response.send_message("\n".join(lines)[:4000])
+
+
+community_group.add_command(community_giveaway)
+community_group.add_command(community_reactionrole)
+bot.tree.add_command(community_group)
+
+
+@bot.tree.command(name="dashboard", description="Open Horizon's interactive server control center.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def slash_dashboard(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.", ephemeral=True)
+        return
+    context = type("DashboardContext", (), {"author": interaction.user})()
+    await interaction.response.send_message(
+        embed=await dashboard_embed(interaction.guild),
+        view=DiscordControlView(context),
+    )
 
 
 @bot.command(name="dashboard",aliases=["control","controlpanel","serverpanel"])
