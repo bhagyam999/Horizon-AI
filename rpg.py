@@ -3665,7 +3665,7 @@ class RPGService:
         if not p:return False,"Create a hero first."
         skill=self._skill(p["class_name"],skill_key.lower())
         if not skill:return False,"That skill does not belong to your current class."
-        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}."
+        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
         try: amount=int(amount)
         except (TypeError,ValueError): return False,"The number of skill points must be a whole number."
         amount=max(1,min(amount,SKILL_MAX_RANK))
