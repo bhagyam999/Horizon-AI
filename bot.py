@@ -23,7 +23,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
-from rpg import ENEMY_ABILITIES, RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, RACE_PROFILES, CLASS_PROFILES, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES
+from rpg import ENEMY_ABILITIES, RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, SUBRACE_TRAITS, SUBCLASS_TRAITS, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, RACE_PROFILES, CLASS_PROFILES, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES
 from storage import backup_database, migrate_legacy_database, resolve_database_path
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -2629,7 +2629,7 @@ async def rpg_subraces(ctx, *, race: str = ""):
     rows=[(k,v) for k,v in SUBRACES.items() if not race or v[0]==race]
     if not rows:
         await _rpg_action_panel(ctx,"Subraces","No matching subraces. Use `!rpg subraces <race>`.",False); return
-    pages=_rpg_pages("Subraces",rows,page_size=6,icon="🧬",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n❤️ HP {x[1][1]['hp']:+} • ⚔️ ATK {x[1][1]['atk']:+} • 🛡️ DEF {x[1][1]['def']:+} • 💨 SPD {x[1][1]['spd']:+} • 🎯 Crit {x[1][1]['crit']:+}%\nStrengths: {max(x[1][1], key=x[1][1].get).upper()} • Trade-off: {min(x[1][1], key=x[1][1].get).upper()}")
+    pages=_rpg_pages("Subraces",rows,page_size=6,icon="🧬",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n❤️ HP {x[1][1]['hp']:+} • ⚔️ ATK {x[1][1]['atk']:+} • 🛡️ DEF {x[1][1]['def']:+} • 💨 SPD {x[1][1]['spd']:+} • 🎯 Crit {x[1][1]['crit']:+}%\n✨ **{SUBRACE_TRAITS.get(x[0],{}).get('name','Unique Trait')}** — {SUBRACE_TRAITS.get(x[0],{}).get('desc','No special trait.')}")
     await _rpg_panel(ctx,pages)
 @rpg_root.command(name="subclasses")
 async def rpg_subclasses(ctx, *, class_name: str = ""):
@@ -2638,7 +2638,7 @@ async def rpg_subclasses(ctx, *, class_name: str = ""):
     rows=[(k,v) for k,v in SUBCLASSES.items() if not class_name or v[0]==class_name]
     if not rows:
         await _rpg_action_panel(ctx,"Subclasses","No matching subclasses. Use `!rpg subclasses <class>`.",False); return
-    pages=_rpg_pages("Subclasses • Level 10+",rows,page_size=6,icon="⚔️",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n{x[1][1]}\nChoose this only after reviewing its stat focus.")
+    pages=_rpg_pages("Subclasses • Level 10+",rows,page_size=6,icon="⚔️",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n{x[1][1]}\n✨ **{SUBCLASS_TRAITS.get(x[0],{}).get('name','Unique Trait')}** — {SUBCLASS_TRAITS.get(x[0],{}).get('desc','No special trait.')}")
     await _rpg_panel(ctx,pages)
 @rpg_root.command(name="change")
 async def rpg_change(ctx, kind: str = "", *, value: str = ""):
