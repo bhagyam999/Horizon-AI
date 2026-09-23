@@ -997,8 +997,7 @@ ITEMS.update({
 })
 
 RECIPES = {
-    "life_potion": {"iron_ore": 1, "herb": 2},    "mana_potion": {"herb": 3, "arcane_shard": 1},
-    "steel_blade": {"iron_ore": 5, "arcane_shard": 1},
+    "life_potion": {"iron_ore": 1, "herb": 2},    "mana_potion": {"herb": 3, "arcane_shard": 1},    "steel_blade": {"iron_ore": 5, "arcane_shard": 1},
     "guardian_shield": {"iron_ore": 7, "wolf_pelt": 2},
 }
 
@@ -1997,8 +1996,7 @@ class RPGService:
             "rpg_inventory", "rpg_player_quests", "rpg_quests", "rpg_party_members",
             "rpg_parties", "rpg_guild_members", "rpg_guilds", "rpg_players",
             "rpg_npc_relationships", "rpg_lore_discoveries", "rpg_hidden_quest_progress",            "rpg_server_event_contributions", "rpg_server_events", "rpg_hidden_quests",
-            "rpg_lore_entries", "rpg_npcs"
-        ]
+            "rpg_lore_entries", "rpg_npcs"        ]
         async with aiosqlite.connect(self.path) as db:
             await db.execute("CREATE TABLE IF NOT EXISTS horizon_rpg_migrations (key TEXT PRIMARY KEY, applied_at REAL NOT NULL)")
             cur=await db.execute("SELECT 1 FROM horizon_rpg_migrations WHERE key='phase4_fresh_start_v1'")
@@ -2997,8 +2995,7 @@ class RPGService:
                 k for k,v in ITEMS.items()
                 if v.get("price")
                 and v.get("slot")==slot
-                and int(v.get("level_req",1))<=level+5
-            ]
+                and int(v.get("level_req",1))<=level+5            ]
             eligible.sort(key=lambda k:(
                 int(ITEMS[k].get("level_req",1)),
                 rarity_order.get(ITEMS[k].get("rarity","common"),0),
@@ -3997,8 +3994,7 @@ class RPGService:
                     persisted = None
                 else:
                     self.active_combats[key]=persisted
-                    return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
-            else:
+                    return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}            else:
                 self.active_combats[key]=persisted
                 return {"state":persisted,"stats":await self._combat_full_stats(guild_id,user_id,p,await self._pet_bonus(guild_id,user_id)),"resumed":True}
 
@@ -4046,7 +4042,8 @@ class RPGService:
                 if folded.isdigit():
                     idx=int(folded)-1
                     if 0 <= idx < len(available):
-                        d=available[idx]                if d is None:
+                        d=available[idx]
+                if d is None:
                     d=next((x for x in available if x[0].casefold()==folded),None)
                 if d is None:
                     d=next((x for x in available if x[0].casefold().replace(" ","_").replace("'","").replace("’","")==slug),None)
@@ -4997,8 +4994,7 @@ class RPGService:
         elif action=="pet":
             if not me["pet"].get("name"):return {"error":"You don't have a pet."}
             if me["pet_cooldown"]>0:return {"error":f"Pet ability ready in {me['pet_cooldown']} turn(s)."}
-            role=PET_SPECIES.get(me["pet"].get("species"),{}).get("role","damage")
-            if role=="heal":
+            role=PET_SPECIES.get(me["pet"].get("species"),{}).get("role","damage")            if role=="heal":
                 heal=max(8,int(me["max_hp"]*.18)); me["hp"]=min(me["max_hp"],me["hp"]+heal); log.append(f"🐾 **{me['pet']['name']}** healed **{me['name']}** for {heal} HP.")
             else:
                 dmg=self._damage(max(2,me["pet"].get("atk",0)*2), foe["stats"]["defense"], 0.65)
