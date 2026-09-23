@@ -14,6 +14,59 @@ import aiosqlite
 import discord
 
 
+# ---------------------------------------------------------------------------
+# Horizon RPG unified rotation clock — one shared reset time: 17:30 IST.
+# Shop: every 4 hours. Daily: every day. Weekly: every Monday. Monthly: day 1.
+# ---------------------------------------------------------------------------
+HORIZON_RESET_TZ = ZoneInfo("Asia/Kolkata")
+HORIZON_RESET_HOUR = 17
+HORIZON_RESET_MINUTE = 30
+
+def _rotation_anchor(dt):
+    local = dt.astimezone(HORIZON_RESET_TZ)
+    anchor = local.replace(hour=HORIZON_RESET_HOUR, minute=HORIZON_RESET_MINUTE, second=0, microsecond=0)
+    if local < anchor:
+        anchor -= timedelta(days=1)
+    return anchor
+
+def rotation_key(period, now=None):
+    now = datetime.now(timezone.utc) if now is None else now
+    local = now.astimezone(HORIZON_RESET_TZ)
+    base = _rotation_anchor(now)
+    period = str(period).lower()
+    if period == "shop":
+        slot = int((local - base).total_seconds() // 14400)
+        return f"{base:%Y-%m-%d}-s{slot}"
+    if period == "daily":
+        return base.strftime("%Y-%m-%d")
+    if period == "weekly":
+        iso = base.isocalendar()
+        return f"{iso.year}-W{iso.week:02d}"
+    if period == "monthly":
+        return base.strftime("%Y-%m")
+    return base.strftime("%Y-%m-%d-%H:%M")
+
+def rotation_info(period, now=None):
+    now = datetime.now(timezone.utc) if now is None else now
+    local = now.astimezone(HORIZON_RESET_TZ)
+    base = _rotation_anchor(now)
+    period = str(period).lower()
+    if period == "shop":
+        elapsed = int((local - base).total_seconds() // 14400)
+        nxt = base + timedelta(hours=4 * (elapsed + 1))
+    elif period == "daily":
+        nxt = base + timedelta(days=1)
+    elif period == "weekly":
+        week_start = base - timedelta(days=base.weekday())
+        nxt = week_start + timedelta(days=7)
+    elif period == "monthly":
+        year = base.year + (1 if base.month == 12 else 0)
+        month = 1 if base.month == 12 else base.month + 1
+        nxt = base.replace(year=year, month=month, day=1)
+    else:
+        nxt = base + timedelta(days=1)
+    return rotation_key(period, now), nxt.astimezone(timezone.utc)
+
 RACES = {
     "human": {"hp": 0, "atk": 0, "def": 0, "spd": 0, "crit": 2, "desc": "Balanced. Humans adapt to almost any build."},
     "elf": {"hp": -5, "atk": 2, "def": 0, "spd": 3, "crit": 5, "desc": "Fast and precise. Higher critical chance."},
@@ -2815,19 +2868,9 @@ class RPGService:
         return True,"You left the party."
 
     async def quest_seed(self,guild_id):
-        now=time.time()
-        async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT COUNT(*) FROM rpg_quests WHERE guild_id=? AND expires_at>?",(guild_id,now)); count=(await cur.fetchone())[0]
-            if count < 8:
-                templates=[
-                    ("daily","Wolf Hunt","Defeat 3 enemies.",1,3,"hunt",180,260,"wolf_pelt",2),
-                    ("daily","Gatherer","Collect 3 materials from adventures.",1,3,"gather",160,220,"herb",2),
-                    ("daily","Dungeon Call","Clear a dungeon floor.",1,1,"dungeon",250,350,"life_potion",2),
-                    ("weekly","Champion's Path","Win 8 battles or adventures.",5,8,"hunt",800,1200,"arcane_shard",2),
-                ]
-                for kind,title,desc,lvl,target,ptype,xp,gold,item,qty in templates:
-                    await db.execute("INSERT INTO rpg_quests(guild_id,kind,title,description,level_req,target,progress_type,reward_xp,reward_gold,reward_item,reward_qty,expires_at,chain_key,chain_step) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(guild_id,kind,title,desc,lvl,target,ptype,xp,gold,item,qty,now+86400*(7 if kind=='weekly' else 1),"",0))
-            await db.commit()
+        # Legacy quest rows remain in the database for save compatibility.
+        # The visible Quest Board is now driven by Quest 2.0 rotations.
+        return
 
     async def quests(self,guild_id,user_id):
         await self.quest_seed(guild_id)
@@ -2875,6 +2918,23 @@ class RPGService:
 
     async def _objective_period_key(self, period):
         return str(rotation_key(period))
+
+    async def quest2_categories(self, guild_id, user_id):
+        await self.ensure_objectives(guild_id, user_id)
+        keys={p:self._objective_period_key(p) for p in ("daily","weekly","monthly")}
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute("SELECT period,objective_key,title,description,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND period_key IN (?,?,?) ORDER BY objective_key",(guild_id,user_id,keys["daily"],keys["weekly"],keys["monthly"]))
+            rows=[dict(x) for x in await cur.fetchall()]
+        story=[
+            {"key":"story_first_step","title":"The First Step","description":"Begin your journey by defeating 3 enemies.","target":3,"progress_type":"hunt","reward_xp":300,"reward_gold":500,"reward_item":"life_potion","reward_qty":2},
+            {"key":"story_into_the_wild","title":"Into the Wild","description":"Explore or travel through the world 5 times.","target":5,"progress_type":"explore","reward_xp":700,"reward_gold":1000,"reward_item":"arcane_shard","reward_qty":2},
+            {"key":"story_ruins","title":"Echoes of the Ancient","description":"Clear 3 dungeon floors and uncover the old ruins.","target":3,"progress_type":"dungeon","reward_xp":1200,"reward_gold":1800,"reward_item":"reinforcement_core","reward_qty":2},
+        ]
+        return {"story":story,"daily":[x for x in rows if x["period"]=="daily"],"weekly":[x for x in rows if x["period"]=="weekly"],"monthly":[x for x in rows if x["period"]=="monthly"],"class":[],"race":[],"faction":[],"bounty":[],"secret":[],"legendary":[]}
+
+    def rotation_status(self):
+        return {p: rotation_info(p) for p in ("shop","daily","weekly","monthly")}
 
     def _rotated_objective_templates(self, period):
         templates=list(OBJECTIVE_TEMPLATES[period])
