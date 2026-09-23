@@ -35,6 +35,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 log = logging.getLogger("horizon")
+BOT_DISPLAY_NAME = "ℍ𝕠𝕣𝕚𝕫𝕠𝕟"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -197,6 +198,13 @@ class Horizon(commands.Bot):
         log.info("Horizon joined guild %s (%s)", guild.name, guild.id)
 
     async def on_ready(self):
+        # Keep Horizon's Discord username in the requested Unicode style.
+        if self.user and self.user.name != BOT_DISPLAY_NAME:
+            try:
+                await self.user.edit(username=BOT_DISPLAY_NAME)
+                log.info("Bot username updated to %s.", BOT_DISPLAY_NAME)
+            except discord.HTTPException:
+                log.exception("Could not update the bot username.")
         log.info(
             "Horizon online as %s | guilds=%s | AI=%s",
             self.user,
