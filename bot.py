@@ -2056,7 +2056,7 @@ class RPGCombatSkillView(discord.ui.View):
             cd=int(cooldowns.get(skill["key"],0))
             status=f"CD {cd}" if cd else (f"{skill['cost']} MP" if mp>=skill["cost"] else f"Need {skill['cost']} MP")
             dmg=f"~{int(max(1,battle_view.state.get('combat_stats',{}).get('atk',10))*float(skill.get('mult',0))*.92)}–{int(max(1,battle_view.state.get('combat_stats',{}).get('atk',10))*float(skill.get('mult',0))*1.08)} dmg" if skill.get("effect") not in {"heal","counter","barrier"} else (f"~{int(battle_view.state.get('combat_stats',{}).get('max_hp',100)*skill.get('heal_pct',0))} HP" if skill.get("effect")=="heal" else "utility")
-            options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {dmg} • {skill.get('buff_text','No buff')} • {skill.get('debuff_text','No debuff')}"[:100]))
+            options.append(discord.SelectOption(label=skill["name"][:100],value=skill["key"],description=f"{status} • {skill.get('desc','Effect unavailable')}"[:100]))
         select=discord.ui.Select(placeholder="Choose a skill...",min_values=1,max_values=1,options=options)
         select.callback=self.choose
         self.add_item(select)
@@ -3372,7 +3372,7 @@ async def rpg_skills(ctx, page: int = 1):
         return (f"`{x['key']}` **{x['name']}** · Unlock Lv **{x['unlock']}** · Mastery **{rank}/5** · **{x['cost']} MP** · CD **{x['cooldown']}t**\n"
                 f"{damage_text} • {heal_text}\n"
                 f"Buff: **{x.get('buff_text','None')}** • Debuff: **{x.get('debuff_text','None')}**\n"
-                f"{x['mechanic']}: {x['desc']}\n"
+                f"Effect: **{x['desc']}**\n"
                 f"{'✅ UNLOCKED' if unlocked else '🔒 LOCKED'}" + (f" · Active slot {slots[0]}" if slots else ""))
     pages=_rpg_pages(f"{p['class_name'].title()} Skills — 20 Distinct Skills",rows,page_size=4,icon="✨",formatter=fmt)
     # Add loadout overview to the first page.
