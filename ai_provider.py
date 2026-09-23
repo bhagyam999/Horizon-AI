@@ -90,7 +90,10 @@ class GeminiProvider:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
-                "maxOutputTokens": int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1200"))
+                "maxOutputTokens": int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1200")),
+                # Disable visible thinking where the selected Gemini model supports it.
+                # The parser below also filters thought parts for models that return them.
+                "thinkingConfig": {"thinkingBudget": 0},
             },
         }
         timeout = aiohttp.ClientTimeout(total=TIMEOUT)
@@ -102,9 +105,16 @@ class GeminiProvider:
                 data: dict[str, Any] = json.loads(body)
 
         parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        text = "".join(p.get("text", "") for p in parts if p.get("text")).strip()
+        # Gemini thinking models may return internal reasoning as separate parts.
+        # Never send those parts to Discord; only use normal answer parts.
+        answer_parts = [
+            p.get("text", "")
+            for p in parts
+            if p.get("text") and not p.get("thought", False)
+        ]
+        text = "".join(answer_parts).strip()
         if not text:
-            raise RuntimeError(f"Gemini returned no text: {json.dumps(data)[:800]}")
+            raise RuntimeError(f"Gemini returned no visible answer text: {json.dumps(data)[:800]}")
         return text
 
     async def ask(self, prompt: str) -> str:
