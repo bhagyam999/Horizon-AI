@@ -3506,6 +3506,27 @@ async def rpg_unequip_pet(ctx):
 async def rpg_pet_feed(ctx, pet_id:int=0):
     await _rpg_delete(ctx); ok,msg=await bot.rpg.pet_feed(ctx.guild.id,ctx.author.id,pet_id or None); await _rpg_action_panel(ctx,"🐾 Pet Care",msg,ok)
 
+@rpg_root.command(name="egg-pets", aliases=["eggpets","eggpet","egg-pet"])
+async def rpg_egg_pets(ctx, egg_key: str = ""):
+    """Show the exclusive pets that can hatch from each pet egg."""
+    await _rpg_delete(ctx)
+    if egg_key:
+        key=egg_key.lower().strip()
+        if key not in PET_EGGS or key not in PET_EGG_POOLS:
+            await _rpg_action_panel(ctx,"🥚 Egg Pet List","Unknown egg. Use `!rpg egg-pets` to see every egg.",False); return
+        egg_name, rarity, price=PET_EGGS[key]
+        rows=[]
+        for species in PET_EGG_POOLS[key]:
+            d=PET_SPECIES.get(species,{})
+            rows.append((species,f"🐾 **{species}** — {d.get('rarity','common').title()}\n⚔️ +{d.get('atk',0)} ATK • 🛡️ +{d.get('def',0)} DEF • ❤️ +{d.get('hp',0)} HP • 💨 +{d.get('spd',0)} SPD • 🎯 +{d.get('crit',0)}% Crit\n✨ **{d.get('ability','Pet Ability')}** — {d.get('role','companion').title()}"))
+        pages=_rpg_pages(f"🥚 {egg_name} — Available Pets",rows,page_size=5,icon="🐾",formatter=lambda x:x[1])
+        await _rpg_panel(ctx,pages); return
+    rows=[]
+    for key,(name,rarity,price) in PET_EGGS.items():
+        species=PET_EGG_POOLS.get(key,[])
+        rows.append((key,f"🥚 **{name}** — {rarity}\n🐾 **{len(species)} exclusive pets**\n" + ", ".join(species) + f"\nView: `!rpg egg-pets {key}`"))
+    await _rpg_panel(ctx,_rpg_pages("🥚 Pet Egg Catalogue",rows,page_size=3,icon="🥚",formatter=lambda x:x[1]))
+
 @rpg_root.command(name="petcollection", aliases=["petdex","pet-collection"])
 async def rpg_pet_collection(ctx):
     await _rpg_delete(ctx); rows=await bot.rpg.pet_collection(ctx.guild.id,ctx.author.id)
