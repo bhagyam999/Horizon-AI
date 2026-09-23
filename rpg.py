@@ -443,6 +443,11 @@ _CLASS_SKILL_NAMES.update({
 _CLASS_FLAVOUR = {k:k for k in _CLASS_SKILL_NAMES}
 
 
+def _skill_buff_text(effect):
+    return {"attack_buff":"+18% ATK for 3 turns","def_buff":"+22% DEF for 3 turns","dodge":"+18% evasion for 3 turns","team_buff":"+12% ATK and DEF for 3 turns","focus":"+10 critical chance for 3 turns","stance":"+24% DEF below 50% HP, otherwise +20% ATK for 3 turns","pet_boost":"Companion empowered and cooldown refreshed","resource":"Restores MP and Stamina","stamina":"+25 Stamina","mana_burst":"Restores about 6% maximum MP","ultimate":"Restores about 8% maximum HP","signature":"+18% ATK for 2 turns"}.get(effect,"None")
+
+def _skill_debuff_text(effect):
+    return {"armor_break":"-18% enemy DEF for 3 turns","mark":"+16% follow-up damage for 3 turns","vulnerability":"+20% damage taken for 2 turns","poison":"Poison for 4 turns","burn":"Burn for 3 turns","freeze":"Freeze for 2 turns; chance to Stun","silence":"Enemy abilities disabled for 2 turns","curse":"+14% damage taken for 3 turns","terrain":"+12% damage taken for 3 turns","bleed":"Bleed for 3 turns"}.get(effect,"None")
 def _build_class_skills():
     result = {}
     for class_name in list(CLASSES) + ["void_knight","chronomancer","dragon_lord","soul_reaper"]:
@@ -468,7 +473,7 @@ def _build_class_skills():
                 candidates=CLASS_SKILL_EXTRA_POOL[class_index % len(CLASS_SKILL_EXTRA_POOL):] + CLASS_SKILL_EXTRA_POOL[:class_index % len(CLASS_SKILL_EXTRA_POOL)]
                 extras=[e for e in candidates if e not in used]
                 effect=extras[i-len(effects)]
-            name=names[i] if i < len(names) else f"{class_name.replace('_',' ').title()} Technique {i+1}"
+            name={"damage":"Direct Strike","heavy":"Heavy Strike","multi":"Double Strike","bleed":"Bleeding Strike","heal":"Heal","def_buff":"Defense Up","attack_buff":"Attack Up","armor_break":"Defense Break","poison":"Poison Strike","burn":"Burn Strike","freeze":"Freeze Strike","lifesteal":"Life Steal","mana_drain":"Mana Drain","dodge":"Evasion Up","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Execute","true_damage":"True Damage","ultimate":"Ultimate Finisher","signature":"Signature Finisher","stance":"Adaptive Stance","focus":"Critical Focus","mark":"Target Mark","silence":"Silence","curse":"Curse","terrain":"Battlefield Control","resource":"Resource Surge","stamina":"Stamina Surge","mana_burst":"Mana Burst","delayed":"Delayed Strike","sacrifice":"Blood Price","emergency":"Desperation Strike","combo":"Combo Strike","chain":"Chain Attack","team_buff":"Combat Rally","pet_boost":"Companion Boost","summon":"Summon Attack","aoe":"Area Strike","dispel":"Dispel","random":"Random Effect"}.get(effect,names[i] if i < len(names) else f"{class_name.replace('_',' ').title()} Technique {i+1}")
             mechanic_name={
                 "damage":"Core Strike","heavy":"Power Blow","multi":"Rapid Sequence","bleed":"Bleeding Wound","heal":"Recovery","def_buff":"Defensive Stance","attack_buff":"Offensive Stance","armor_break":"Defense Break","poison":"Poison","burn":"Burn","freeze":"Freeze","lifesteal":"Life Drain","mana_drain":"Mana Siphon","dodge":"Evasive Step","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Execution","true_damage":"Piercing Damage","ultimate":"Signature Finisher","summon":"Summon","pet_boost":"Companion Empowerment","chain":"Chain Attack","team_buff":"Battle Rally","defend":"Guard","sacrifice":"Blood Price","emergency":"Desperation","attack_buff":"Rage Surge","combo":"Combo Technique","mana_burst":"Mana Burst","curse":"Curse","silence":"Silence","delayed":"Delayed Strike","stance":"Adaptive Stance","terrain":"Terrain Control","dispel":"Dispel","resource":"Resource Surge","random":"Volatile Mixture","dodge":"Haste","signature":"Class Signature","aoe":"Area Strike","recovery":"Recovery Pulse","stamina":"Stamina Surge","mark":"Target Mark","focus":"Focus"}.get(effect,effect.replace('_',' ').title())
             mechanic_desc={
@@ -480,7 +485,7 @@ def _build_class_skills():
             elif effect in {"true_damage","execute"}: mult=1.05 + min(i,11)*.01
             heal_pct={"heal":.24,"lifesteal":.30,"ultimate":.08,"recovery":.34}.get(effect,0)
             damage_cap=.28 if effect not in {"heavy","execute","ultimate","signature","sacrifice"} else .34
-            skills.append({"key":f"skill_{i+1}","name":name,"cost":SKILL_COSTS[i],"mult":mult,"effect":effect,"cooldown":SKILL_COOLDOWNS[i],"unlock":SKILL_UNLOCK_LEVELS[i],"mechanic":mechanic_name,"desc":mechanic_desc,"buff_text":"Class-specific effect","debuff_text":"Class-specific effect","heal_pct":heal_pct,"damage_cap":damage_cap})
+            skills.append({"key":f"skill_{i+1}","name":name,"cost":SKILL_COSTS[i],"mult":mult,"effect":effect,"cooldown":SKILL_COOLDOWNS[i],"unlock":SKILL_UNLOCK_LEVELS[i],"mechanic":mechanic_name,"desc":mechanic_desc,"buff_text":_skill_buff_text(effect),"debuff_text":_skill_debuff_text(effect),"heal_pct":heal_pct,"damage_cap":damage_cap})
         result[class_name]=skills
     return result
 
