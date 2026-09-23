@@ -4995,7 +4995,8 @@ class RPGService:
         elif action=="pet":
             if not me["pet"].get("name"):return {"error":"You don't have a pet."}
             if me["pet_cooldown"]>0:return {"error":f"Pet ability ready in {me['pet_cooldown']} turn(s)."}
-            role=PET_SPECIES.get(me["pet"].get("species"),{}).get("role","damage")            if role=="heal":
+            role=PET_SPECIES.get(me["pet"].get("species"),{}).get("role","damage")
+            if role=="heal":
                 heal=max(8,int(me["max_hp"]*.18)); me["hp"]=min(me["max_hp"],me["hp"]+heal); log.append(f"🐾 **{me['pet']['name']}** healed **{me['name']}** for {heal} HP.")
             else:
                 dmg=self._damage(max(2,me["pet"].get("atk",0)*2), foe["stats"]["defense"], 0.65)
