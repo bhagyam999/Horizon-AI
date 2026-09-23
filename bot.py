@@ -3543,7 +3543,7 @@ async def rpg_shop(ctx):
     await _rpg_delete(ctx)
     items=await bot.rpg.shop(ctx.guild.id,ctx.author.id)
     from rpg import rotation_label
-    pages=_rpg_pages("Horizon Weapon Shop",items,page_size=8,icon="⚔️",formatter=lambda x:f"**{x[1]['name']}**\n`{x[0]}` • {x[1].get('rarity','common').title()} • Lv {x[1].get('level_req',1)}+ • **{x[1]['price']} gold**\n" + (" • ".join(f"+{x[1][k]} {label}" for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit")) if x[1].get(k)) or "Weapon") + f"\nBuy: `!rpg buy {x[0]} [qty]`")
+    pages=_rpg_pages(f"Horizon Shop • {rotation_label(\"shop\")}",items,page_size=8,icon="⚔️",formatter=lambda x:f"**{x[1]['name']}**\n`{x[0]}` • {x[1].get('rarity','common').title()} • Lv {x[1].get('level_req',1)}+ • **{x[1]['price']} gold**\n" + (" • ".join(f"+{x[1][k]} {label}" for k,label in (("atk","ATK"),("def","DEF"),("hp","HP"),("mp","MP"),("spd","SPD"),("crit","Crit")) if x[1].get(k)) or "Weapon") + f"\nBuy: `!rpg buy {x[0]} [qty]`")
     await _rpg_panel(ctx,pages)
 @rpg_root.command(name="buy")
 async def rpg_buy(ctx,item_key: str="",quantity: int=1):
