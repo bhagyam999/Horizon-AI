@@ -3686,16 +3686,19 @@ class QuestBoardView(discord.ui.View):
             )
             async def claim_callback(interaction,index=index,q=q):
                 if not await self.interaction_check(interaction): return
+                # Acknowledge immediately: reward/database work can take longer than
+                # Discord's 3-second interaction response window.
+                await interaction.response.defer()
                 ok,msg=await bot.rpg.claim_objective(
                     self.ctx.guild.id,self.ctx.author.id,
                     q.get("period"),q.get("objective_key"),q.get("period_key")
                 )
                 if not ok:
-                    await interaction.response.send_message(msg,ephemeral=True)
+                    await interaction.edit_original_response(content=msg,embed=None,view=self)
                     return
                 data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
                 new_view=QuestBoardView(self.ctx,data,category=self.current_category)
-                await interaction.response.edit_message(embed=new_view.render(self.current_category),view=new_view)
+                await interaction.edit_original_response(embed=new_view.render(self.current_category),view=new_view)
                 await interaction.followup.send(f"🎁 {msg}",ephemeral=True)
             button.callback=claim_callback
             self.add_item(button)
