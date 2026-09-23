@@ -986,7 +986,7 @@ for _egg_key, _egg_name, _rarity, _price in [
     ITEMS[_egg_key]={"name":_egg_name,"slot":"egg","rarity":_rarity,"price":_price,"pet_egg":True}
 for _key, (_name, _rarity, _price) in GACHA_CHEST_ITEMS.items():
     ITEMS[_key]={"name":_name,"slot":"chest","rarity":_rarity,"price":_price,"gacha_chest":True,"level_req":rarity_level.get(_rarity,1) if "rarity_level" in globals() else 1}
-SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price") and v.get("slot") in {"weapon","armor","offhand","consumable","food"}]
+SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price") and v.get("slot") == "weapon"]
 
 # Crafted utility items are intentionally modest: they improve uptime without replacing rest, combat, or gear.
 ITEMS.update({
@@ -2965,13 +2965,27 @@ class RPGService:
             cur=await db.execute("SELECT achievement_key,unlocked_at FROM rpg_achievements WHERE guild_id=? AND user_id=? ORDER BY unlocked_at",(guild_id,user_id)); return await cur.fetchall()
 
     async def shop(self,guild_id=None,user_id=None):
-        # The shop is level-aware: players see gear they can reasonably use,
-        # while consumables/materials remain available throughout progression.
+        # The standard shop is intentionally weapon-only and capped at 24 listings.
+        # The source list is rebuilt from ITEMS so newly added/balanced weapons
+        # automatically appear without maintaining a second stale catalogue.
         level=1
         if guild_id is not None and user_id is not None:
             p=await self.player(guild_id,user_id); level=int(p["level"]) if p else 1
-        featured=[k for k in SHOP_ITEMS if ITEMS[k].get("rarity") in {"common","uncommon","rare"} and (ITEMS[k].get("slot") in {"consumable","food","material"} or int(ITEMS[k].get("level_req",1))<=level+3)]
-        random.shuffle(featured); return [(k,ITEMS[k]) for k in featured[:24]]
+        featured=[
+            k for k,v in ITEMS.items()
+            if v.get("price") and v.get("slot")=="weapon"
+            and int(v.get("level_req",1))<=level+5
+        ]
+        rarity_order={r:i for i,r in enumerate(RARITIES)}
+        featured.sort(key=lambda k:(int(ITEMS[k].get("level_req",1)),rarity_order.get(ITEMS[k].get("rarity","common"),0),ITEMS[k].get("name",k)))
+        # Keep the shop at exactly/at most 24 weapon listings, with the
+        # player's level window determining which weapons are eligible.
+        if len(featured)>24:
+            eligible=[k for k in featured if int(ITEMS[k].get("level_req",1))<=level+3]
+            pool=eligible if len(eligible)>=24 else featured
+            featured=random.sample(pool,24)
+            featured.sort(key=lambda k:(int(ITEMS[k].get("level_req",1)),rarity_order.get(ITEMS[k].get("rarity","common"),0),ITEMS[k].get("name",k)))
+        return [(k,ITEMS[k]) for k in featured[:24]]
 
     async def buy(self,guild_id,user_id,item_key,quantity=1):
         p=await self.player(guild_id,user_id); item=ITEMS.get(item_key.lower())
