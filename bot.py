@@ -1718,6 +1718,167 @@ async def prefix_ai_forget(ctx):
     await ctx.send(f"Cleared your private Horizon conversation memory ({removed} messages).",delete_after=8)
 
 
+
+# -------------------- Discord server control center --------------------
+
+def _parse_duration(value: str):
+    text=str(value or "").strip().lower().replace(" ","")
+    matches=re.findall(r"(\d+)([smhd])",text)
+    if not matches or "".join(n+u for n,u in matches) != text:
+        raise ValueError("Use a duration like 30m, 2h, 1d, or 1h30m.")
+    seconds=sum(int(n)*{"s":1,"m":60,"h":3600,"d":86400}[u] for n,u in matches)
+    if seconds < 30 or seconds > 30*86400:
+        raise ValueError("Duration must be between 30 seconds and 30 days.")
+    return seconds
+
+
+class HorizonSettingsModal(discord.ui.Modal, title="Horizon Server Settings"):
+    welcome_channel=discord.ui.TextInput(label="Welcome channel ID",placeholder="Channel ID, or 0 to disable",required=False,max_length=25)
+    log_channel=discord.ui.TextInput(label="Log channel ID",placeholder="Channel ID, or 0 to disable",required=False,max_length=25)
+    personality=discord.ui.TextInput(label="AI server personality",placeholder="Optional; leave blank to keep current",required=False,style=discord.TextStyle.paragraph,max_length=1000)
+
+    def __init__(self,author_id):
+        super().__init__(); self.author_id=author_id
+
+    async def on_submit(self,interaction):
+        if interaction.user.id!=self.author_id:
+            await interaction.response.send_message("Only the dashboard owner can change it.",ephemeral=True); return
+        guild=interaction.guild; changed=[]
+        for key,raw in (("welcome_channel_id",str(self.welcome_channel.value).strip()),("log_channel_id",str(self.log_channel.value).strip())):
+            if raw:
+                if not raw.isdigit():
+                    await interaction.response.send_message(f"{raw} is not a valid channel ID.",ephemeral=True); return
+                cid=int(raw)
+                if cid and not isinstance(guild.get_channel(cid),discord.TextChannel):
+                    await interaction.response.send_message(f"I couldn't find text channel {cid}.",ephemeral=True); return
+                await bot.db.set_setting(guild.id,key,cid); changed.append(key.replace("_channel_id",""))
+        personality=str(self.personality.value).strip()
+        if personality:
+            await bot.db.set_setting(guild.id,"personality",personality); changed.append("personality")
+        await interaction.response.send_message("Updated: "+(", ".join(changed) if changed else "nothing"),ephemeral=True)
+
+
+class ReactionRoleModal(discord.ui.Modal, title="Create Reaction Role"):
+    channel_id=discord.ui.TextInput(label="Message channel ID",placeholder="Channel containing the target message",required=True,max_length=25)
+    message_id=discord.ui.TextInput(label="Message ID",placeholder="Copy Message ID",required=True,max_length=25)
+    emoji=discord.ui.TextInput(label="Emoji",placeholder="Example: 🎮",required=True,max_length=100)
+    role_id=discord.ui.TextInput(label="Role ID",placeholder="Role members should receive",required=True,max_length=25)
+
+    def __init__(self,author_id):
+        super().__init__(); self.author_id=author_id
+
+    async def on_submit(self,interaction):
+        if interaction.user.id!=self.author_id:
+            await interaction.response.send_message("Only the dashboard owner can configure this.",ephemeral=True); return
+        guild=interaction.guild
+        try:
+            cid=int(str(self.channel_id.value).strip()); mid=int(str(self.message_id.value).strip()); rid=int(str(self.role_id.value).strip())
+        except ValueError:
+            await interaction.response.send_message("IDs must be numbers.",ephemeral=True); return
+        role=guild.get_role(rid); me=guild.me
+        if not role:
+            await interaction.response.send_message("I couldn't find that role.",ephemeral=True); return
+        if not me or not me.guild_permissions.manage_roles:
+            await interaction.response.send_message("I need Manage Roles.",ephemeral=True); return
+        if role>=me.top_role:
+            await interaction.response.send_message("That role is above my highest role.",ephemeral=True); return
+        try:
+            channel=guild.get_channel(cid) or await bot.fetch_channel(cid)
+            message=await channel.fetch_message(mid)
+            emoji=str(self.emoji.value).strip()
+            await message.add_reaction(emoji)
+        except Exception as exc:
+            await interaction.response.send_message(f"Couldn't access the message: {str(exc)[:180]}",ephemeral=True); return
+        await bot.db.add_reaction_role(guild.id,cid,mid,emoji,rid)
+        await interaction.response.send_message(f"Reaction role created: {emoji} -> {role.name}",ephemeral=True)
+
+
+class GiveawayModal(discord.ui.Modal, title="Create Giveaway"):
+    prize=discord.ui.TextInput(label="Prize",placeholder="Example: 500k Gold",required=True,max_length=200)
+    duration=discord.ui.TextInput(label="Duration",placeholder="30m, 2h, 1d, or 1h30m",required=True,max_length=30)
+    winners=discord.ui.TextInput(label="Number of winners",placeholder="1",required=True,max_length=3)
+    channel_id=discord.ui.TextInput(label="Channel ID",placeholder="Blank = dashboard channel",required=False,max_length=25)
+
+    def __init__(self,author_id,default_channel):
+        super().__init__(); self.author_id=author_id; self.default_channel=default_channel
+
+    async def on_submit(self,interaction):
+        if interaction.user.id!=self.author_id:
+            await interaction.response.send_message("Only the dashboard owner can create this.",ephemeral=True); return
+        try:
+            seconds=_parse_duration(self.duration.value); winners=int(str(self.winners.value).strip())
+            if winners<1 or winners>20: raise ValueError("Winners must be between 1 and 20.")
+        except ValueError as exc:
+            await interaction.response.send_message(str(exc),ephemeral=True); return
+        raw=str(self.channel_id.value).strip()
+        cid=self.default_channel if not raw else int(raw) if raw.isdigit() else 0
+        channel=interaction.guild.get_channel(cid)
+        if not isinstance(channel,discord.TextChannel):
+            await interaction.response.send_message("I couldn't find that text channel.",ephemeral=True); return
+        ends=time.time()+seconds
+        embed=discord.Embed(title="🎉 GIVEAWAY",description=f"Prize: **{self.prize.value.strip()}**\nWinners: **{winners}**\nEnds: <t:{int(ends)}:R>\n\nReact with 🎉 to enter!",colour=discord.Colour.gold())
+        embed.set_footer(text=f"Hosted by {interaction.user.display_name}")
+        message=await channel.send(embed=embed)
+        await message.add_reaction("🎉")
+        gid=await bot.db.create_giveaway(interaction.guild.id,channel.id,message.id,self.prize.value.strip(),winners,ends,interaction.user.id)
+        await interaction.response.send_message(f"Giveaway #{gid} created in {channel.mention}.",ephemeral=True)
+
+
+class DiscordControlView(discord.ui.View):
+    def __init__(self,ctx):
+        super().__init__(timeout=600); self.ctx=ctx
+
+    async def interaction_check(self,interaction):
+        if interaction.user.id!=self.ctx.author.id:
+            await interaction.response.send_message("This dashboard belongs to the person who opened it.",ephemeral=True); return False
+        return True
+
+    @discord.ui.button(label="Server Settings",style=discord.ButtonStyle.primary,emoji="⚙️")
+    async def settings(self,interaction,button):
+        await interaction.response.send_modal(HorizonSettingsModal(interaction.user.id))
+
+    @discord.ui.button(label="Reaction Role",style=discord.ButtonStyle.success,emoji="🎭")
+    async def reaction_role(self,interaction,button):
+        await interaction.response.send_modal(ReactionRoleModal(interaction.user.id))
+
+    @discord.ui.button(label="Giveaway",style=discord.ButtonStyle.success,emoji="🎉")
+    async def giveaway(self,interaction,button):
+        await interaction.response.send_modal(GiveawayModal(interaction.user.id,interaction.channel.id))
+
+    @discord.ui.button(label="Toggle Moderation",style=discord.ButtonStyle.secondary,emoji="🛡️")
+    async def moderation(self,interaction,button):
+        settings=await bot.db.settings(interaction.guild.id); enabled=not bool(settings["mod_enabled"])
+        await bot.db.set_setting(interaction.guild.id,"mod_enabled",1 if enabled else 0)
+        await interaction.response.send_message(f"Moderation is now {'ON' if enabled else 'OFF'}.",ephemeral=True)
+
+    @discord.ui.button(label="Refresh",style=discord.ButtonStyle.secondary,emoji="🔄")
+    async def refresh(self,interaction,button):
+        await interaction.response.edit_message(embed=await dashboard_embed(interaction.guild),view=self)
+
+
+async def dashboard_embed(guild):
+    settings=await bot.db.settings(guild.id)
+    roles=await bot.db.reaction_roles(guild.id)
+    active=[x for x in await bot.db.active_giveaways() if x["guild_id"]==guild.id]
+    embed=discord.Embed(title="🌌 Horizon Control Center",description="Manage Horizon without memorizing commands.",colour=discord.Colour.blurple())
+    embed.add_field(name="🛡️ Moderation",value="Enabled" if settings["mod_enabled"] else "Disabled",inline=True)
+    embed.add_field(name="👋 Welcome",value=f"<#{settings['welcome_channel_id']}>" if settings["welcome_channel_id"] else "Off",inline=True)
+    embed.add_field(name="📋 Logs",value=f"<#{settings['log_channel_id']}>" if settings["log_channel_id"] else "Off",inline=True)
+    embed.add_field(name="🎭 Reaction Roles",value=str(len(roles)),inline=True)
+    embed.add_field(name="🎉 Active Giveaways",value=str(len(active)),inline=True)
+    embed.add_field(name="🧠 AI",value="Ready",inline=True)
+    embed.add_field(name="💡 Planned",value="Auto roles • Tickets • Suggestions • Starboard • Level rewards • Polls",inline=False)
+    embed.set_footer(text="Horizon • Server Control Center")
+    return embed
+
+
+@bot.command(name="dashboard",aliases=["control","controlpanel","serverpanel"])
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_dashboard(ctx):
+    await _quiet_delete(ctx.message)
+    await ctx.send(embed=await dashboard_embed(ctx.guild),view=DiscordControlView(ctx))
+
+
 # -------------------- Persistent Horizon RPG --------------------
 
 async def _rpg_delete(ctx):
