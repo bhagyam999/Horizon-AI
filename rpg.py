@@ -274,6 +274,9 @@ SUBCLASSES = {
     "blood_saint": ("paladin", "Self-healing holy bruiser", {"hp": 15, "atk": 4, "crit": 2}),
     "spellbreaker": ("spellblade", "Anti-magic duelist", {"atk": 4, "def": 3}),
     "arcane_fencer": ("spellblade", "Magic sword specialist", {"mp": 20, "crit": 3}),
+    "beastcaller": ("summoner", "Powerful beast companion specialist", {"hp": 15, "atk": 4}),
+    "conjurer": ("summoner", "Multiple-summon specialist", {"mp": 25, "spd": 2}),
+    "eidolon_master": ("summoner", "Legendary companion specialist", {"mp": 30, "crit": 3}),
 }
 
 
@@ -347,6 +350,9 @@ SUBCLASS_TRAITS = {
  "aegis_knight":{"name":"Sacred Bulwark","desc":"Begin combat with a 25% shield for 2 turns; defending gives 20% additional damage reduction.","start_shield":25,"start_shield_turns":2,"defend_reduction":20},
  "dawnbringer":{"name":"Light of Dawn","desc":"Healing skills restore 25% more HP; successful healing also restores 4 MP.","heal_skill_pct":25,"resource_gain":4},
  "blood_saint":{"name":"Sanguine Faith","desc":"Offensive skills restore 10% of damage dealt as HP, capped at 8% max HP per skill; below 50% HP, skill damage increases by 15%.","trait_lifesteal":10,"trait_lifesteal_cap":8,"low_hp_skill_pct":15},
+ "beastcaller":{"name":"Primal Bond","desc":"Pet attacks deal 30% more damage and successful pet attacks build Feral momentum.","pet_damage_pct":30,"pet_feral_pct":5},
+ "conjurer":{"name":"Arcane Multiplicity","desc":"Summon skills deal 15% more damage and gain additional power when multiple summons are active.","effect_bonus":{"summon":15},"multi_summon_bonus":10},
+ "eidolon_master":{"name":"Soul Link","desc":"Summon skills deal 20% more damage; successful summon actions build Soul Charges toward an empowered Eidolon attack.","effect_bonus":{"summon":20},"eidolon_charge":1},
 }
 
 # ---------------------------------------------------------------------------
