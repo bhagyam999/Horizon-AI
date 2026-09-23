@@ -3248,7 +3248,7 @@ class RPGService:
             species,level,total_xp=row; new_level=min(50,1+int(total_xp)//100)
             if new_level<=int(level):return
             base=PET_SPECIES.get(species,{})
-            await db.execute("UPDATE rpg_pet_inventory SET level=?,bonus_atk=?,bonus_def=?,bonus_hp=?,bonus_speed=?,bonus_crit=? WHERE pet_id=?",(new_level,int(base.get("atk",2))+new_level-1,int(base.get("def",2))+new_level-1,int(base.get("hp",5))+5*(new_level-1),int(base.get("spd",2))+new_level//2,int(base.get("crit",1))+new_level//3),(pet_id,))
+            await db.execute("UPDATE rpg_pet_inventory SET level=?,bonus_atk=?,bonus_def=?,bonus_hp=?,bonus_speed=?,bonus_crit=? WHERE pet_id=?",(new_level,int(base.get("atk",2))+new_level-1,int(base.get("def",2))+new_level-1,int(base.get("hp",5))+5*(new_level-1),int(base.get("spd",2))+new_level//2,int(base.get("crit",1))+new_level//3,pet_id))
             await self._sync_legacy_pet_cache(db,guild_id,user_id); await db.commit()
 
     async def pet_collection(self,guild_id,user_id):
