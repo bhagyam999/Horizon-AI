@@ -4074,6 +4074,15 @@ class RPGService:
         async with lock:
             return await self._combat_action_locked(guild_id,user_id,action)
 
+    async def _safe_player_level(self,guild_id,user_id,fallback=1):
+        """Read level for a victory panel without allowing a DB failure to hide victory."""
+        try:
+            p=await self.player(guild_id,user_id)
+            return int(p.get("level",fallback)) if p else int(fallback)
+        except Exception:
+            log.exception("Failed to read player level for victory panel: guild=%s user=%s",guild_id,user_id)
+            return int(fallback)
+
     async def _combat_action_locked(self,guild_id,user_id,action):
         key=(guild_id,user_id); state=self.active_combats.get(key)
         # Recover the authoritative persistent state if a Discord view timed
@@ -4193,23 +4202,85 @@ class RPGService:
                 await self.progress_quests(guild_id,user_id,"dungeon",1); await self._save_combat_hp(guild_id,user_id,state)
                 async with aiosqlite.connect(self.path) as db: await db.execute("UPDATE rpg_players SET mp=? WHERE guild_id=? AND user_id=?",(state["player_mp"],guild_id,user_id)); await db.commit()
                 return {"finished":False,"state":state,"stats":stats}
+            # Victory is authoritative before rewards: once enemy HP reaches 0,
+            # the battle is resolved and the Discord panel must be able to render
+            # victory even if any optional reward subsystem fails afterward.
             xp=(state.get("enemy",{}).get("xp",40)+random.randint(0,25)) if state["mode"]=="adventure" else state["reward_xp"]+state["floors"]*55
             gold=(state.get("enemy",{}).get("gold",30)+random.randint(0,35)) if state["mode"]=="adventure" else state["reward_gold"]+random.randint(0,120)
             drop=random.choice(state["enemy"].get("drops",["herb"]))
             if random.random()<0.08:
                 egg_pool=[k for k,v in ITEMS.items() if v.get("slot")=="egg" and (v.get("rarity") in {"common","uncommon","rare"} or p["level"]>=20)]
                 if egg_pool: drop=random.choice(egg_pool)
-            await self._save_combat_hp(guild_id,user_id,state); old_level,new_level=await self.add_rewards(guild_id,user_id,xp,gold); await self.add_item(guild_id,user_id,drop,1,event_type="combat_drop")
-            extra_loot=await self._combat_loot(guild_id,user_id,p,state.get("enemy",{}))
-            pet_xp=await self._grant_pet_xp(guild_id,user_id,12 if state["mode"]=="adventure" else 20)
-            async with aiosqlite.connect(self.path) as db:
-                await db.execute("UPDATE rpg_players SET renown=renown+?,fame=fame+? WHERE guild_id=? AND user_id=?",(2 if state["mode"]=="adventure" else 5,1,guild_id,user_id)); await db.commit()
-            await self.progress_quests(guild_id,user_id,"hunt",1)
-            if state["mode"]=="dungeon":
-                await self.progress_quests(guild_id,user_id,"dungeon",1)
-                if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
-            await self.check_achievements(guild_id,user_id); self.active_combats.pop(key,None); await self._delete_combat_session(guild_id,user_id)
-            return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"extra_loot":extra_loot,"pet_xp":pet_xp,"state":state,"level_before":old_level,"level_after":new_level}
+
+            # Persist the resolved state and remove the live session BEFORE reward
+            # processing. Reward code is secondary to the fact that the enemy died.
+            state["battle_status"]="victory"
+            state["victory_at"]=time.time()
+            state["reward_status"]="processing"
+            try:
+                await self._save_combat_hp(guild_id,user_id,state)
+            except Exception:
+                log.exception("Failed to save final victory HP: guild=%s user=%s",guild_id,user_id)
+            self.active_combats.pop(key,None)
+            try:
+                await self._delete_combat_session(guild_id,user_id)
+            except Exception:
+                log.exception("Failed to delete resolved combat session: guild=%s user=%s",guild_id,user_id)
+
+            old_level=await self._safe_player_level(guild_id,user_id,p.get("level",1))
+            new_level=old_level
+            extra_loot=[]
+            pet_xp=0
+            reward_errors=[]
+
+            # Each reward category is isolated. A bug in pet XP, achievements,
+            # loot, or renown can never erase the already-established victory.
+            try:
+                old_level,new_level=await self.add_rewards(guild_id,user_id,xp,gold)
+            except Exception as exc:
+                reward_errors.append("XP/Gold")
+                log.exception("Combat XP/Gold reward failed after victory: guild=%s user=%s",guild_id,user_id)
+            try:
+                await self.add_item(guild_id,user_id,drop,1,event_type="combat_drop")
+            except Exception:
+                reward_errors.append("loot")
+                log.exception("Combat loot reward failed after victory: guild=%s user=%s",guild_id,user_id)
+            try:
+                extra_loot=await self._combat_loot(guild_id,user_id,p,state.get("enemy",{}))
+            except Exception:
+                reward_errors.append("extra loot")
+                log.exception("Combat extra loot failed after victory: guild=%s user=%s",guild_id,user_id)
+            try:
+                pet_xp=await self._grant_pet_xp(guild_id,user_id,12 if state["mode"]=="adventure" else 20)
+            except Exception:
+                reward_errors.append("pet XP")
+                log.exception("Combat pet XP failed after victory: guild=%s user=%s",guild_id,user_id)
+            try:
+                async with aiosqlite.connect(self.path) as db:
+                    await db.execute("UPDATE rpg_players SET renown=renown+?,fame=fame+? WHERE guild_id=? AND user_id=?",(2 if state["mode"]=="adventure" else 5,1,guild_id,user_id)); await db.commit()
+            except Exception:
+                reward_errors.append("renown")
+                log.exception("Combat renown reward failed after victory: guild=%s user=%s",guild_id,user_id)
+            try:
+                await self.progress_quests(guild_id,user_id,"hunt",1)
+                if state["mode"]=="dungeon":
+                    await self.progress_quests(guild_id,user_id,"dungeon",1)
+                    if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
+            except Exception:
+                reward_errors.append("quest progress")
+                log.exception("Combat quest reward/progress failed after victory: guild=%s user=%s",guild_id,user_id)
+            try:
+                await self.check_achievements(guild_id,user_id)
+            except Exception:
+                reward_errors.append("achievements")
+                log.exception("Combat achievement processing failed after victory: guild=%s user=%s",guild_id,user_id)
+
+            state["reward_status"]="complete" if not reward_errors else "recovery_needed"
+            if reward_errors:
+                state["reward_errors"]=reward_errors
+                state["log"].append("⚠️ Victory was secured, but some rewards could not be processed. They can be recovered without replaying the battle.")
+
+            return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"extra_loot":extra_loot,"pet_xp":pet_xp,"state":state,"level_before":old_level,"level_after":new_level,"reward_status":state["reward_status"],"reward_errors":reward_errors}
         # Enemy turn. Defensive/slow/evasion effects are bounded so no skill can
         # create a permanent lock or make damage disappear.
         status_logs=self._tick_enemy_statuses(state)
