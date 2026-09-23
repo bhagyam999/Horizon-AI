@@ -732,11 +732,25 @@ AREAS.update({
 KINGDOM_ROLES = {"king": "Sovereign of the kingdom", "duke": "High noble and regional governor", "count": "Noble governing a county", "knight": "Sworn military noble", "citizen": "Recognized resident", "outlaw": "Outside the kingdom's law"}
 
 PET_EGGS = {
-    "common_egg": ("Common Egg", "Common", 150), "forest_egg": ("Forest Egg", "Uncommon", 300),
-    "moon_egg": ("Moon Egg", "Rare", 600), "dragon_egg": ("Dragon Egg", "Epic", 1200),
-    "phoenix_egg": ("Phoenix Egg", "Legendary", 3000), "celestial_egg": ("Celestial Egg", "Mythic", 7500),
-    "void_egg": ("Void Egg", "Mythic", 9000), "royal_egg": ("Royal Egg", "Epic", 2000),
+    "common_egg": ("Common Egg", "Common", 150),
+    "forest_egg": ("Forest Egg", "Uncommon", 300),
+    "moon_egg": ("Moon Egg", "Rare", 600),
+    "ocean_egg": ("Ocean Egg", "Rare", 700),
+    "dragon_egg": ("Dragon Egg", "Epic", 1200),
+    "celestial_egg": ("Celestial Egg", "Legendary", 3000),
 }
+
+# Every egg has its own exclusive five-pet pool. Pets never appear in more
+# than one egg, so the egg-pets command can clearly show where each species is found.
+PET_EGG_POOLS = {
+    "common_egg": ["Wolf Pup","Rabbit","Fox","Cat","Hedgehog"],
+    "forest_egg": ["Forest Wolf","Hawk","Dire Hound","Moss Turtle","Green Sprite"],
+    "moon_egg": ["Moon Cat","Moon Fox","Spirit Fox","Night Owl","Lunar Lynx"],
+    "ocean_egg": ["Tide Otter","Coral Crab","Sea Serpent","Pearl Koi","Storm Ray"],
+    "dragon_egg": ["Dragon Whelp","Frost Drake","Ember Drake","Thunder Wyvern","Royal Griffin"],
+    "celestial_egg": ["Phoenix","Elder Dragon","Celestial Lion","Astral Unicorn","Star Guardian"],
+}
+
 
 
 # Gacha uses transparent published rates and a pity counter.  It is a game
@@ -841,11 +855,34 @@ PET_ABILITY_DESCRIPTIONS = {
     "Starfall":"Astral damage with a chance to mark the enemy.",
     "World's Blessing":"Strong recovery plus a temporary defensive blessing.",
 }
+PET_SPECIES.update({
+    "Hedgehog":{"rarity":"common","atk":1,"def":3,"hp":6,"spd":2,"crit":1,"ability":"Spiky Guard","role":"tank"},
+    "Moss Turtle":{"rarity":"uncommon","atk":2,"def":5,"hp":12,"spd":1,"crit":0,"ability":"Moss Shell","role":"tank"},
+    "Green Sprite":{"rarity":"uncommon","atk":3,"def":2,"hp":7,"spd":5,"crit":3,"ability":"Verdant Spark","role":"heal"},
+    "Night Owl":{"rarity":"rare","atk":5,"def":3,"hp":9,"spd":7,"crit":6,"ability":"Night Sight","role":"crit"},
+    "Lunar Lynx":{"rarity":"rare","atk":6,"def":4,"hp":11,"spd":6,"crit":7,"ability":"Lunar Pounce","role":"damage"},
+    "Tide Otter":{"rarity":"rare","atk":5,"def":5,"hp":13,"spd":5,"crit":3,"ability":"Tidal Guard","role":"tank"},
+    "Coral Crab":{"rarity":"rare","atk":4,"def":8,"hp":16,"spd":2,"crit":1,"ability":"Coral Armor","role":"tank"},
+    "Sea Serpent":{"rarity":"epic","atk":9,"def":6,"hp":19,"spd":6,"crit":5,"ability":"Aqua Coil","role":"damage"},
+    "Pearl Koi":{"rarity":"rare","atk":4,"def":5,"hp":14,"spd":5,"crit":5,"ability":"Pearl Blessing","role":"heal"},
+    "Storm Ray":{"rarity":"epic","atk":10,"def":5,"hp":18,"spd":9,"crit":7,"ability":"Thunder Current","role":"damage"},
+    "Frost Drake":{"rarity":"epic","atk":10,"def":7,"hp":21,"spd":5,"crit":5,"ability":"Glacial Breath","role":"damage"},
+    "Ember Drake":{"rarity":"epic","atk":11,"def":6,"hp":20,"spd":5,"crit":6,"ability":"Inferno Breath","role":"damage"},
+    "Thunder Wyvern":{"rarity":"epic","atk":12,"def":5,"hp":19,"spd":8,"crit":8,"ability":"Thunder Dive","role":"damage"},
+    "Astral Unicorn":{"rarity":"legendary","atk":12,"def":11,"hp":30,"spd":8,"crit":9,"ability":"Astral Grace","role":"heal"},
+    "Star Guardian":{"rarity":"legendary","atk":15,"def":14,"hp":40,"spd":6,"crit":8,"ability":"Starlight Ward","role":"tank"},
+})
 for _pet in PET_SPECIES.values():
     _pet["ability_desc"] = PET_ABILITY_DESCRIPTIONS.get(_pet.get("ability",""), "A passive companion ability that helps during battle.")
 
 
-def _build_expanded_items():
+def _build_expanded_items()
+
+# Pet eggs live in the dedicated pet system. They are inventory objects for
+# hatching, but are excluded from the normal item/shop catalogue.
+for _egg_key, (_egg_name, _rarity, _price) in PET_EGGS.items():
+    ITEMS[_egg_key]={"name":_egg_name,"slot":"egg","rarity":_rarity,"price":_price,
+                     "pet_egg":True,"level_req":rarity_level.get(_rarity,1) if "rarity_level" in globals() else 1}:
     """Build a compact, curated item catalogue.
 
     Eggs and pets are intentionally kept in PET_EGGS/PET_SPECIES and are NOT
@@ -1008,16 +1045,9 @@ def _build_expanded_items():
 
 
 _build_expanded_items()
-for _egg_key, _egg_name, _rarity, _price in [
-    ("fire_egg","Fire Egg","rare",700),("water_egg","Water Egg","rare",700),("frost_egg","Frost Egg","epic",1400),
-    ("ruin_egg","Ruin Egg","epic",1600),("sky_egg","Sky Egg","legendary",3200),("demon_egg","Demon Egg","legendary",3800),
-    ("desert_egg","Desert Egg","epic",1800),("astral_egg","Astral Egg","mythic",8500),("world_egg","World Egg","mythic",12000),
-    ("beast_egg","Beast Egg","uncommon",400),("spirit_egg","Spirit Egg","rare",900),("shadow_egg","Shadow Egg","epic",1800),
-]:
-    ITEMS[_egg_key]={"name":_egg_name,"slot":"egg","rarity":_rarity,"price":_price,"pet_egg":True}
 for _key, (_name, _rarity, _price) in GACHA_CHEST_ITEMS.items():
     ITEMS[_key]={"name":_name,"slot":"chest","rarity":_rarity,"price":_price,"gacha_chest":True,"level_req":rarity_level.get(_rarity,1) if "rarity_level" in globals() else 1}
-SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price")]
+SHOP_ITEMS = [k for k,v in ITEMS.items() if v.get("price") and not v.get("pet_egg") and not v.get("pet") and v.get("slot") not in {"egg"}]
 
 # Crafted utility items are intentionally modest: they improve uptime without replacing rest, combat, or gear.
 ITEMS.update({
@@ -4775,8 +4805,9 @@ class RPGService:
         if not p:return False,"Create a hero first."
         egg_key=egg_key.lower().strip(); data=ITEMS.get(egg_key)
         if not data or data.get("slot")!="egg":return False,"That isn't a pet egg. Use `!rpg eggs` to see your eggs."
-        species_by={"common":["Wolf Pup","Rabbit","Fox","Cat"],"uncommon":["Forest Wolf","Moon Fox","Hawk","Dire Hound"],"rare":["Moon Cat","Spirit Fox","Griffin Chick","Frost Wolf"],"epic":["Dragon Whelp","Phoenix Chick","Royal Griffin","Shadow Drake"],"legendary":["Phoenix","Elder Dragon","Celestial Lion"],"mythic":["Void Dragon","Star Serpent","World Tree Sprite"]}
-        rarity=data.get("rarity","common").lower(); species=random.choice(species_by.get(rarity,species_by["common"]))
+        pool=PET_EGG_POOLS.get(egg_key, [])
+        if not pool:return False,"That egg has no configured pet pool."
+        species=random.choice(pool)
         pet_data=PET_SPECIES.get(species,{"atk":2,"def":2,"hp":5,"spd":2,"crit":1,"ability":"Pounce"})
         pet_name=(name or "Spirit").strip()[:24] or "Spirit"
         async with aiosqlite.connect(self.path) as db:
