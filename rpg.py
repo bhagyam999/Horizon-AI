@@ -1822,6 +1822,19 @@ class RPGService:
                 audit_json TEXT NOT NULL DEFAULT '{}', updated_at REAL NOT NULL
             );
             """)
+            await db.execute("""
+            CREATE TABLE IF NOT EXISTS rpg_pending_rewards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                guild_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                reward_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'combat',
+                created_at REAL NOT NULL,
+                claimed_at REAL NOT NULL DEFAULT 0
+            )
+            """)
+            await db.execute("CREATE INDEX IF NOT EXISTS idx_rpg_pending_rewards_user ON rpg_pending_rewards(guild_id,user_id,claimed_at,id)")
             await db.commit()
 
         # Phase 4 launches on a clean RPG economy/progression state. This is a
@@ -2172,6 +2185,78 @@ class RPGService:
                 )
             await db.commit()
             return old_level, new_level
+
+    async def _queue_pending_reward(self, guild_id, user_id, reward_type, payload, *, source="combat"):
+        """Persist a reward that could not be delivered automatically."""
+        payload = dict(payload or {})
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "INSERT INTO rpg_pending_rewards(guild_id,user_id,reward_type,payload_json,source,created_at) VALUES(?,?,?,?,?,?)",
+                (guild_id,user_id,str(reward_type),json.dumps(payload,separators=(",",":"),sort_keys=True),str(source),time.time())
+            )
+            await db.commit()
+
+    async def pending_rewards(self, guild_id, user_id):
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute(
+                "SELECT id,reward_type,payload_json,source,created_at FROM rpg_pending_rewards WHERE guild_id=? AND user_id=? AND claimed_at=0 ORDER BY id",
+                (guild_id,user_id)
+            )
+            rows=[]
+            for row in await cur.fetchall():
+                data=dict(row)
+                try: data["payload"]=json.loads(data.pop("payload_json") or "{}")
+                except Exception: data["payload"]={}
+                rows.append(data)
+            return rows
+
+    async def claim_pending_rewards(self, guild_id, user_id):
+        """Deliver all pending tangible rewards, keeping failed rows for retry."""
+        pending=await self.pending_rewards(guild_id,user_id)
+        if not pending:
+            return False, "You have no pending rewards."
+        delivered=[]; failed=[]
+        for row in pending:
+            rid=int(row["id"]); kind=row["reward_type"]; payload=row.get("payload",{}) or {}
+            try:
+                if kind=="xp_gold":
+                    xp=max(0,int(payload.get("xp",0))); gold=max(0,int(payload.get("gold",0)))
+                    await self.add_rewards(guild_id,user_id,xp,gold)
+                    label=f"{xp:,} XP + {gold:,} Gold"
+                elif kind=="item":
+                    item=str(payload.get("item_key","")).lower(); qty=max(1,int(payload.get("quantity",1)))
+                    if not await self.add_item(guild_id,user_id,item,qty,event_type="pending_reward"):
+                        raise RuntimeError(f"Unknown item: {item}")
+                    label=f"{ITEMS.get(item,{}).get('name',item)} ×{qty}"
+                elif kind=="pet_xp":
+                    amount=max(0,int(payload.get("amount",0)))
+                    if amount:
+                        await self._grant_pet_xp(guild_id,user_id,amount)
+                    label=f"{amount} Pet XP"
+                elif kind=="renown":
+                    renown=int(payload.get("renown",0)); fame=int(payload.get("fame",0))
+                    async with aiosqlite.connect(self.path) as db:
+                        await db.execute("UPDATE rpg_players SET renown=renown+?,fame=fame+? WHERE guild_id=? AND user_id=?",(renown,fame,guild_id,user_id))
+                        await db.commit()
+                    label=f"{renown} Renown + {fame} Fame"
+                else:
+                    raise RuntimeError(f"Unknown pending reward type: {kind}")
+                async with aiosqlite.connect(self.path) as db:
+                    await db.execute("UPDATE rpg_pending_rewards SET claimed_at=? WHERE id=? AND guild_id=? AND user_id=? AND claimed_at=0",(time.time(),rid,guild_id,user_id))
+                    await db.commit()
+                delivered.append(label)
+            except Exception:
+                failed.append(f"#{rid} ({kind})")
+                log.exception("Pending reward claim failed: guild=%s user=%s reward_id=%s",guild_id,user_id,rid)
+        if not delivered:
+            return False, "I couldn't deliver the pending rewards right now. They are still saved; try !rpg claim again later."
+        message="Recovered: " + ", ".join(delivered)
+        if failed:
+            message += "\n\nStill pending: " + ", ".join(failed) + ". Nothing was deleted for those rewards."
+        else:
+            message += "\n\nAll pending rewards have been claimed."
+        return True, message
 
     async def _cooldown(self, p, field, seconds):
         remaining = max(0, seconds - (time.time() - float(p[field])))
@@ -4239,11 +4324,13 @@ class RPGService:
                 old_level,new_level=await self.add_rewards(guild_id,user_id,xp,gold)
             except Exception as exc:
                 reward_errors.append("XP/Gold")
+                await self._queue_pending_reward(guild_id,user_id,"xp_gold",{"xp":xp,"gold":gold,"battle_at":state.get("victory_at",time.time())},source="combat_victory")
                 log.exception("Combat XP/Gold reward failed after victory: guild=%s user=%s",guild_id,user_id)
             try:
                 await self.add_item(guild_id,user_id,drop,1,event_type="combat_drop")
             except Exception:
                 reward_errors.append("loot")
+                await self._queue_pending_reward(guild_id,user_id,"item",{"item_key":drop,"quantity":1,"battle_at":state.get("victory_at",time.time())},source="combat_victory")
                 log.exception("Combat loot reward failed after victory: guild=%s user=%s",guild_id,user_id)
             try:
                 extra_loot=await self._combat_loot(guild_id,user_id,p,state.get("enemy",{}))
@@ -4254,18 +4341,25 @@ class RPGService:
                 pet_xp=await self._grant_pet_xp(guild_id,user_id,12 if state["mode"]=="adventure" else 20)
             except Exception:
                 reward_errors.append("pet XP")
+                await self._queue_pending_reward(guild_id,user_id,"pet_xp",{"amount":12 if state["mode"]=="adventure" else 20,"battle_at":state.get("victory_at",time.time())},source="combat_victory")
                 log.exception("Combat pet XP failed after victory: guild=%s user=%s",guild_id,user_id)
             try:
                 async with aiosqlite.connect(self.path) as db:
                     await db.execute("UPDATE rpg_players SET renown=renown+?,fame=fame+? WHERE guild_id=? AND user_id=?",(2 if state["mode"]=="adventure" else 5,1,guild_id,user_id)); await db.commit()
             except Exception:
                 reward_errors.append("renown")
+                await self._queue_pending_reward(guild_id,user_id,"renown",{"renown":2 if state["mode"]=="adventure" else 5,"fame":1,"battle_at":state.get("victory_at",time.time())},source="combat_victory")
                 log.exception("Combat renown reward failed after victory: guild=%s user=%s",guild_id,user_id)
             try:
                 await self.progress_quests(guild_id,user_id,"hunt",1)
                 if state["mode"]=="dungeon":
                     await self.progress_quests(guild_id,user_id,"dungeon",1)
-                    if state["floors"]>=5:await self.add_item(guild_id,user_id,"dragon_trophy",1)
+                    if state["floors"]>=5:
+                        try:
+                            await self.add_item(guild_id,user_id,"dragon_trophy",1,event_type="combat_dungeon_trophy")
+                        except Exception:
+                            reward_errors.append("dragon trophy")
+                            await self._queue_pending_reward(guild_id,user_id,"item",{"item_key":"dragon_trophy","quantity":1,"battle_at":state.get("victory_at",time.time())},source="combat_victory")
             except Exception:
                 reward_errors.append("quest progress")
                 log.exception("Combat quest reward/progress failed after victory: guild=%s user=%s",guild_id,user_id)
@@ -4278,7 +4372,7 @@ class RPGService:
             state["reward_status"]="complete" if not reward_errors else "recovery_needed"
             if reward_errors:
                 state["reward_errors"]=reward_errors
-                state["log"].append("⚠️ Victory was secured, but some rewards could not be processed. They can be recovered without replaying the battle.")
+                state["log"].append("⚠️ Victory was secured, but some rewards could not be processed. Use !rpg claim to recover the saved rewards without replaying the battle.")
 
             return {"finished":True,"win":True,"xp":xp,"gold":gold,"drop":drop,"extra_loot":extra_loot,"pet_xp":pet_xp,"state":state,"level_before":old_level,"level_after":new_level,"reward_status":state["reward_status"],"reward_errors":reward_errors}
         # Enemy turn. Defensive/slow/evasion effects are bounded so no skill can
