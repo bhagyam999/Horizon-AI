@@ -6,7 +6,9 @@ import random
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 import discord
@@ -1246,17 +1248,40 @@ WORLD_BOSS_TEMPLATES = [
 
 OBJECTIVE_TEMPLATES = {
     "daily": [
-        ("daily_hunt", "Monster Hunter", "Defeat enemies", "hunt", 5, 220, 350, "wolf_pelt", 2),
-        ("daily_explore", "Pathfinder", "Explore or travel through the world", "explore", 2, 180, 280, "herb", 3),
-        ("daily_dungeon", "Dungeon Runner", "Clear dungeon floors", "dungeon", 2, 300, 450, "arcane_shard", 2),
-        ("daily_gather", "Field Collector", "Gather resources", "gather", 4, 180, 300, "mat_blue_herb", 2),
+        ("daily_hunt","Monster Hunter","Defeat enemies","hunt",5,220,350,"wolf_pelt",2),
+        ("daily_explore","Pathfinder","Explore or travel through the world","explore",2,180,280,"herb",3),
+        ("daily_dungeon","Dungeon Runner","Clear dungeon floors","dungeon",2,300,450,"arcane_shard",2),
+        ("daily_gather","Field Collector","Gather resources","gather",4,180,300,"mat_blue_herb",2),
+        ("daily_battle","Battle Ready","Win battles or adventures","hunt",8,280,420,"life_potion",3),
+        ("daily_boss","Boss Watcher","Help damage a world boss","worldboss",1,350,550,"mat_void_crystal",1),
+        ("daily_pet","Companion Bond","Use your pet in an adventure","pet_use",3,240,380,"mat_beast_fang",2),
+        ("daily_crafter","Apprentice Crafter","Craft items","craft",2,240,360,"reinforcement_core",1),
+        ("daily_merchant","Market Day","Buy or sell items","trade",3,200,320,"mat_gold_ore",2),
+        ("daily_quester","Adventurer's Errand","Complete RPG quests","complete_quest",2,300,450,"arcane_shard",1),
     ],
     "weekly": [
-        ("weekly_hunt", "Monster Exterminator", "Defeat enemies", "hunt", 30, 1600, 2400, "arcane_shard", 8),
-        ("weekly_dungeon", "Dungeon Delver", "Clear dungeon floors", "dungeon", 12, 2200, 3400, "dragon_trophy", 2),
-        ("weekly_boss", "World Challenger", "Deal damage to a world boss", "worldboss", 1, 2500, 4000, "mat_void_crystal", 5),
+        ("weekly_hunt","Monster Exterminator","Defeat enemies","hunt",30,1600,2400,"arcane_shard",8),
+        ("weekly_dungeon","Dungeon Delver","Clear dungeon floors","dungeon",12,2200,3400,"dragon_trophy",2),
+        ("weekly_boss","World Challenger","Deal damage to a world boss","worldboss",1,2500,4000,"mat_void_crystal",5),
+        ("weekly_explorer","Master Pathfinder","Explore or travel through the world","explore",15,1800,2800,"mat_star_fragment",3),
+        ("weekly_gather","Resource Run","Gather resources","gather",30,1500,2300,"mat_mithril_ore",5),
+        ("weekly_pet","Beastmaster's Week","Use your pet in adventures","pet_use",20,1900,2900,"forest_egg",1),
+        ("weekly_craft","Master Artisan","Craft items","craft",10,1800,2700,"reinforcement_core",4),
+        ("weekly_quests","Quest Hunter","Complete RPG quests","complete_quest",8,2000,3000,"arcane_shard",10),
+    ],
+    "monthly": [
+        ("monthly_hunter","Horizon Exterminator","Defeat enemies","hunt",120,7000,11000,"dragon_trophy",5),
+        ("monthly_explorer","World Wanderer","Explore or travel through the world","explore",50,6500,10000,"mat_star_fragment",8),
+        ("monthly_dungeon","Dungeon Conqueror","Clear dungeon floors","dungeon",40,8500,13000,"mat_void_crystal",10),
+        ("monthly_boss","World Boss Nemesis","Help damage world bosses","worldboss",4,9000,14000,"dragon_trophy",8),
+        ("monthly_gather","Grand Collector","Gather resources","gather",100,6000,9000,"mat_mithril_ore",10),
+        ("monthly_pet","Ultimate Beastmaster","Use your pet in adventures","pet_use",75,7000,10500,"moon_egg",1),
+        ("monthly_crafter","Grand Artisan","Craft items","craft",30,6500,10000,"reinforcement_core",12),
+        ("monthly_quests","Legendary Adventurer","Complete RPG quests","complete_quest",25,8000,12000,"dragon_trophy",3),
     ],
 }
+
+OBJECTIVE_ROTATION_COUNTS={"daily":6,"weekly":5,"monthly":4}
 
 # Distinct enemy families for every world region. Their base values scale from
 # the region tier, while combat caps keep any one enemy from one-shotting a hero.
@@ -2849,46 +2874,54 @@ class RPGService:
         return True,f"Quest complete: **+{xp} XP**, **+{gold} gold**" + (f", **{ITEMS[item]['name']} ×{qty}**" if item else "")
 
     async def _objective_period_key(self, period):
-        from datetime import datetime, timezone
-        now=datetime.now(timezone.utc)
-        return now.strftime("%Y-%m-%d") if period=="daily" else now.strftime("%G-W%V")
+        return str(rotation_key(period))
+
+    def _rotated_objective_templates(self, period):
+        templates=list(OBJECTIVE_TEMPLATES[period])
+        count=min(OBJECTIVE_ROTATION_COUNTS.get(period,len(templates)),len(templates))
+        rng=random.Random(f"horizon-objectives:{period}:{rotation_key(period)}")
+        return rng.sample(templates,count)
 
     async def ensure_objectives(self,guild_id,user_id):
         now=time.time()
         async with aiosqlite.connect(self.path) as db:
-            for period in ("daily","weekly"):
+            for period in ("daily","weekly","monthly"):
                 period_key=await self._objective_period_key(period)
-                for key,title,desc,ptype,target,xp,gold,item,qty in OBJECTIVE_TEMPLATES[period]:
+                for key,title,desc,ptype,target,xp,gold,item,qty in self._rotated_objective_templates(period):
                     await db.execute("INSERT OR IGNORE INTO rpg_objectives(guild_id,user_id,period,objective_key,title,description,progress_type,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(guild_id,user_id,period,key,title,desc,ptype,target,0,xp,gold,item,qty,0,period_key,now))
             await db.commit()
 
     async def progress_objectives(self,guild_id,user_id,ptype,amount=1):
         await self.ensure_objectives(guild_id,user_id)
+        keys=(await self._objective_period_key("daily"),await self._objective_period_key("weekly"),await self._objective_period_key("monthly"))
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_objectives SET progress=MIN(target,progress+?) WHERE guild_id=? AND user_id=? AND progress_type=? AND claimed=0",(max(1,int(amount)),guild_id,user_id,ptype))
+            await db.execute("UPDATE rpg_objectives SET progress=MIN(target,progress+?) WHERE guild_id=? AND user_id=? AND progress_type=? AND claimed=0 AND period_key IN (?,?,?)",(max(1,int(amount)),guild_id,user_id,ptype,*keys))
             await db.commit()
 
     async def objectives(self,guild_id,user_id):
         await self.ensure_objectives(guild_id,user_id)
+        keys=(await self._objective_period_key("daily"),await self._objective_period_key("weekly"),await self._objective_period_key("monthly"))
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT period,objective_key,title,description,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? ORDER BY CASE period WHEN 'daily' THEN 0 ELSE 1 END,objective_key",(guild_id,user_id))
+            cur=await db.execute("SELECT period,objective_key,title,description,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND period_key IN (?,?,?) ORDER BY CASE period WHEN 'daily' THEN 0 WHEN 'weekly' THEN 1 ELSE 2 END,objective_key",(guild_id,user_id,*keys))
             return await cur.fetchall()
 
     async def claim_objective(self,guild_id,user_id,objective_key):
         await self.ensure_objectives(guild_id,user_id)
+        keys=(await self._objective_period_key("daily"),await self._objective_period_key("weekly"),await self._objective_period_key("monthly"))
         async with aiosqlite.connect(self.path) as db:
-            period_key=await self._objective_period_key("daily")
-            cur=await db.execute("SELECT period,objective_key,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND objective_key=? AND period_key IN (?,?)",(guild_id,user_id,objective_key,period_key,await self._objective_period_key("weekly")))
+            cur=await db.execute("SELECT period,objective_key,target,progress,reward_xp,reward_gold,reward_item,reward_qty,claimed,period_key FROM rpg_objectives WHERE guild_id=? AND user_id=? AND objective_key=? AND period_key IN (?,?,?)",(guild_id,user_id,objective_key,*keys))
             row=await cur.fetchone()
-            if not row:return False,"Objective not found. Use `!rpg objectives`."
+            if not row:return False,"Objective not found in the current Quest 2.0 rotations. Use !rpg objectives."
             period,key,target,progress,xp,gold,item,qty,claimed,row_period=row
             if claimed:return False,"That objective has already been claimed."
             if progress<target:return False,f"Progress: {progress}/{target}."
             await db.execute("UPDATE rpg_objectives SET claimed=1 WHERE guild_id=? AND user_id=? AND objective_key=? AND period_key=?",(guild_id,user_id,key,row_period))
-            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(gold,guild_id,user_id)); await db.commit()
+            await db.execute("UPDATE rpg_players SET gold=gold+? WHERE guild_id=? AND user_id=?",(gold,guild_id,user_id))
+            await db.commit()
         await self.add_rewards(guild_id,user_id,xp,0)
         if item: await self.add_item(guild_id,user_id,item,qty)
         return True,f"Objective complete: **{key.replace('_',' ').title()}** — +{xp} XP • +{gold} gold" + (f" • {ITEMS.get(item,{'name':item}).get('name',item)} ×{qty}" if item else "")
+
 
     async def world_map(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
@@ -3063,6 +3096,8 @@ class RPGService:
             level=int(p["level"]) if p else 1
 
         rarity_order={r:i for i,r in enumerate(RARITIES)}
+        shop_cycle=rotation_key("shop")
+        rng=random.Random(f"horizon-shop:{shop_cycle}:{level}")
         category_targets={
             "weapon":16,
             "armor":14,
@@ -3099,7 +3134,7 @@ class RPGService:
                 # higher-rarity choices through the shop.
                 low=[k for k in eligible if int(ITEMS[k].get("level_req",1))<=level+3]
                 pool=low if len(low)>=target else eligible
-                chosen=random.sample(pool,target)
+                chosen=rng.sample(pool,target)
             else:
                 chosen=list(eligible)
             selected.extend(chosen)
@@ -3115,7 +3150,7 @@ class RPGService:
                 and v.get("price")
                 and int(v.get("level_req",1))<=level+5
             ]
-            random.shuffle(remaining)
+            rng.shuffle(remaining)
             selected.extend(remaining[:max_listings-len(selected)])
 
         selected=selected[:max_listings]
