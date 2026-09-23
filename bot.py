@@ -3311,19 +3311,19 @@ async def rpg_dungeon(ctx,*,name:str=""):
 
 
 @rpg_root.command(name="stat")
-async def rpg_stat(ctx,stat:str=""):
+async def rpg_stat(ctx,stat:str="",points:int=1):
     await _rpg_delete(ctx)
     if not stat:
-        await _rpg_action_panel(ctx,"Stat Points","Use `!rpg stat <attack|defense|speed|crit|hp|mana>` to spend one Stat Point.",False); return
-    ok,msg=await bot.rpg.spend_stat(ctx.guild.id,ctx.author.id,stat); await _rpg_action_panel(ctx,"Stat Point",msg,ok)
+        await _rpg_action_panel(ctx,"Stat Points","Use `!rpg stat <attack|defense|speed|crit|hp|mana> [points]` to spend one or multiple Stat Points.",False); return
+    ok,msg=await bot.rpg.spend_stat(ctx.guild.id,ctx.author.id,stat,points); await _rpg_action_panel(ctx,"Stat Point",msg,ok)
 
 
 @rpg_root.command(name="skill")
-async def rpg_skill(ctx,skill_key:str=""):
+async def rpg_skill(ctx,skill_key:str="",points:int=1):
     await _rpg_delete(ctx)
     if not skill_key:
-        await _rpg_action_panel(ctx,"Skill Points","Use `!rpg skill <skill_key>` to spend one Skill Point and raise that unlocked skill's mastery by one rank (max 5).\n\nUse `!rpg skills` to see skill keys and mastery ranks.",False); return
-    ok,msg=await bot.rpg.skill_mastery(ctx.guild.id,ctx.author.id,skill_key); await _rpg_action_panel(ctx,"Skill Mastery",msg,ok)
+        await _rpg_action_panel(ctx,"Skill Points","Use `!rpg skill <skill_key> [points]` to spend one or multiple Skill Points and raise that unlocked skill's mastery (max 5).\n\nUse `!rpg skills` to see skill keys and mastery ranks.",False); return
+    ok,msg=await bot.rpg.skill_mastery(ctx.guild.id,ctx.author.id,skill_key,points); await _rpg_action_panel(ctx,"Skill Mastery",msg,ok)
 
 
 @rpg_root.command(name="talents")
@@ -3344,11 +3344,11 @@ async def rpg_talents(ctx):
 
 
 @rpg_root.command(name="talent")
-async def rpg_talent(ctx,tree:str="",talent_key:str=""):
+async def rpg_talent(ctx,tree:str="",talent_key:str="",points:int=1):
     await _rpg_delete(ctx)
     if not tree or not talent_key:
-        await _rpg_action_panel(ctx,"Talent Point","Use `!rpg talent <class|race> <talent_key>`. See `!rpg talents` for every node and its current rank.",False); return
-    ok,msg=await bot.rpg.spend_talent(ctx.guild.id,ctx.author.id,tree,talent_key); await _rpg_action_panel(ctx,"Talent Point",msg,ok)
+        await _rpg_action_panel(ctx,"Talent Point","Use `!rpg talent <class|race> <talent_key> [points]`. Spend multiple points at once; a talent can reach Rank 5/5.",False); return
+    ok,msg=await bot.rpg.spend_talent(ctx.guild.id,ctx.author.id,tree,talent_key,points); await _rpg_action_panel(ctx,"Talent Point",msg,ok)
 
 
 @rpg_root.command(name="skills")
