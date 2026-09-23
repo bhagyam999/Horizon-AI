@@ -448,6 +448,60 @@ def _skill_buff_text(effect):
 
 def _skill_debuff_text(effect):
     return {"armor_break":"-18% enemy DEF for 3 turns","mark":"+16% follow-up damage for 3 turns","vulnerability":"+20% damage taken for 2 turns","poison":"Poison for 4 turns","burn":"Burn for 3 turns","freeze":"Freeze for 2 turns; chance to Stun","silence":"Enemy abilities disabled for 2 turns","curse":"+14% damage taken for 3 turns","terrain":"+12% damage taken for 3 turns","bleed":"Bleed for 3 turns"}.get(effect,"None")
+
+def _skill_effect_text(effect):
+    return {
+        "damage":"Deals direct physical damage.",
+        "heavy":"Deals heavy damage with a higher damage cap.",
+        "multi":"Hits twice with reduced damage per hit.",
+        "bleed":"Deals damage and applies Bleed for 3 turns.",
+        "heal":"Restores about 22% of maximum HP.",
+        "team_heal":"Restores about 30% of maximum HP.",
+        "recovery":"Restores about 34% HP and restores MP.",
+        "def_buff":"Deals a light hit and grants +22% DEF for 3 turns.",
+        "attack_buff":"Deals a light hit and grants +18% ATK for 3 turns.",
+        "armor_break":"Deals damage and reduces enemy DEF by 18% for 3 turns.",
+        "poison":"Deals damage and applies Poison for 4 turns.",
+        "burn":"Deals damage and applies Burn for 3 turns.",
+        "freeze":"Deals damage, slows the enemy for 2 turns, and has a chance to Stun.",
+        "lifesteal":"Deals damage and heals you for part of the damage dealt.",
+        "mana_drain":"Deals damage and restores about 12% maximum MP.",
+        "dodge":"Deals a light hit and grants +18% evasion for 3 turns.",
+        "counter":"Creates a 1-turn defensive counter state.",
+        "barrier":"Creates a 2-turn barrier that reduces incoming damage.",
+        "vulnerability":"Deals damage and makes the enemy take +20% damage for 2 turns.",
+        "execute":"Deals stronger damage, especially when the enemy is below 30% HP.",
+        "true_damage":"Deals damage that ignores enemy DEF.",
+        "ultimate":"Deals very high damage and restores about 8% maximum HP.",
+        "signature":"Deals very high damage and grants +18% ATK for 2 turns.",
+        "stance":"Below 50% HP: +24% DEF for 3 turns; otherwise +20% ATK for 3 turns.",
+        "focus":"Grants +10 critical chance for 3 turns.",
+        "crit":"Grants +12 critical chance for 2 turns.",
+        "mark":"Deals damage and marks the enemy for +16% follow-up damage for 3 turns.",
+        "silence":"Deals damage and disables enemy abilities for 2 turns.",
+        "curse":"Deals damage and makes the enemy take +14% damage for 3 turns.",
+        "terrain":"Deals damage and makes the enemy take +12% damage for 3 turns.",
+        "resource":"Restores MP and Stamina while dealing damage.",
+        "stamina":"Restores 25 Stamina while dealing damage.",
+        "mana_burst":"Deals damage and restores about 6% maximum MP.",
+        "delayed":"Stores a delayed strike for the next resolution.",
+        "sacrifice":"Consumes about 8% maximum HP for a stronger attack.",
+        "emergency":"Deals stronger damage while below 50% HP.",
+        "combo":"Builds combo and increases the strike's damage.",
+        "chain":"Deals damage that scales with your current combo.",
+        "team_buff":"Deals a light hit and grants +12% ATK and DEF for 3 turns.",
+        "pet_boost":"Empowers the companion and refreshes its cooldown.",
+        "summon":"Deals a summoned attack and builds combo.",
+        "aoe":"Deals a wider attack with capped damage.",
+        "dispel":"Removes selected enemy advantages and deals damage.",
+        "random":"Randomly performs a controlled damage, heal, or defend effect.",
+        "defend":"Reduces the next incoming hit.",
+        "reflect":"Creates protection and reflects part of incoming damage.",
+        "cleanse":"Removes negative effects and restores HP.",
+        "percent_damage":"Deals damage based on a percentage of enemy maximum HP.",
+        "mythic":"Deals massive damage and applies vulnerability.",
+    }.get(effect, f"Uses the {effect.replace('_',' ')} combat effect.")
+
 def _build_class_skills():
     result = {}
     for class_name in list(CLASSES) + ["void_knight","chronomancer","dragon_lord","soul_reaper"]:
@@ -485,7 +539,7 @@ def _build_class_skills():
             elif effect in {"true_damage","execute"}: mult=1.05 + min(i,11)*.01
             heal_pct={"heal":.24,"lifesteal":.30,"ultimate":.08,"recovery":.34}.get(effect,0)
             damage_cap=.28 if effect not in {"heavy","execute","ultimate","signature","sacrifice"} else .34
-            skills.append({"key":f"skill_{i+1}","name":name,"cost":SKILL_COSTS[i],"mult":mult,"effect":effect,"cooldown":SKILL_COOLDOWNS[i],"unlock":SKILL_UNLOCK_LEVELS[i],"mechanic":mechanic_name,"desc":mechanic_desc,"buff_text":_skill_buff_text(effect),"debuff_text":_skill_debuff_text(effect),"heal_pct":heal_pct,"damage_cap":damage_cap})
+            skills.append({"key":f"skill_{i+1}","name":name,"cost":SKILL_COSTS[i],"mult":mult,"effect":effect,"cooldown":SKILL_COOLDOWNS[i],"unlock":SKILL_UNLOCK_LEVELS[i],"mechanic":mechanic_name,"desc":_skill_effect_text(effect),"buff_text":_skill_buff_text(effect),"debuff_text":_skill_debuff_text(effect),"heal_pct":heal_pct,"damage_cap":damage_cap})
         result[class_name]=skills
     return result
 
