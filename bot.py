@@ -2396,6 +2396,7 @@ async def rpg_help(ctx):
         "rpg dungeons": "Browse available dungeons and their requirements.",
         "rpg objectives": "View your daily and weekly objectives.",
         "rpg objective": "Claim a completed objective reward.",
+        "rpg claim": "Recover any combat rewards that could not be delivered automatically.",
         "rpg inventory": "View the items currently in your inventory.",
         "rpg items": "Browse the item codex by category and page.",
         "rpg iteminfo": "Inspect one item, its stats and compatible details.",
@@ -2538,6 +2539,14 @@ async def rpg_help(ctx):
         e.set_footer(text=f"Page {page_no}/{total} • {len(commands_to_show)} RPG commands • Use the buttons to browse")
         pages.append(e)
     await _rpg_panel(ctx, pages)
+
+@rpg_root.command(name="claim", aliases=["claim-rewards", "claimreward", "rewards"])
+async def rpg_claim(ctx):
+    """Recover durable rewards that failed during automatic combat processing."""
+    await _rpg_delete(ctx)
+    ok, msg = await bot.rpg.claim_pending_rewards(ctx.guild.id, ctx.author.id)
+    await _rpg_action_panel(ctx, "🎁 Pending Rewards", msg, ok)
+
 
 @rpg_root.command(name="start")
 async def rpg_start(ctx, name: str = "", race: str = "human", class_name: str = "warrior"):
