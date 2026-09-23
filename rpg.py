@@ -1062,13 +1062,31 @@ def _set_focus(set_key: str) -> str:
         return "atk"
     return ("atk", "defense", "hp", "speed", "crit")[sum(ord(c) for c in set_key) % 5]
 
+# Base enemies remain as fallback encounters, while regional mobs below provide
+# distinct identities and combat kits for the world map.
 ENEMIES = [
-    {"name": "Slime", "level": 1, "hp": 45, "atk": 7, "def": 2, "xp": 35, "gold": 25, "drops": ["herb"]},
-    {"name": "Forest Wolf", "level": 2, "hp": 65, "atk": 10, "def": 3, "xp": 55, "gold": 38, "drops": ["wolf_pelt", "herb"]},
-    {"name": "Goblin Raider", "level": 4, "hp": 95, "atk": 14, "def": 5, "xp": 90, "gold": 65, "drops": ["iron_ore"]},
-    {"name": "Arcane Wraith", "level": 7, "hp": 145, "atk": 21, "def": 8, "xp": 150, "gold": 110, "drops": ["arcane_shard"]},
-    {"name": "Ancient Dragonling", "level": 12, "hp": 260, "atk": 32, "def": 14, "xp": 300, "gold": 240, "drops": ["arcane_shard", "iron_ore"]},
+    {"name": "Slime", "level": 1, "hp": 45, "atk": 7, "def": 2, "speed": 3, "crit": 4, "xp": 35, "gold": 25, "drops": ["herb"], "abilities": ["acid_spit"]},
+    {"name": "Forest Wolf", "level": 2, "hp": 65, "atk": 10, "def": 3, "speed": 9, "crit": 10, "xp": 55, "gold": 38, "drops": ["wolf_pelt", "herb"], "abilities": ["pounce"]},
+    {"name": "Goblin Raider", "level": 4, "hp": 95, "atk": 14, "def": 5, "speed": 7, "crit": 7, "xp": 90, "gold": 65, "drops": ["iron_ore"], "abilities": ["dirty_trick"]},
+    {"name": "Arcane Wraith", "level": 7, "hp": 145, "atk": 21, "def": 8, "speed": 8, "crit": 12, "xp": 150, "gold": 110, "drops": ["arcane_shard"], "abilities": ["arcane_burst"]},
+    {"name": "Ancient Dragonling", "level": 12, "hp": 260, "atk": 32, "def": 14, "speed": 6, "crit": 14, "xp": 300, "gold": 240, "drops": ["arcane_shard", "iron_ore"], "abilities": ["dragon_breath", "frenzy"]},
 ]
+
+ENEMY_ABILITIES = {
+    "acid_spit": {"name":"Acid Spit","type":"damage","mult":0.92,"cooldown":3,"desc":"A corrosive ranged attack."},
+    "pounce": {"name":"Pounce","type":"burst","mult":1.28,"cooldown":3,"desc":"A fast leap with increased critical pressure."},
+    "dirty_trick": {"name":"Dirty Trick","type":"debuff","mult":0.82,"cooldown":4,"desc":"A cheap strike that reduces the next few incoming defenses."},
+    "arcane_burst": {"name":"Arcane Burst","type":"magic","mult":1.18,"cooldown":3,"desc":"A concentrated magical blast."},
+    "dragon_breath": {"name":"Dragon Breath","type":"burn","mult":1.10,"cooldown":4,"desc":"Burning breath that leaves a damage-over-time effect."},
+    "frenzy": {"name":"Frenzy","type":"buff","mult":0.65,"cooldown":5,"desc":"A strike that increases the monster's attack."},
+    "power_strike": {"name":"Power Strike","type":"damage","mult":1.35,"cooldown":3,"desc":"A heavy physical attack."},
+    "guard": {"name":"Iron Guard","type":"guard","mult":0.55,"cooldown":4,"desc":"Raises the monster's defenses temporarily."},
+    "regenerate": {"name":"Regenerate","type":"heal","mult":0.55,"cooldown":5,"desc":"Recovers a portion of maximum HP."},
+    "venom": {"name":"Venom Spit","type":"poison","mult":0.88,"cooldown":4,"desc":"A poisonous attack that damages the hero over time."},
+    "storm": {"name":"Storm Lance","type":"magic","mult":1.22,"cooldown":4,"desc":"A lightning strike with high critical pressure."},
+    "soul_drain": {"name":"Soul Drain","type":"drain","mult":0.95,"cooldown":5,"desc":"Deals damage and heals the monster."},
+    "void_rend": {"name":"Void Rend","type":"pierce","mult":1.16,"cooldown":4,"desc":"Partially ignores defense."},
+}
 
 DUNGEONS = [
     ("Goblin Caves", 1, 3, 140, 90, "A beginner dungeon with three floors."),
@@ -1163,12 +1181,29 @@ _AREA_ENEMY_FLAVOURS = {
 }
 for _area_key,_area in AREAS.items():
     _lvl=int(_area["level"]); _flavour=_AREA_ENEMY_FLAVOURS.get(_area["type"],"Horizon Monster")
-    for _variant,_suffix in enumerate(("Scout","Champion"),1):
-        _hp=int(48 + _lvl*18 + _variant*20); _atk=int(7 + _lvl*2.1 + _variant*3); _def=int(2 + _lvl*1.15 + _variant*2)
+    _regional_abilities={
+        "town":["power_strike","dirty_trick"], "plains":["pounce","power_strike"], "cave":["venom","guard"],
+        "wild":["pounce","power_strike"], "forest":["pounce","regenerate"], "coast":["power_strike","venom"],
+        "islands":["power_strike","storm"], "swamp":["venom","regenerate"], "mountain":["guard","power_strike"],
+        "cliffs":["storm","pounce"], "canyon":["pounce","power_strike"], "undersea":["venom","soul_drain"],
+        "underground":["soul_drain","guard"], "valley":["arcane_burst","venom"], "sky":["storm","regenerate"],
+        "fortress":["guard","power_strike"], "volcanic":["dragon_breath","frenzy"], "hell":["dragon_breath","soul_drain"],
+        "cursed":["soul_drain","venom"], "desert":["venom","power_strike"], "city":["dirty_trick","arcane_burst"],
+        "arena":["power_strike","frenzy"], "temple":["storm","arcane_burst"], "void":["void_rend","soul_drain"],
+        "astral":["void_rend","storm"], "ruins":["arcane_burst","guard"], "mythic":["dragon_breath","regenerate"],
+        "arcane":["arcane_burst","void_rend"], "graveyard":["soul_drain","venom"], "chaos":["void_rend","frenzy"],
+        "temporal":["arcane_burst","dirty_trick"], "divine":["storm","regenerate"], "endgame":["void_rend","frenzy"],
+    }.get(_area["type"],["power_strike"])
+    _variants=(("Scout",0.82,0.92,1.15,1.10),("Hunter",0.95,1.02,1.28,1.25),("Champion",1.15,1.12,0.92,1.45),("Alpha",1.32,1.22,0.78,1.75))
+    for _variant,(_suffix,_hm,_am,_sm,_reward) in enumerate(_variants,1):
+        _hp=int((48 + _lvl*18 + _variant*20)*_hm); _atk=int((7 + _lvl*2.1 + _variant*3)*_am); _def=int((2 + _lvl*1.15 + _variant*2)*_am)
         _drops=["herb","iron_ore","arcane_shard"]
         if _lvl>=10:
             _drops += [k for k,v in ITEMS.items() if v.get("slot") in {"material","egg"} and v.get("rarity") in {"rare","epic"}][:2]
-        ENEMIES.append({"name":f"{_flavour} {_suffix}","level":_lvl,"hp":_hp,"atk":_atk,"def":_def,"xp":int(35+_lvl*24+_variant*18),"gold":int(20+_lvl*15+_variant*10),"drops":list(dict.fromkeys([d for d in _drops if d in ITEMS]))})
+        ENEMIES.append({"name":f"{_flavour} {_suffix}","area_key":_area_key,"level":_lvl,"hp":_hp,"atk":_atk,"def":_def,
+            "speed":max(1,int((4+_lvl*.42+_variant)*_sm)),"crit":min(28,int(5+_lvl*.18+_variant*2)),
+            "xp":int((35+_lvl*24+_variant*18)*_reward),"gold":int((20+_lvl*15+_variant*10)*_reward),
+            "drops":list(dict.fromkeys([d for d in _drops if d in ITEMS])),"abilities":_regional_abilities[:2]})
 
 ACHIEVEMENTS = {
     "first_blood": ("First Blood", "Defeat your first enemy.", 100),
@@ -3813,8 +3848,9 @@ class RPGService:
         # is selected and then scaled to the target level.
         target=max(1, int(level))
         target=max(target, min(int(area["level"]), target + 3))
-        eligible=[e for e in ENEMIES if e["level"] <= target + 2]
-        if not eligible: eligible=list(ENEMIES)
+        regional=[e for e in ENEMIES if e.get("area_key")==area_key and e["level"] <= target + 3]
+        eligible=regional or [e for e in ENEMIES if "area_key" not in e and e["level"] <= target + 2]
+        if not eligible: eligible=regional or list(ENEMIES)
         nearest=min(abs(e["level"]-target) for e in eligible)
         pool=[e for e in eligible if abs(e["level"]-target) <= nearest + 3]
         enemy=random.choice(pool or eligible).copy()
@@ -3919,7 +3955,7 @@ class RPGService:
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus)
         pet=await self.pet_record(guild_id,user_id)
         loadout=await self.skill_loadout(guild_id,user_id)
-        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"],"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill],"buffs":{},"enemy_debuffs":{},"enemy_statuses":{},"enemy_dot":0,"enemy_dot_turns":0,"combo":0,"combo_chain":[],"last_skill_effect":"","delayed_damage":0}
+        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"],"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill],"buffs":{},"enemy_debuffs":{},"enemy_statuses":{},"enemy_dot":0,"enemy_dot_turns":0,"enemy_ability_cooldowns":{},"enemy_guard_turns":0,"enemy_guard_pct":0,"player_dot":0,"player_dot_turns":0,"combo":0,"combo_chain":[],"last_skill_effect":"","delayed_damage":0}
         if mode=="adventure":
             remaining=await self._cooldown(p,"last_adventure",20)
             if remaining>0:return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
