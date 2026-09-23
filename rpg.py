@@ -268,6 +268,10 @@ SUBCLASSES = {
     "champion": ("duelist", "Arena specialist", {"hp": 20, "atk": 3}),
     "dragoon": ("lancer", "Aerial spear fighter", {"atk": 5, "spd": 3}),
     "templar": ("lancer", "Holy spear knight", {"def": 4, "hp": 15}),
+    "crusader": ("paladin", "Offensive holy warrior", {"atk": 5, "crit": 2}),
+    "aegis_knight": ("paladin", "Shield-focused protector", {"hp": 25, "def": 4}),
+    "dawnbringer": ("paladin", "Holy healer and support", {"mp": 20, "def": 2}),
+    "blood_saint": ("paladin", "Self-healing holy bruiser", {"hp": 15, "atk": 4, "crit": 2}),
     "spellbreaker": ("spellblade", "Anti-magic duelist", {"atk": 4, "def": 3}),
     "arcane_fencer": ("spellblade", "Magic sword specialist", {"mp": 20, "crit": 3}),
 }
@@ -340,6 +344,10 @@ SUBCLASS_TRAITS = {
  "templar":{"name":"Holy Spear","desc":"Defending gives an additional 20% damage reduction.","defend_reduction":20},
  "spellbreaker":{"name":"Null Edge","desc":"True-damage and armor-break skills deal 25% more damage.","effect_bonus":{"true_damage":25,"armor_break":25}},
  "arcane_fencer":{"name":"Runic Tempo","desc":"Successful skills restore 4% max MP and the next skill deals 8% more damage.","resource_pct":4,"next_skill_pct":8},
+ "crusader":{"name":"Divine Wrath","desc":"Skills deal 10% more damage; attacks against enemies below 40% HP deal another 10%.","skill_pct":10,"low_target_pct":10},
+ "aegis_knight":{"name":"Sacred Bulwark","desc":"Begin combat with a 25% shield for 2 turns; defending gives 20% additional damage reduction.","start_shield":25,"start_shield_turns":2,"defend_reduction":20},
+ "dawnbringer":{"name":"Light of Dawn","desc":"Healing skills restore 25% more HP; successful healing also restores 4 MP.","heal_skill_pct":25,"resource_gain":4},
+ "blood_saint":{"name":"Sanguine Faith","desc":"Offensive skills restore 10% of damage dealt as HP, capped at 8% max HP per skill; below 50% HP, skill damage increases by 15%.","trait_lifesteal":10,"trait_lifesteal_cap":8,"low_hp_skill_pct":15},
 }
 
 # ---------------------------------------------------------------------------
