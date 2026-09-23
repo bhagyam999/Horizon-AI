@@ -3614,30 +3614,47 @@ async def rpg_economy_info(ctx):
 
 class QuestBoardView(discord.ui.View):
     CATEGORIES = [
-        ("story","📖","Main Story"),("daily","☀️","Daily"),("weekly","📅","Weekly"),("monthly","🗓️","Monthly"),
-        ("class","⚔️","Class"),("race","🧬","Race"),("faction","🏛️","Faction"),("bounty","🎯","Bounty"),
+        ("story","📖","Main Story"),("daily","☀️","Daily"),
+        ("weekly","📅","Weekly"),("monthly","🗓️","Monthly"),
+        ("class","⚔️","Class"),("race","🧬","Race"),
+        ("faction","🏛️","Faction"),("bounty","🎯","Bounty"),
         ("secret","❓","Secret"),("legendary","👑","Legendary"),
     ]
+    DESCRIPTIONS = {
+        "story":"Your permanent story progression.",
+        "daily":"Rotating objectives that reset every day.",
+        "weekly":"Longer objectives that reset every Monday.",
+        "monthly":"Large objectives that reset on the 1st of each month.",
+        "class":"Quests based on your current class.",
+        "race":"Quests based on your current race.",
+        "faction":"Quests tied to your faction allegiance.",
+        "bounty":"Open player-posted targets and rewards.",
+        "secret":"Hidden quests. Their real conditions stay secret.",
+        "legendary":"High-end trials with major rewards.",
+    }
 
     def __init__(self, ctx, data):
-        super().__init__(timeout=600)
-        self.ctx=ctx; self.data=data; self.message=None
-        for idx,(key,emoji,label) in enumerate(self.CATEGORIES):
-            button=discord.ui.Button(label=label,emoji=emoji,style=discord.ButtonStyle.secondary,row=idx//5)
-            async def callback(interaction, key=key):
-                if not await self.interaction_check(interaction): return
-                self.data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
-                await interaction.response.edit_message(embed=self.render(key),view=self)
-            button.callback=callback
-            self.add_item(button)
-        remove=discord.ui.Button(label="Remove Message",emoji="🗑️",style=discord.ButtonStyle.danger,row=2)
-        async def remove_callback(interaction):
+        super().__init__(timeout=900)
+        self.ctx=ctx
+        self.data=data
+        self.message=None
+        for row_index in range(5):
+            for key,emoji,label in self.CATEGORIES[row_index*2:row_index*2+2]:
+                button=discord.ui.Button(label=label,emoji=emoji,style=discord.ButtonStyle.secondary,row=row_index)
+                async def callback(interaction, key=key):
+                    if not await self.interaction_check(interaction): return
+                    self.data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
+                    await interaction.response.edit_message(embed=self.render(key),view=self)
+                button.callback=callback
+                self.add_item(button)
+        refresh=discord.ui.Button(label="Refresh",emoji="🔄",style=discord.ButtonStyle.primary,row=4)
+        async def refresh_callback(interaction):
             if not await self.interaction_check(interaction): return
-            await interaction.response.defer()
-            try: await interaction.message.delete()
-            except (discord.NotFound, discord.Forbidden): pass
-            self.stop()
-        remove.callback=remove_callback; self.add_item(remove)
+            self.data=await bot.rpg.quest2_categories(self.ctx.guild.id,self.ctx.author.id)
+            await interaction.response.edit_message(embed=self.render(self.current_category),view=self)
+        refresh.callback=refresh_callback
+        self.add_item(refresh)
+        self.current_category="story"
 
     async def interaction_check(self, interaction):
         if interaction.user.id != self.ctx.author.id:
@@ -3645,33 +3662,67 @@ class QuestBoardView(discord.ui.View):
             return False
         return True
 
-    def _time_line(self):
-        status=bot.rpg.rotation_status()
-        def stamp(period):
-            key,nxt=status[period]
-            return f"**{key}** • next reset <t:{int(nxt.timestamp())}:R>"
-        return f"🛒 Shop: {stamp('shop')}\\n☀️ Daily: {stamp('daily')}\\n📅 Weekly: {stamp('weekly')}\\n🗓️ Monthly: {stamp('monthly')}"
+    def _reset_line(self, category):
+        if category not in {"daily","weekly","monthly"}:
+            return "Permanent quest category"
+        key,nxt=bot.rpg.rotation_status()[category]
+        label={"daily":"Daily reset","weekly":"Weekly reset","monthly":"Monthly reset"}[category]
+        return f"{label}: <t:{int(nxt.timestamp())}:R>"
+
+    def _reward(self, q):
+        parts=[]
+        if q.get("reward_xp"): parts.append(f"+{int(q['reward_xp'])} XP")
+        if q.get("reward_gold"): parts.append(f"+{int(q['reward_gold'])}g")
+        if q.get("reward_item"):
+            item=ITEMS.get(q["reward_item"],{"name":q["reward_item"]})
+            parts.append(f"{item.get('name',q['reward_item'])} ×{q.get('reward_qty',1)}")
+        return " • ".join(parts) or "No reward shown"
+
+    def _quest_text(self, q):
+        state=str(q.get("state","")).upper()
+        if q.get("period") in {"daily","weekly","monthly"}:
+            if int(q.get("claimed",0)):
+                status="🎁 CLAIMED"
+            elif int(q.get("progress",0)) >= int(q.get("target",1)):
+                status="✅ COMPLETE — claim your reward"
+            else:
+                status=f"🔹 ACTIVE — {int(q.get('progress',0))}/{int(q.get('target',1))}"
+        elif q.get("target"):
+            status=f"🔹 AVAILABLE — 0/{int(q['target'])}"
+        else:
+            status={
+                "LOCKED":"🔒 LOCKED","OPEN":"🎯 OPEN","HIDDEN":"❓ HIDDEN",
+                "LEGENDARY":"👑 LEGENDARY","INFO":"ℹ️ INFO","MAIN":"📖 STORY",
+                "AVAILABLE":"🔹 AVAILABLE",
+            }.get(state,"🔹 AVAILABLE")
+        text=f"{q.get('description','')}"
+        if q.get("target"):
+            text += f"\n\n**Progress:** {status}"
+        else:
+            text += f"\n\n**Status:** {status}"
+        reward=self._reward(q)
+        if reward!="No reward shown":
+            text += f"\n**Reward:** {reward}"
+        return text
 
     def render(self, category="story"):
+        self.current_category=category
         names={k:f"{e} {n}" for k,e,n in self.CATEGORIES}
         rows=self.data.get(category,[])
+        title=names.get(category,"📖 Main Story")
+        embed=_rpg_embed(f"📜 Quest Board — {title}",self.DESCRIPTIONS.get(category,"Choose a quest category."))
+        embed.add_field(name="⏱ Rotation",value=self._reset_line(category),inline=False)
         if not rows:
-            body="**No active quests in this category yet.**\\n\\nThis category is now part of the unified Quest 2.0 board."
+            embed.add_field(name="No quests",value="There are no quests available in this category right now.",inline=False)
         else:
-            lines=[]
-            for q in rows[:10]:
-                target=int(q.get("target",1)); progress=int(q.get("progress",0))
-                state="✅ COMPLETE" if progress>=target else "📌 ACTIVE"
-                reward=f"+{q.get('reward_xp',0)} XP • +{q.get('reward_gold',0)}g"
-                if q.get("reward_item"):
-                    item=ITEMS.get(q["reward_item"],{"name":q["reward_item"]})
-                    reward+=f" • {item.get('name',q['reward_item'])} ×{q.get('reward_qty',1)}"
-                lines.append(f"**{q.get('title','Quest')}** — {state}\\n{q.get('description','')}\\nProgress: **{progress}/{target}** • {reward}")
-            body="\\n\\n".join(lines)
-        e=_rpg_embed(f"📜 Quest Board • {names.get(category,'📖 Main Story')}",body)
-        e.set_footer(text="Quest 2.0 • All shared rotation changes happen at 17:30 IST")
-        e.add_field(name="⏱ Shared Rotation Clock",value=self._time_line(),inline=False)
-        return e
+            for index,q in enumerate(rows[:10],1):
+                embed.add_field(
+                    name=f"{index}. {q.get('title','Quest')}",
+                    value=self._quest_text(q),
+                    inline=False,
+                )
+        embed.set_footer(text="Select another category below to switch the board.")
+        return embed
 
 
 @rpg_root.command(name="quests", aliases=["questboard","quest-board"])
