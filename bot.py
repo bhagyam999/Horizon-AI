@@ -2004,7 +2004,7 @@ def _combat_embed(state, result=None):
     desc=(f"**{mode}{floor}** · Turn **{state.get('turn',1)}**\n\n"
           f"👹 **{enemy['name']}** · Lv **{enemy['level']}**\n"
           f"❤️ `{_bar(ehp,enemy['hp'])}` **{ehp}/{enemy['hp']} HP**\n"
-          f"⚔️ ATK **{enemy.get('atk',0)}** · 🛡️ DEF **{enemy.get('def',0)}**\n\n"
+          f"⚔️ ATK **{enemy.get('atk',0)}** · 🛡️ DEF **{enemy.get('def',0)}** · 💨 SPD **{enemy.get('speed',0)}** · 🎯 Crit **{enemy.get('crit',0)}%**\n"           f"✨ Abilities: **{', '.join(ENEMY_ABILITIES[k]['name'] for k in enemy.get('abilities',[]) if k in ENEMY_ABILITIES) or 'Basic attacks'}**\n\n"
           f"🧑 **Your Hero**\n"
           f"❤️ `{_bar(hp,max_hp)}` **{hp}/{max_hp} HP**\n"
           f"💧 `{_bar(mp,max_mp)}` **{mp}/{max_mp} MP**\n"
