@@ -582,6 +582,18 @@ def build_rpg_ai_knowledge():
     lines.append("GACHA: single pull cost="+str(GACHA_COST_SINGLE)+", ten-pull cost="+str(GACHA_COST_TEN)+", rates="+str(GACHA_RATES)+", Epic pity="+str(GACHA_EPIC_PITY)+", Mythic pity="+str(GACHA_MYTHIC_PITY)+".")
     lines.append("ENCHANTMENT COMPATIBILITY: Use the live ENCHANTMENT_COMPATIBILITY/compatible_enchantments data; do not guess which item slot accepts an enchantment.")
     lines.append("PVP MATCHUPS: race/class matchup multipliers are bounded around 0.82–1.18. Explain matchup mechanics from the live data rather than inventing counters.")
+    lines.append("ENEMY ABILITIES / AI COMBAT:")
+    for key,data in ENEMY_ABILITIES.items():
+        lines.append(f"- {key}: {data.get('name',key)}; type={data.get('type','?')}; multiplier={data.get('mult','?')}; cooldown={data.get('cooldown','?')}; {data.get('desc','')}")
+    lines.append("PET EGGS AND HATCHING:")
+    for egg_key,egg in PET_EGGS.items():
+        pool=PET_EGG_POOLS.get(egg_key,[])
+        lines.append(f"- {egg_key}: {egg.get('name',egg_key)}; rarity={egg.get('rarity','?')}; price={egg.get('price','?')}; exclusive hatch pool={', '.join(pool) or 'none'}")
+    lines.append("ITEM MECHANICS: Item records are authoritative. When a player asks about an item, use its actual fields such as slot, rarity, price, atk, defense, hp, mp, speed, crit, heal, mana, stamina, upgrade/enchant compatibility and special effects. Never infer an item's effect from its name alone.")
+    lines.append("EQUIPMENT: Equipment is persistent and slot-based. Upgrade levels, upgrade materials and gold costs come from the live RPG constants/methods. Enchantments are restricted by compatibility data. Explain the exact equipped slot and upgrade/enchant requirements when available.")
+    lines.append("PLAYER PROGRESSION: Level, XP, gold, HP/MP, ATK, DEF, SPD and CRIT are persistent. Race/class/subclass/subrace choices affect stats/traits. Skill unlocks and mastery are separate from the four-slot combat loadout.")
+    lines.append("QUEST PROGRESSION: Quest 2.0 is a unified board. Daily/weekly/monthly objectives have live progress, targets, period keys, stored rewards and claim state. Story/class/race/faction/secret/legendary categories may be informational or dynamically populated; do not claim a category has an active quest unless live data shows one.")
+    lines.append("SOCIAL/WORLD SYSTEMS: Parties, guilds, kingdoms, factions/reputation, exploration/discovered areas, dungeons/floors/bosses, arena/PvP, raids, bounties, achievements and titles are distinct systems. Explain their actual live data rather than merging them into generic quests.")
     lines.append("DUNGEONS:")
     for row in DUNGEONS:
         lines.append(f"- {row[0]}: level {row[1]}+, {row[2]} floors; {row[5] if len(row)>5 else row[-1]}")
@@ -618,6 +630,20 @@ async def build_rpg_ai_player_context(guild_id, user_id):
         lines.append("UNLOCKED SKILLS: "+", ".join(f"{s.get('name')}({s.get('combo_role')})" for s in unlocked))
     except Exception:
         log.exception("Could not build player RPG skill context")
+    try:
+        gear = await bot.rpg.equipment_details(guild_id, user_id)
+        if gear:
+            lines.append("EQUIPPED GEAR:")
+            for item in gear:
+                lines.append(f"- slot={item.get('slot','?')}; item={item.get('item_key','?')}; upgrade=+{item.get('upgrade_level',0)}")
+    except Exception:
+        pass
+    try:
+        inv = await bot.rpg.inventory(guild_id, user_id)
+        if inv:
+            lines.append("INVENTORY (current quantities): "+", ".join(f"{key} x{qty}" for key,qty in inv[:80]))
+    except Exception:
+        pass
     try:
         pet = await bot.rpg.pet_record(guild_id, user_id)
         if pet:
