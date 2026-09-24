@@ -266,8 +266,8 @@ class GeminiProvider:
             statuses.append({"model":name,"status":health.get("status","available"),"detail":health.get("detail","Listed by Gemini and supports generation.")})
         return {
             "provider": "Gemini",
-            "configured_keys": len([REMOVED_MULTI_GEMINI_KEYS]),
-            "active_key": self.key_index + 1 if self.api_keys else None,
+            "configured_keys": 1 if self.api_key else 0,
+            "active_key": 1 if self.api_key else None,
             "configured_model": self.preferred_model,
             "active_model": self.active_model,
             "available_models": self.available_models,
