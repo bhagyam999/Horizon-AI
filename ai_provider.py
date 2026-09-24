@@ -19,8 +19,8 @@ AGENT_ONLY_MODELS = {
     "deep-research-max-preview-04-2026",
     "antigravity-preview-05-2026",
 }
-TIMEOUT = float(os.getenv("GEMINI_HTTP_TIMEOUT", os.getenv("GEMINI_TIMEOUT", "12")))
-RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "0"))
+TIMEOUT = float(os.getenv("GEMINI_HTTP_TIMEOUT", os.getenv("GEMINI_TIMEOUT", "25")))
+RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "1"))
 REFRESH_SECONDS = int(os.getenv("GEMINI_MODEL_REFRESH_SECONDS", "300"))
 
 
