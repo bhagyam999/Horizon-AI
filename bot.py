@@ -208,7 +208,7 @@ class Horizon(commands.Bot):
         history.append(message.content[:1000]); del history[:-8]
         if decision.score < 2 and not decision.target and not decision.escalation: return
         context="\n".join(history[-5:])
-        try: verdicts=await asyncio.wait_for(self.ai.moderate(message.content,context),timeout=12)
+        try: verdicts=await asyncio.wait_for(self.ai.moderate(message.content,context,rpg_knowledge=build_rpg_ai_knowledge()),timeout=12)
         except Exception: verdicts=[]
         strong=[v for v in verdicts if float(v.get("confidence",0) or 0)>=0.75 and int(v.get("severity",0) or 0)>=2]
         from collections import Counter
