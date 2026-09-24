@@ -415,6 +415,103 @@ SUBCLASS_TRAITS = {
  "eidolon_master":{"name":"Soul Link","desc":"Summon skills deal 20% more damage; successful summon actions build Soul Charges toward an empowered Eidolon attack.","effect_bonus":{"summon":20},"eidolon_charge":1},
 }
 
+
+# ---------------------------------------------------------------------------
+# Subclass skill kits
+# Every specialization gets six additional active skills.  The parent class
+# supplies the foundation; the subclass kit changes the way that foundation is
+# expressed so choosing a subclass matters in combat as well as on the stat
+# sheet.
+SUBCLASS_SKILL_EFFECTS = {
+    "vanguard":["def_buff","heavy","barrier","counter","armor_break","team_buff"],
+    "blade_master":["multi","heavy","bleed","armor_break","crit","execute"],
+    "berserk_lord":["heavy","bleed","sacrifice","lifesteal","emergency","execute"],
+    "iron_guardian":["barrier","def_buff","counter","heavy","team_buff","true_damage"],
+    "arcane_knight":["damage","mana_burst","barrier","burn","armor_break","true_damage"],
+    "fire_mage":["burn","aoe","heavy","vulnerability","mana_burst","ultimate"],
+    "frost_mage":["freeze","barrier","delayed","vulnerability","mana_drain","ultimate"],
+    "battle_mage":["damage","heavy","mana_burst","lifesteal","armor_break","execute"],
+    "shadow_assassin":["lifesteal","bleed","dodge","mark","execute","true_damage"],
+    "nightblade":["multi","bleed","poison","dodge","lifesteal","execute"],
+    "sniper":["mark","true_damage","heavy","delayed","execute","ultimate"],
+    "beast_master":["pet_boost","mark","damage","team_buff","execute","ultimate"],
+    "holy_priest":["heal","barrier","cleanse","team_buff","dispel","ultimate"],
+    "battle_cleric":["damage","heal","barrier","attack_buff","lifesteal","execute"],
+    "storm_druid":["burn","freeze","terrain","aoe","delayed","ultimate"],
+    "wild_druid":["lifesteal","heal","terrain","def_buff","aoe","execute"],
+    "dragon_monk":["combo","multi","counter","attack_buff","lifesteal","execute"],
+    "shadow_monk":["dodge","counter","multi","combo","true_damage","execute"],
+    "minstrel":["heal","team_buff","dodge","mana_drain","cleanse","ultimate"],
+    "war_chanter":["attack_buff","team_buff","heavy","vulnerability","combo","ultimate"],
+    "bone_lord":["summon","aoe","curse","barrier","sacrifice","ultimate"],
+    "soul_reaper":["lifesteal","bleed","mark","curse","execute","true_damage"],
+    "demon_pact":["sacrifice","lifesteal","curse","burn","vulnerability","ultimate"],
+    "void_caller":["curse","vulnerability","true_damage","delayed","mana_drain","ultimate"],
+    "bombardier":["aoe","burn","armor_break","delayed","execute","ultimate"],
+    "transmuter":["resource","heal","dispel","mana_burst","vulnerability","ultimate"],
+    "artificer":["summon","barrier","armor_break","mark","aoe","ultimate"],
+    "machinist":["damage","delayed","mark","barrier","true_damage","ultimate"],
+    "fencer":["counter","multi","dodge","mark","true_damage","execute"],
+    "champion":["heavy","combo","attack_buff","def_buff","lifesteal","ultimate"],
+    "dragoon":["heavy","multi","dodge","armor_break","execute","ultimate"],
+    "templar":["def_buff","barrier","heal","counter","attack_buff","true_damage"],
+    "crusader":["heavy","attack_buff","lifesteal","burn","execute","ultimate"],
+    "aegis_knight":["barrier","def_buff","counter","team_buff","heal","ultimate"],
+    "dawnbringer":["heal","team_buff","cleanse","barrier","lifesteal","ultimate"],
+    "blood_saint":["lifesteal","heal","bleed","attack_buff","execute","ultimate"],
+    "spellbreaker":["armor_break","true_damage","silence","vulnerability","mana_drain","execute"],
+    "arcane_fencer":["damage","burn","mana_burst","counter","true_damage","ultimate"],
+    "beastcaller":["pet_boost","summon","mark","team_buff","execute","ultimate"],
+    "conjurer":["summon","barrier","chain","aoe","mana_drain","ultimate"],
+    "eidolon_master":["summon","pet_boost","barrier","vulnerability","true_damage","ultimate"],
+}
+
+_SUBCLASS_SKILL_WORDS = {
+    "damage":"Arc","heavy":"Ruin","multi":"Flurry","bleed":"Rend","heal":"Mending Light",
+    "def_buff":"Aegis","attack_buff":"Ascension","armor_break":"Sunder","poison":"Venom",
+    "burn":"Inferno","freeze":"Frostbind","lifesteal":"Blood Feast","mana_drain":"Soul Siphon",
+    "dodge":"Veilstep","counter":"Riposte","barrier":"Bulwark","vulnerability":"Expose",
+    "execute":"Execution","true_damage":"Piercing Edge","ultimate":"Apotheosis","signature":"Ascension",
+    "focus":"Deadeye","mark":"Hunter's Mark","silence":"Silence","curse":"Hex",
+    "terrain":"Domain","resource":"Essence Flow","stamina":"Second Wind","mana_burst":"Mana Burst",
+    "delayed":"Delayed Ruin","sacrifice":"Blood Price","emergency":"Last Stand","combo":"Momentum",
+    "chain":"Chainstrike","team_buff":"War Hymn","pet_boost":"Bondcall","summon":"Summoning",
+    "aoe":"Tempest","dispel":"Purification","cleanse":"Cleansing Light","random":"Catalyst",
+}
+
+def _build_subclass_skills():
+    result={}
+    for subclass, data in SUBCLASSES.items():
+        parent=data[0]
+        effects=SUBCLASS_SKILL_EFFECTS.get(subclass, CLASS_SKILL_EFFECTS.get(parent, ["damage","heavy","def_buff","attack_buff","lifesteal","ultimate"])[:6])
+        title=subclass.replace("_"," ").title()
+        skills=[]
+        for i,effect in enumerate(effects[:6],1):
+            word=_SUBCLASS_SKILL_WORDS.get(effect,effect.replace("_"," ").title())
+            # Names describe the mechanic while still sounding like abilities
+            # from a fantasy RPG rather than generic "Skill 1" entries.
+            name=f"{title}'s {word}"
+            skills.append({
+                "key":f"sub_{subclass}_{i}",
+                "name":name,
+                "cost":SKILL_COSTS[min(i+1,len(SKILL_COSTS)-1)],
+                "mult":round(0.92 + (i-1)*0.045,3),
+                "effect":effect,
+                "cooldown":SKILL_COOLDOWNS[min(i+1,len(SKILL_COOLDOWNS)-1)],
+                "unlock":max(1, 5 + (i-1)*5),
+                "mechanic":word,
+                "desc":_skill_effect_text(effect),
+                "buff_text":_skill_buff_text(effect),
+                "debuff_text":_skill_debuff_text(effect),
+                "heal_pct":{"heal":.28,"lifesteal":.34,"ultimate":.08}.get(effect,0),
+                "damage_cap":.34 if effect in {"heavy","execute","ultimate","sacrifice","true_damage"} else .30,
+                "subclass":subclass,
+            })
+        result[subclass]=skills
+    return result
+
+SUBCLASS_SKILLS = _build_subclass_skills()
+
 # ---------------------------------------------------------------------------
 # Combat skills. Each class has a small, readable kit so battles are about
 # choosing the right action instead of pressing one "Skill" button forever.
@@ -2288,10 +2385,24 @@ class RPGService:
             await db.commit()
         return True,"Your active pet was placed back into the pet inventory."
 
+    def skills_for_player(self, player):
+        """Return the class core/advanced skills plus the player's six subclass skills."""
+        if not player:
+            return []
+        class_name=player.get("class_name") or player.get("class") or "warrior"
+        subclass=player.get("subclass") or ""
+        skills=list(SKILLS.get(class_name, []))
+        if subclass in SUBCLASS_SKILLS:
+            skills.extend(SUBCLASS_SKILLS[subclass])
+        return skills
+
+    def _skill_for_player(self, player, skill_key):
+        return next((s for s in self.skills_for_player(player) if s["key"] == skill_key), None)
+
     async def unlocked_skills(self, guild_id, user_id):
         p=await self.player(guild_id,user_id)
         if not p:return []
-        return [s for s in SKILLS.get(p["class_name"],[]) if int(s["unlock"])<=int(p["level"])]
+        return [s for s in self.skills_for_player(p) if int(s["unlock"])<=int(p["level"])]
 
     async def equipped_skills(self, guild_id, user_id):
         p=await self.player(guild_id,user_id)
@@ -2299,14 +2410,14 @@ class RPGService:
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT slot,skill_key FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? ORDER BY slot", (guild_id,user_id))
             rows=await cur.fetchall()
-        available={s["key"]:s for s in SKILLS.get(p["class_name"],[]) if int(s["unlock"])<=int(p["level"])}
+        available={s["key"]:s for s in self.skills_for_player(p) if int(s["unlock"])<=int(p["level"])}
         return [available[key] for _,key in rows if key in available][:4]
 
     async def equip_skill(self, guild_id, user_id, skill_key, slot=1):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
         slot=max(1,min(4,int(slot)))
-        skill=self._skill(p["class_name"],skill_key.lower())
+        skill=self._skill_for_player(p,skill_key.lower())
         if not skill:return False,"That skill does not belong to your current class."
         if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
         async with aiosqlite.connect(self.path) as db:
@@ -2324,7 +2435,7 @@ class RPGService:
         async with aiosqlite.connect(self.path) as db:
             cur=await db.execute("SELECT slot,skill_key FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? ORDER BY slot", (guild_id,user_id))
             rows=await cur.fetchall()
-        all_skills={s["key"]:s for s in SKILLS.get(p["class_name"],[])}
+        all_skills={s["key"]:s for s in self.skills_for_player(p)}
         return [(slot,all_skills.get(key)) for slot,key in rows if all_skills.get(key)]
 
     async def _pet_bonus(self, guild_id, user_id):
@@ -3175,7 +3286,7 @@ class RPGService:
         pet=await self._pet_bonus(guild_id,user_id); stats=await self._combat_full_stats(guild_id,user_id,p,pet)
         skill=None
         if skill_key:
-            skill=self._skill(p["class_name"],skill_key.lower().strip())
+            skill=self._skill_for_player(p,skill_key.lower().strip())
             if not skill:return False,"That skill doesn't exist for your class.",event
             equipped={x["key"] for _s,x in await self.skill_loadout(guild_id,user_id) if x}
             if skill["key"] not in equipped:return False,"That skill isn't equipped.",event
@@ -4035,7 +4146,7 @@ class RPGService:
     async def skill_mastery(self,guild_id,user_id,skill_key,amount=1):
         p=await self.player(guild_id,user_id)
         if not p:return False,"Create a hero first."
-        skill=self._skill(p["class_name"],skill_key.lower())
+        skill=self._skill_for_player(p,skill_key.lower())
         if not skill:return False,"That skill does not belong to your current class."
         if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
         try: amount=int(amount)
@@ -4390,8 +4501,9 @@ class RPGService:
         await self._persist_combat_session(guild_id,user_id,state)
         return {"state":state,"stats":stats,"pet":pet}
 
-    def _skill(self, class_name, skill_key):
-        return next((s for s in SKILLS.get(class_name, []) if s["key"] == skill_key), None)
+    def _skill(self, class_name, skill_key, subclass=""):
+        pool=list(SKILLS.get(class_name, []))+list(SUBCLASS_SKILLS.get(subclass, []))
+        return next((s for s in pool if s["key"] == skill_key), None)
 
     def _skill_available(self, p, skill):
         return skill and int(p.get("level", 1)) >= int(skill.get("unlock", 1))
@@ -4408,7 +4520,7 @@ class RPGService:
         return damage, False
 
     def _equipped_skill_keys(self, p, loadout_rows):
-        return {key for _slot,key in loadout_rows if key in {s["key"] for s in SKILLS.get(p["class_name"],[])}}
+        return {key for _slot,key in loadout_rows if key in {s["key"] for s in self.skills_for_player(p)}}
 
     def _skill_damage(self, stats, enemy, skill, state, multiplier=None, ignore_def=False):
         enemy_def=float(enemy.get("def",0))
@@ -4712,7 +4824,7 @@ class RPGService:
             if action=="skill":
                 skills=[skill for _slot,skill in loadout if skill and self._skill_available(p,skill)]
                 return {"choose_skill":True,"skills":skills,"state":state}
-            skill_key=action.split(":",1)[1].strip(); skill=self._skill(p["class_name"],skill_key)
+            skill_key=action.split(":",1)[1].strip(); skill=self._skill_for_player(p,skill_key)
             if not skill:return {"error":"That skill is not available to your class."}
             if skill_key not in equipped:return {"error":"That skill is not equipped. You can equip up to **4 skills** with `!rpg equip-skill <skill> <slot>`."}
             if not self._skill_available(p,skill):
@@ -5332,7 +5444,7 @@ class RPGService:
             if foe.get("defending"): dmg=max(1,dmg//2); foe["defending"]=False; log.append(f"🛡️ **{foe['name']}** blocked part of the hit.")
             foe["hp"]-=dmg; log.append(f"⚔️ **{me['name']}** hit **{foe['name']}** for **{dmg}**{' CRITICAL' if crit else ''}.")
         elif action.startswith("skill:"):
-            skill_key=action.split(":",1)[1].strip(); skill=self._skill(me["class"],skill_key)
+            skill_key=action.split(":",1)[1].strip(); skill=self._skill(me["class"],skill_key,me.get("subclass",""))
             if skill_key not in set(me.get("equipped_skill_keys",[])):
                 return {"error":"That skill is not in your active 4-skill loadout."}
             if not skill:return {"error":"That skill is not available."}
