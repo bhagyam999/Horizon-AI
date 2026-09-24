@@ -518,6 +518,44 @@ SKILL_MAX_RANK = 5
 SKILL_RANK_DAMAGE = 0.035
 SKILL_RANK_HEAL = 0.02
 
+SKILL_COMBO_ROLES = {
+    "damage":"starter", "heavy":"linker", "multi":"linker", "bleed":"linker",
+    "poison":"linker", "burn":"linker", "freeze":"linker", "lifesteal":"linker",
+    "mana_drain":"linker", "dodge":"linker", "counter":"linker", "armor_break":"setup",
+    "mark":"setup", "vulnerability":"setup", "curse":"setup", "terrain":"setup",
+    "def_buff":"setup", "attack_buff":"setup", "barrier":"setup", "defend":"setup",
+    "heal":"setup", "team_heal":"setup", "recovery":"setup", "cleanse":"setup",
+    "dispel":"setup", "silence":"setup", "focus":"setup", "resource":"setup",
+    "stamina":"setup", "mana_burst":"linker", "delayed":"setup", "sacrifice":"linker",
+    "emergency":"linker", "combo":"linker", "chain":"linker", "summon":"starter",
+    "pet_boost":"setup", "aoe":"linker", "true_damage":"linker",
+    "execute":"finisher", "ultimate":"finisher", "signature":"finisher", "mythic":"finisher",
+    "random":"linker",
+}
+
+CLASS_COMBO_TRAITS = {
+    "warrior":{"chain_pct":2,"finisher_pct":8},
+    "berserker":{"chain_pct":3,"low_hp_pct":10,"finisher_pct":10},
+    "knight":{"chain_pct":2,"def_pct":2},
+    "mage":{"chain_pct":3,"status_pct":8},
+    "rogue":{"chain_pct":3,"crit_per_chain":1},
+    "assassin":{"chain_pct":4,"lifesteal_per_chain":2,"finisher_pct":12},
+    "ranger":{"chain_pct":3,"mark_pct":5},
+    "paladin":{"chain_pct":2,"heal_per_chain":2,"finisher_pct":8},
+    "summoner":{"chain_pct":2,"pet_pct":5},
+    "cleric":{"chain_pct":2,"heal_per_chain":3},
+    "druid":{"chain_pct":2,"status_pct":6},
+    "monk":{"chain_pct":4,"dodge_per_chain":1},
+    "bard":{"chain_pct":2,"team_pct":2},
+    "necromancer":{"chain_pct":3,"lifesteal_per_chain":2},
+    "warlock":{"chain_pct":3,"curse_pct":5},
+    "alchemist":{"chain_pct":2,"effect_pct":5},
+    "engineer":{"chain_pct":2,"pet_pct":4},
+    "duelist":{"chain_pct":4,"crit_per_chain":1},
+    "lancer":{"chain_pct":3,"finisher_pct":9},
+    "spellblade":{"chain_pct":3,"status_pct":7},
+}
+
 # Permanent talent trees. Every node has five ranks and costs one Talent Point
 # per rank. Class trees are deliberately different in name/flavour, while the
 # mechanical bonuses stay small and predictable. Race trees add a second layer.
@@ -734,7 +772,7 @@ def _build_subclass_skills():
                 "debuff_text":_skill_debuff_text(effect),
                 "heal_pct":{"heal":.28,"lifesteal":.34,"ultimate":.08}.get(effect,0),
                 "damage_cap":.34 if effect in {"heavy","execute","ultimate","sacrifice","true_damage"} else .30,
-                "subclass":subclass,
+                "subclass":subclass,"combo_role":SKILL_COMBO_ROLES.get(effect,"linker"),"combo_power":1.05,
             })
         result[subclass]=skills
     return result
@@ -793,7 +831,7 @@ def _build_class_skills():
             elif effect in {"true_damage","execute"}: mult=1.05 + min(i,11)*.01
             heal_pct={"heal":.24,"lifesteal":.30,"ultimate":.08,"recovery":.34}.get(effect,0)
             damage_cap=.28 if effect not in {"heavy","execute","ultimate","signature","sacrifice"} else .34
-            skills.append({"key":f"skill_{i+1}","name":name,"cost":SKILL_COSTS[i],"mult":mult,"effect":effect,"cooldown":SKILL_COOLDOWNS[i],"unlock":SKILL_UNLOCK_LEVELS[i],"mechanic":mechanic_name,"desc":_skill_effect_text(effect),"buff_text":_skill_buff_text(effect),"debuff_text":_skill_debuff_text(effect),"heal_pct":heal_pct,"damage_cap":damage_cap})
+            skills.append({"key":f"skill_{i+1}","name":name,"cost":SKILL_COSTS[i],"mult":mult,"effect":effect,"cooldown":SKILL_COOLDOWNS[i],"unlock":SKILL_UNLOCK_LEVELS[i],"mechanic":mechanic_name,"desc":_skill_effect_text(effect),"buff_text":_skill_buff_text(effect),"debuff_text":_skill_debuff_text(effect),"heal_pct":heal_pct,"damage_cap":damage_cap,"combo_role":SKILL_COMBO_ROLES.get(effect,"linker"),"combo_power":1.0})
         result[class_name]=skills
     return result
 
@@ -4570,18 +4608,24 @@ class RPGService:
         mult*=1+float(stats.get("trait_skill_pct",0))/100
         effect=skill.get("effect","damage")
 
-        # Advanced combo scaling: the combo now changes the actual damage of
-        # the current skill instead of merely printing a combo counter.
         combo_level=int(state.get("combo",0))
         combo_unique=len(set(state.get("combo_unique",[])))
         combo_repeat=int(state.get("combo_repeat",0))
+        role=skill.get("combo_role",SKILL_COMBO_ROLES.get(effect,"linker"))
         if combo_level > 0:
-            chain_bonus=min(0.25, 0.025 * combo_level)
-            variety_bonus=min(0.10, 0.015 * max(0, combo_unique - 1))
-            repeat_penalty=min(0.25, 0.05 * combo_repeat)
-            mult *= 1.0 + chain_bonus + variety_bonus - repeat_penalty
-            if effect in {"execute","ultimate","signature","mythic"}:
-                mult *= 1.0 + min(0.20, 0.02 * combo_level)
+            chain_bonus=min(0.30,0.025*combo_level)
+            variety_bonus=min(0.12,0.02*max(0,combo_unique-1))
+            repeat_penalty=min(0.30,0.06*combo_repeat)
+            mult*=max(0.70,1.0+chain_bonus+variety_bonus-repeat_penalty)
+            if role=="finisher":
+                mult*=1.0+min(0.25,0.035*combo_level)
+        elif role=="starter":
+            mult*=1.05
+        trait=CLASS_COMBO_TRAITS.get(str(state.get("class_name","")).lower(),{})
+        if combo_level:
+            mult*=1.0+min(0.30,float(trait.get("chain_pct",0))*combo_level/100)
+            if role=="finisher":
+                mult*=1.0+min(0.18,float(trait.get("finisher_pct",0))/100)
         effect_bonus=float(stats.get("trait_effect_bonus",{}).get(effect,0))
         if effect_bonus:
             mult*=1+effect_bonus/100
@@ -4591,26 +4635,6 @@ class RPGService:
             mult*=1+float(stats["trait_high_target_pct"])/100
         if stats.get("trait_low_target_pct") and state.get("enemy_hp",0)<=enemy.get("hp",1)*.40:
             mult*=1+float(stats["trait_low_target_pct"])/100
-        # Advanced combo scaling:
-        # - every successful skill can continue the chain
-        # - varied skills get a small diversity bonus
-        # - repeating the exact same skill is still viable, but suffers a
-        #   repetition penalty so one-button spam is never optimal
-        combo=int(state.get("combo",0))
-        if combo>0:
-            combo_bonus=min(.45, .035*combo)
-            unique_count=len(set(state.get("combo_unique",[])))
-            diversity_bonus=min(.08, .015*max(0,unique_count-1))
-            repeat_penalty=min(.18, .035*max(0,int(state.get("combo_repeat",0))-1))
-            mult*=1+max(0.0,combo_bonus+diversity_bonus-repeat_penalty)
-        if stats.get("trait_combo_pct"):
-            mult*=1+min(.40,float(stats["trait_combo_pct"])*float(state.get("combo",0))/100)
-        if stats.get("trait_next_skill_pct") and state.get("trait_next_skill_bonus",0):
-            mult*=1+float(stats["trait_next_skill_pct"])/100
-            state["trait_next_skill_bonus"]=0
-        if state.get("trait_dodge_bonus",0):
-            mult*=1+float(state["trait_dodge_bonus"])/100
-            state["trait_dodge_bonus"]=0
         if debuff.get("vulnerable"):
             mult*=1+float(debuff["vulnerable"])
         if debuff.get("marked"):
@@ -4752,9 +4776,9 @@ class RPGService:
             hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.15); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.38))); state["enemy_debuffs"]["vulnerable"]=.12; state["enemy_debuffs"]["vuln_turns"]=2; log.append(f"👑 **{skill['name']}** combined damage and exposure for **{hit}**.")
         elif effect=="signature":
             hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.2); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.40))); state["buffs"]["atk_up"]=.18; state["buffs"]["atk_turns"]=2; log.append(f"✨ **{skill['name']}** unleashed your class signature for **{hit}** damage.")
-        # Advanced combo engine.
-        # A combo is a sequence of successful skills, not a single skill being
-        # pressed repeatedly. Every damaging technique can continue it.
+        # Advanced combo engine: build a sequence, reward variety, and cash
+        # the chain with a finisher. Repeating one skill keeps the combo alive
+        # but does not increase its stack.
         dealt_before_combo=max(0,start_enemy_hp-state["enemy_hp"])
         if dealt_before_combo>0:
             skill_key=str(skill.get("key",effect))
@@ -4762,48 +4786,77 @@ class RPGService:
             previous_effect=state.get("last_skill_effect","")
             chain=state.setdefault("combo_chain",[])
             unique=state.setdefault("combo_unique",[])
-            if previous_key:
-                state["combo"]=min(10,int(state.get("combo",0))+1)
-            else:
+            previous_combo=int(state.get("combo",0))
+            same_skill=bool(previous_key and skill_key==previous_key)
+
+            if not previous_key:
                 state["combo"]=1
-            if skill_key==previous_key:
+                state["combo_repeat"]=0
+            elif same_skill:
+                state["combo"]=previous_combo
                 state["combo_repeat"]=int(state.get("combo_repeat",0))+1
             else:
+                state["combo"]=min(12,previous_combo+1)
                 state["combo_repeat"]=0
+
             if skill_key not in unique:
                 unique.append(skill_key)
                 del unique[:-6]
             chain.append(skill_key)
-            del chain[:-5]
+            del chain[:-6]
             state["combo_peak"]=max(int(state.get("combo_peak",0)),int(state["combo"]))
+            state["combo_last_skill"]=skill_key
 
-            # Specific technique pairings create a small tactical bonus.
             combo_pairs={
-                ("armor_break","heavy"):("🗡️ Armor shattered → Power Blow",.07),
-                ("mark","execute"):("🎯 Mark → Execution",.10),
-                ("vulnerability","execute"):("🔻 Exposure → Execution",.12),
-                ("bleed","lifesteal"):("🩸 Bleed → Blood Drain",.08),
-                ("poison","execute"):("☠️ Venom → Execution",.10),
-                ("curse","execute"):("🕯️ Curse → Execution",.10),
-                ("def_buff","attack_buff"):("🛡️ Guard → Counterpressure",.05),
-                ("attack_buff","heavy"):("⚔️ Power → Heavy Strike",.07),
-                ("multi","bleed"):("⚔️ Flurry → Bleeding Wound",.06),
-                ("freeze","heavy"):("❄️ Freeze → Shatter",.10),
-                ("mana_drain","ultimate"):("💧 Siphon → Ultimate",.08),
-                ("combo","multi"):("🔗 Chain → Flurry",.07),
+                ("armor_break","heavy"):("🗡️ Armor Shattered → Power Blow",.08),
+                ("mark","execute"):("🎯 Mark → Execution",.12),
+                ("vulnerability","execute"):("🔻 Exposure → Execution",.14),
+                ("bleed","lifesteal"):("🩸 Bleed → Blood Drain",.10),
+                ("poison","execute"):("☠️ Venom → Execution",.12),
+                ("curse","execute"):("🕯️ Curse → Execution",.12),
+                ("def_buff","attack_buff"):("🛡️ Guard → Counterpressure",.06),
+                ("attack_buff","heavy"):("⚔️ Power → Heavy Strike",.08),
+                ("multi","bleed"):("⚔️ Flurry → Bleeding Wound",.07),
+                ("freeze","heavy"):("❄️ Freeze → Shatter",.12),
+                ("mana_drain","ultimate"):("💧 Siphon → Ultimate",.10),
+                ("combo","multi"):("🔗 Momentum → Flurry",.09),
+                ("dodge","counter"):("💨 Evasion → Riposte",.08),
+                ("barrier","counter"):("🛡️ Aegis → Reprisal",.08),
+                ("burn","freeze"):("🔥 Burn → Frostbreak",.10),
             }
             pair=combo_pairs.get((previous_effect,effect))
             if pair:
                 label,percent=pair
-                extra=max(1,int(dealt_before_combo*percent))
+                extra=max(1,int(max(1,dealt_before_combo)*percent))
                 state["enemy_hp"]=max(0,state["enemy_hp"]-extra)
                 log.append(f"{label} • **+{extra} combo damage**")
 
-            # Finishers cash in the chain. They get stronger from the combo,
-            # then the chain resets so players must build it again.
-            if effect in {"execute","ultimate","signature","mythic"}:
-                finisher_combo=int(state.get("combo",1))
-                finisher_bonus=min(.60,.10*finisher_combo)
+            trait=CLASS_COMBO_TRAITS.get(str(state.get("class_name","")).lower(),{})
+            combo_now=int(state["combo"])
+            if trait.get("heal_per_chain") and combo_now>0 and effect in {"heal","lifesteal","recovery","ultimate","signature"}:
+                heal=max(1,int(stats["max_hp"]*float(trait["heal_per_chain"])*combo_now/100))
+                state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
+                log.append(f"💚 Class chain restored **{heal} HP**.")
+            if trait.get("lifesteal_per_chain") and combo_now>0 and dealt_before_combo>0:
+                heal=max(1,int(dealt_before_combo*float(trait["lifesteal_per_chain"])*combo_now/100))
+                state["player_hp"]=min(stats["max_hp"],state["player_hp"]+heal)
+            if trait.get("crit_per_chain") and combo_now>0:
+                state["buffs"]["crit_up"]=max(int(state["buffs"].get("crit_up",0)),min(12,int(trait["crit_per_chain"]*combo_now)))
+                state["buffs"]["crit_turns"]=2
+            if trait.get("dodge_per_chain") and combo_now>0:
+                state["buffs"]["evasion"]=max(float(state["buffs"].get("evasion",0)),min(.15,float(trait["dodge_per_chain"]*combo_now/100)))
+                state["buffs"]["evasion_turns"]=2
+            if trait.get("def_pct") and combo_now>0:
+                state["buffs"]["def_up"]=max(float(state["buffs"].get("def_up",0)),min(.15,float(trait["def_pct"]*combo_now/100)))
+                state["buffs"]["def_turns"]=2
+
+            if same_skill and state["combo_repeat"]>=2:
+                log.append(f"⚠️ **Repetition x{state['combo_repeat']}** — switch skills to keep building the chain.")
+
+            role=skill.get("combo_role",SKILL_COMBO_ROLES.get(effect,"linker"))
+            if role=="finisher":
+                finisher_combo=max(1,combo_now)
+                finisher_bonus=min(.70,.09*finisher_combo)
                 extra=max(1,int(max(1,stats["atk"])*finisher_bonus))
                 state["enemy_hp"]=max(0,state["enemy_hp"]-extra)
                 log.append(f"💥 **COMBO FINISHER x{finisher_combo}** • +{extra} bonus damage")
@@ -4811,20 +4864,20 @@ class RPGService:
                 state["combo_chain"]=[]
                 state["combo_unique"]=[]
                 state["combo_repeat"]=0
+                state["combo_last_skill"]=""
             else:
-                unique_count=len(set(state.get("combo_unique",[])))
-                chain_bonus=min(25,int(round(.025*int(state["combo"])*100)))
-                variety_bonus=min(10,int(round(.015*max(0,unique_count-1)*100)))
-                repeat_penalty=min(25,int(round(.05*int(state.get("combo_repeat",0))*100)))
+                chain_bonus=min(30,int(round(.025*combo_now*100)))
+                variety_bonus=min(12,int(round(.02*max(0,len(set(unique))-1)*100)))
+                repeat_penalty=min(30,int(round(.06*int(state.get("combo_repeat",0))*100)))
                 net_bonus=max(0,chain_bonus+variety_bonus-repeat_penalty)
                 if net_bonus>0:
-                    log.append(f"🔗 **COMBO x{state['combo']}** • +{net_bonus}% current-chain damage")
+                    log.append(f"🔗 **COMBO x{combo_now}** • +{net_bonus}% chain damage")
         else:
-            # Missed/zero-damage techniques break the offensive chain.
             state["combo"]=0
             state["combo_chain"]=[]
             state["combo_unique"]=[]
             state["combo_repeat"]=0
+            state["combo_last_skill"]=""
 
         state["last_skill_effect"]=effect
         dealt=max(0,start_enemy_hp-state["enemy_hp"])
