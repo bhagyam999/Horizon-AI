@@ -490,6 +490,41 @@ def build_rpg_ai_knowledge():
         trait=SUBCLASS_TRAITS.get(key,{})
         lines.append(f"- {key} ({parent}): {desc}; bonuses={bonus}; trait={trait.get('name','')}: {trait.get('desc','')}; skills: "+", ".join(skills))
 
+    lines.append("FULL SKILL MECHANICS — every class and subclass skill currently implemented:")
+    def skill_line(skill):
+        if not isinstance(skill, dict):
+            return str(skill)
+        parts=[
+            str(skill.get("name") or skill.get("key") or "Unknown"),
+            f"key={skill.get('key','?')}",
+            f"unlock={skill.get('unlock','?')}",
+            f"cost={skill.get('cost','?')}",
+            f"cooldown={skill.get('cooldown','?')}",
+            f"multiplier={skill.get('mult','?')}",
+            f"role={skill.get('combo_role','?')}",
+            f"effect={skill.get('effect','?')}",
+        ]
+        for field,label in (("buff_text","buff"),("debuff_text","debuff"),("heal_pct","heal_pct"),("duration","duration"),("hits","hits"),("lifesteal_pct","lifesteal_pct"),("crit_bonus","crit_bonus"),("damage_bonus","damage_bonus")):
+            if skill.get(field) not in (None,"","?"):
+                parts.append(f"{label}={skill.get(field)}")
+        if skill.get("desc"):
+            parts.append(f"description={skill.get('desc')}")
+        return "; ".join(parts)
+    for class_key,skills in SKILLS.items():
+        lines.append(f"CLASS SKILLS — {class_key}:")
+        for skill in skills:
+            lines.append("- "+skill_line(skill))
+    for subclass_key,skills in SUBCLASS_SKILLS.items():
+        lines.append(f"SUBCLASS SKILLS — {subclass_key}:")
+        for skill in skills:
+            lines.append("- "+skill_line(skill))
+
+    lines.append("SKILL SYSTEM RULES:")
+    lines.append("Each character has 4 combat skill slots. Skill loadouts are slot-based; changing one slot replaces only that slot.")
+    lines.append("Skill mastery ranks are 1-5 and improve the skill's scaling according to the live mastery constants.")
+    lines.append("Combo behavior is data-driven by each skill's combo_role and the live class combo traits. Do not invent an effect just because a skill name sounds like it should do it.")
+    lines.append("When building a combo, first check the player's actual equipped/unlocked skills, then order starter/setup/linker/finisher roles, resource costs, cooldowns, buffs, debuffs and enemy state. Clearly label any proposed optimization that is not an explicit game rule.")
+
     lines.append("RACES:")
     for key,data in RACES.items():
         prof=RACE_PROFILES.get(key,{})
