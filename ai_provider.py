@@ -34,6 +34,7 @@ class GeminiProvider:
         self.available_models: list[str] = []
         self.last_refresh = 0.0
         self.last_error = ""
+        self.model_health: dict[str, dict[str, Any]] = {}
 
     @staticmethod
     def is_agent_model(model: str) -> bool:
@@ -95,9 +96,16 @@ class GeminiProvider:
                 self.available_models.append(name)
 
         self.last_refresh = time.monotonic()
+        for name in self.available_models:
+            previous=self.model_health.get(name)
+            if not previous or previous.get("status") in {"unavailable","unknown"}:
+                self.model_health[name]={"status":"available","detail":"Listed by Gemini and supports generation."}
         if self.available_models and self.active_model not in self.available_models:
             self.active_model = self.available_models[0]
         return self.available_models
+
+    def _mark_model(self, model: str, status: str, detail: str):
+        self.model_health[self.normalize(model)]={"status":status,"detail":detail,"checked_at":time.time()}
 
     async def _request(self, model: str, prompt: str) -> str:
         model = self.normalize(model)
@@ -124,6 +132,7 @@ class GeminiProvider:
             async with session.post(url, headers=self.headers(), json=payload) as response:
                 body = await response.text()
                 if response.status == 200:
+                    self._mark_model(model, "available", "Responded successfully.")
                     data: dict[str, Any] = json.loads(body)
                     parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
                     answer_parts = [
@@ -180,14 +189,15 @@ class GeminiProvider:
                         return text
 
                 if response.status == 429:
-                    # Do not burn through every model when the whole project is
-                    # quota-limited. The quota is project-wide, not per API key.
-                    raise RuntimeError(
-                        "Gemini quota/rate limit reached (HTTP 429). "
-                        "Wait for the quota window to reset or use a project/model "
-                        "with available quota."
-                    )
+                    self._mark_model(model, "rate_limited", "HTTP 429: quota or rate limit reached.")
+                    raise RuntimeError(f"Model {model} is rate limited (HTTP 429).")
 
+                if response.status in {400, 404}:
+                    self._mark_model(model, "unavailable", f"HTTP {response.status}: model cannot be used with this request.")
+                elif response.status in {401, 403}:
+                    self._mark_model(model, "auth_error", f"HTTP {response.status}: API key/access issue.")
+                elif response.status >= 500:
+                    self._mark_model(model, "temporarily_unavailable", f"HTTP {response.status}: Gemini server error.")
                 raise RuntimeError(f"Gemini HTTP {response.status}: {body[:800]}")
 
     async def ask(self, prompt: str) -> str:
@@ -247,11 +257,16 @@ class GeminiProvider:
             await self.refresh_models()
         except Exception as exc:
             self.last_error = str(exc)
+        statuses=[]
+        for name in self.available_models:
+            health=self.model_health.get(name, {})
+            statuses.append({"model":name,"status":health.get("status","available"),"detail":health.get("detail","Listed by Gemini and supports generation.")})
         return {
             "provider": "Gemini",
             "configured_model": self.preferred_model,
             "active_model": self.active_model,
             "available_models": self.available_models,
+            "model_statuses": statuses,
             "last_error": self.last_error,
         }
 
@@ -281,10 +296,17 @@ class AIProvider:
     async def status(self):
         data = await self.gemini.status_data()
         ok = bool(self.gemini.api_key) and bool(data["available_models"])
-        detail = (
-            f"Model: `{data['active_model']}`\n"
-            f"Available models: {len(data['available_models'])}"
-        )
+        statuses=data.get("model_statuses", [])
+        counts={}
+        for item in statuses:
+            counts[item["status"]]=counts.get(item["status"],0)+1
+        summary=" • ".join(f"{k.replace('_',' ').title()}: {v}" for k,v in counts.items()) or "No model data"
+        detail=f"Active model: `{data['active_model']}`\nModel health: {summary}"
+        if statuses:
+            detail += "\n" + "\n".join(
+                f"• `{x['model']}` — **{x['status'].replace('_',' ').title()}**"
+                for x in statuses
+            )
         if data["last_error"]:
             detail += f"\nLast error: `{data['last_error'][:300]}`"
         return ok, detail
