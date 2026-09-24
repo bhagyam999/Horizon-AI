@@ -36,6 +36,7 @@ class GeminiProvider:
         self.available_models: list[str] = []
         self.last_refresh = 0.0
         self.last_error = ""
+        self.last_usage_tokens = 0
         self.model_health: dict[str, dict[str, Any]] = {}
 
 
