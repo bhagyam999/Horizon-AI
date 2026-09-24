@@ -805,6 +805,57 @@ async def rpg_ai_fallback(guild_id, user_id, prompt):
                     lines.append(f"Debuff: **{skill['debuff_text']}**")
         return "\n".join(lines)
 
+    # Keep the offline advisor useful during Gemini quota windows too.
+    stats = (
+        f"HP {p.get('hp','?')}/{p.get('max_hp','?')} • MP {p.get('mp','?')}/{p.get('max_mp','?')} • "
+        f"ATK {p.get('atk','?')} • DEF {p.get('defense','?')} • SPD {p.get('speed','?')} • CRIT {p.get('crit','?')}"
+    )
+    if any(word in text for word in ("stat", "stats", "build", "character", "profile")):
+        return (
+            f"**📊 Your Horizon RPG Character**\n"
+            f"**{p.get('name','Hero')}** — Level {p.get('level',1)} {str(p.get('race','?')).title()} {str(p.get('class_name','?')).title()}\n"
+            f"Subclass: **{p.get('subclass') or 'None'}**\n{stats}\n"
+            f"Gold: **{p.get('gold',0)}** • XP: **{p.get('xp',0)}**\n\n"
+            "These are your current saved stats. Skills, equipment, race/subrace traits, "
+            "pets and mastery can modify how those stats perform in combat."
+        )
+    if any(word in text for word in ("item", "equipment", "gear", "weapon", "armor", "ring", "amulet", "codex", "shop")):
+        gear = await bot.rpg.equipment_details(guild_id, user_id)
+        inv = await bot.rpg.inventory(guild_id, user_id)
+        lines=["**🎒 Horizon RPG Equipment & Inventory**"]
+        if gear:
+            lines.append("**Equipped:**")
+            for item in gear:
+                lines.append(f"• {item.get('slot','?')}: `{item.get('item_key','?')}` +{item.get('upgrade_level',0)}")
+        else:
+            lines.append("**Equipped:** Nothing recorded.")
+        if inv:
+            lines.append("**Inventory:** "+", ".join(f"{k} ×{q}" for k,q in inv[:30]))
+        lines.append("For exact item stats/effects, use the live item codex/shop data; item names alone are not enough to infer mechanics.")
+        return "\n".join(lines)
+    if any(word in text for word in ("pet", "egg", "companion")):
+        pet=await bot.rpg.pet_record(guild_id,user_id)
+        pets=await bot.rpg.pet_inventory(guild_id,user_id)
+        if pet:
+            return (
+                f"**🐾 Companion Guide**\nEquipped: **{pet.get('name','Pet')}** "
+                f"({pet.get('species','?')}) • Level {pet.get('level',1)} • "
+                f"Ability: **{pet.get('ability','?')}**\n"
+                f"You own **{len(pets)}** pet(s). Egg pools are fixed by the live RPG data."
+            )
+        return "**🐾 Companion Guide**\nYou do not currently have an equipped pet. Eggs use their defined exclusive hatch pools."
+    if any(word in text for word in ("quest", "daily", "weekly", "monthly", "bounty")):
+        try:
+            q=await bot.rpg.quest2_categories(guild_id,user_id)
+            counts=", ".join(f"{k.title()}: {len(v)}" for k,v in q.items())
+            return (
+                f"**📜 Quest 2.0 Guide**\n{counts}\n\n"
+                "Daily quests reset at 17:30 IST, weekly quests reset Monday at 17:30 IST, "
+                "monthly quests reset on the 1st at 17:30 IST. Completed rotating objectives "
+                "can be claimed once for their stored rewards."
+            )
+        except Exception:
+            pass
     return (
         f"**Horizon RPG Advisor**\n"
         f"You're playing **{p.get('class_name','?')}**, level **{p.get('level',1)}**, "
