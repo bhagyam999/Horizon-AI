@@ -2416,19 +2416,34 @@ class RPGService:
 
     async def equip_skill(self, guild_id, user_id, skill_key, slot=1):
         p=await self.player(guild_id,user_id)
-        if not p:return False,"Create a hero first."
-        slot=max(1,min(4,int(slot)))
-        skill=self._skill_for_player(p,skill_key.lower())
-        if not skill:return False,"That skill does not belong to your current class."
-        if not self._skill_available(p,skill):return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
+        if not p:
+            return False,"Create a hero first."
+        try:
+            slot=int(slot)
+        except (TypeError,ValueError):
+            return False,"Skill slot must be **1, 2, 3, or 4**."
+        if slot not in {1,2,3,4}:
+            return False,"Skill slot must be **1, 2, 3, or 4**."
+        skill=self._skill_for_player(p,str(skill_key).lower().strip())
+        if not skill:
+            return False,"That skill does not belong to your current class/subclass."
+        if not self._skill_available(p,skill):
+            return False,f"**{skill['name']}** unlocks at level **{skill['unlock']}**."
         async with aiosqlite.connect(self.path) as db:
-            cur=await db.execute("SELECT slot FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND skill_key=?", (guild_id,user_id,skill["key"]))
-            existing=await cur.fetchone()
-            if existing and int(existing[0])!=slot:
-                await db.execute("DELETE FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND slot=?", (guild_id,user_id,int(existing[0])))
-            await db.execute("INSERT INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?) ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET skill_key=excluded.skill_key", (guild_id,user_id,slot,skill["key"]))
+            # A skill can occupy only one active slot. If it is moved,
+            # clear its old slot first, then replace the requested slot.
+            await db.execute(
+                "DELETE FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND skill_key=?",
+                (guild_id,user_id,skill["key"]),
+            )
+            await db.execute(
+                "INSERT INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?) "
+                "ON CONFLICT(guild_id,user_id,slot) DO UPDATE SET skill_key=excluded.skill_key",
+                (guild_id,user_id,slot,skill["key"]),
+            )
             await db.commit()
-        return True,f"Equipped **{skill['name']}** in skill slot **{slot}**."
+        return True,f"Equipped **{skill['name']}** in **Skill Slot {slot}**."
+
 
     async def skill_loadout(self,guild_id,user_id):
         p=await self.player(guild_id,user_id)
