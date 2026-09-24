@@ -2665,7 +2665,7 @@ class RPGPvPSkillView(discord.ui.View):
     def __init__(self,battle_view,user_id):
         super().__init__(timeout=45); self.battle_view=battle_view; self.user_id=user_id
         data=battle_view.state["players"][user_id]; options=[]
-        for skill in [x for x in SKILLS.get(data.get("class",""),[]) if x["key"] in data.get("equipped_skill_keys",[])][:4]:
+        for skill in [x for x in bot.rpg.skills_for_player(data) if x["key"] in data.get("equipped_skill_keys",[])][:4]:
             if int(data.get("level",1)) < int(skill.get("unlock",1)):
                 continue
             cd=int(data.get("skill_cooldowns",{}).get(skill["key"],0)); status=f"CD {cd}" if cd else f"{skill['cost']} MP"
@@ -3186,7 +3186,7 @@ async def rpg_subclasses(ctx, *, class_name: str = ""):
     rows=[(k,v) for k,v in SUBCLASSES.items() if not class_name or v[0]==class_name]
     if not rows:
         await _rpg_action_panel(ctx,"Subclasses","No matching subclasses. Use `!rpg subclasses <class>`.",False); return
-    pages=_rpg_pages("Subclasses • Level 10+",rows,page_size=6,icon="⚔️",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n{x[1][1]}\n✨ **{SUBCLASS_TRAITS.get(x[0],{}).get('name','Unique Trait')}** — {SUBCLASS_TRAITS.get(x[0],{}).get('desc','No special trait.')}")
+    pages=_rpg_pages("Subclasses • Level 10+",rows,page_size=4,icon="⚔️",formatter=lambda x:f"**{x[0].replace('_',' ').title()}** → {x[1][0].title()}\n{x[1][1]}\n✨ **{SUBCLASS_TRAITS.get(x[0],{}).get('name','Unique Trait')}** — {SUBCLASS_TRAITS.get(x[0],{}).get('desc','No special trait.')}\n\n⚔️ **Skills:** {", ".join(s["name"] for s in SUBCLASS_SKILLS.get(x[0],[])[:6])}")
     await _rpg_panel(ctx,pages)
 @rpg_root.command(name="change")
 async def rpg_change(ctx, kind: str = "", *, value: str = ""):
