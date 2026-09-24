@@ -2996,7 +2996,7 @@ class RPGService:
         ]
         return {"story":story,"daily":[x for x in rows if x["period"]=="daily"],"weekly":[x for x in rows if x["period"]=="weekly"],"monthly":[x for x in rows if x["period"]=="monthly"],"class":class_quests,"race":race_quests,"faction":faction_quests,"bounty":bounty,"secret":secret,"legendary":legendary}
 
-    async def claim_objective(self, guild_id, user_id, period, objective_key, period_key=None):
+    async def claim_quest2_objective(self, guild_id, user_id, period, objective_key, period_key=None):
         """Claim a completed Quest 2.0 rotating objective exactly once."""
         period=str(period).lower()
         if period not in {"daily","weekly","monthly"}:
