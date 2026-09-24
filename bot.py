@@ -198,16 +198,27 @@ class Horizon(commands.Bot):
         log.info("Horizon joined guild %s (%s)", guild.name, guild.id)
 
     async def _automated_moderation(self, message: discord.Message):
-        if not message.guild or message.author.bot or not message.content.strip(): return
+        if not message.guild or message.author.bot:
+            return
         settings=await self.db.settings(message.guild.id)
-        if not int(settings.get("mod_enabled",1)): return
+        if str(settings.get("moderation_enabled","1")).lower() in {"0","false","off","no"}:
+            return
         member=message.author if isinstance(message.author,discord.Member) else message.guild.get_member(message.author.id)
-        if member and (member.guild_permissions.administrator or member.guild_permissions.manage_guild or member.guild_permissions.manage_messages): return
-        history=self.mod_history.setdefault(message.author.id,[])
-        decision=self.mod.inspect(message.content, history=history[-12:])
-        history.append(message.content[:1000]); del history[:-12]
+        if member and (member.guild_permissions.administrator or member.guild_permissions.manage_guild or member.guild_permissions.manage_messages):
+            return
 
-        # Moderation needs conversation context, not just the triggering sentence.
+        # Stage 1: cheap local moderation only. The AI is deliberately NOT called
+        # for ordinary messages or merely suspicious keywords. This keeps token
+        # usage low and lets the local engine decide when AI review is warranted.
+        history=self.mod_history.setdefault(message.author.id,[])
+        decision=self.mod.inspect(message.content,history=history[-12:])
+        history.append(message.content[:1000])
+        del history[:-12]
+
+        if not decision.alert:
+            return
+
+        # Stage 2: only messages actually flagged by local moderation reach the AI.
         channel_context=[]
         try:
             rows=await self.db.ai_server_messages(message.guild.id,limit=20,channel_id=message.channel.id)
@@ -219,15 +230,6 @@ class Horizon(commands.Bot):
             channel_context=[f"Author: {x}" for x in history[-10:]]
         context="\n".join(channel_context[-16:])
 
-        suspicious=(
-            decision.score >= 2 or decision.target or decision.escalation
-            or any(term in message.content.lower() for term in (
-                "kill","die","hurt","shoot","stab","rape","dox","bomb","threat",
-                "suicide","kys","swat","address","ip","leak"
-            ))
-        )
-        if not suspicious:
-            return
         try:
             verdicts=await asyncio.wait_for(
                 self.ai.moderate(message.content,context,rpg_knowledge=build_rpg_ai_knowledge()),
@@ -235,6 +237,7 @@ class Horizon(commands.Bot):
             )
         except Exception:
             verdicts=[]
+
         strong=[v for v in verdicts if float(v.get("confidence",0) or 0)>=0.75 and int(v.get("severity",0) or 0)>=2]
         from collections import Counter
         action_counts=Counter(str(v.get("action","allow")) for v in strong if str(v.get("action","allow"))!="allow")
@@ -243,25 +246,46 @@ class Horizon(commands.Bot):
         ai_category=category_counts.most_common(1)[0][0] if category_counts else (decision.category or "other")
         should_delete=ai_action=="delete" or (decision.score>=7 and decision.target)
         should_timeout=ai_action=="timeout" or (decision.score>=8 and decision.target)
+
         if not should_delete and not should_timeout:
-            if ai_action=="flag" and decision.score>=3:
-                await self.db.add_warning(message.guild.id,message.author.id,self.user.id,f"AI moderation flag: {ai_category}")
+            if ai_action=="flag":
+                await self.db.add_warning(
+                    message.guild.id,message.author.id,self.user.id,
+                    f"AI moderation flag: {ai_category}"
+                )
             return
+
         try:
-            if should_delete: await message.delete(reason=f"Horizon AI moderation: {ai_category}")
+            if should_delete:
+                await message.delete(reason=f"Horizon AI moderation: {ai_category}")
             if should_timeout and member:
-                try: await member.timeout(datetime.timedelta(minutes=10),reason=f"Horizon AI moderation: {ai_category}")
-                except (discord.Forbidden,discord.HTTPException): pass
-            await self.db.add_warning(message.guild.id,message.author.id,self.user.id,f"Automatic moderation: {ai_category}")
-        except (discord.NotFound,discord.Forbidden,discord.HTTPException): pass
+                try:
+                    await member.timeout(
+                        datetime.timedelta(minutes=10),
+                        reason=f"Horizon AI moderation: {ai_category}"
+                    )
+                except (discord.Forbidden,discord.HTTPException):
+                    pass
+            await self.db.add_warning(
+                message.guild.id,message.author.id,self.user.id,
+                f"Automatic moderation: {ai_category}"
+            )
+        except (discord.NotFound,discord.Forbidden,discord.HTTPException):
+            pass
+
         log_channel_id=int(settings.get("log_channel_id") or 0)
         if log_channel_id:
             channel=self.get_channel(log_channel_id)
             if channel:
                 try:
                     action="timeout + delete" if should_timeout else "delete"
-                    await channel.send(f"🛡️ **Horizon Auto-Mod** | {message.author.mention} in {message.channel.mention}\nAction: **{action}** • Category: **{ai_category}**\nLocal score: `{decision.score}` • AI agreement: `{dict(action_counts)}`")
-                except (discord.Forbidden,discord.HTTPException): pass
+                    await channel.send(
+                        f"🛡️ **Horizon Auto-Mod** | {message.author.mention} in {message.channel.mention}\n"
+                        f"Action: **{action}** • Category: **{ai_category}**\n"
+                        f"Local score: `{decision.score}` • AI agreement: `{dict(action_counts)}`"
+                    )
+                except (discord.Forbidden,discord.HTTPException):
+                    pass
 
     async def on_message(self, message: discord.Message):
         if message.guild and not message.author.bot:
