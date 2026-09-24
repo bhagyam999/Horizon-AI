@@ -86,36 +86,90 @@ class GeminiProvider:
 
     async def _request(self, model: str, prompt: str) -> str:
         model = self.normalize(model)
+        timeout = aiohttp.ClientTimeout(total=TIMEOUT)
+
+        # Gemini's newer models can be Interaction-only. Try the legacy
+        # generateContent endpoint first for older models, then transparently
+        # switch to the Interactions API when Google tells us that the model
+        # requires it.
         url = f"{API_BASE}/models/{model}:generateContent"
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "generationConfig": {
                 "maxOutputTokens": int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1200")),
-                # Disable visible thinking where the selected Gemini model supports it.
-                # The parser below also filters thought parts for models that return them.
                 "thinkingConfig": {"thinkingBudget": 0},
             },
         }
-        timeout = aiohttp.ClientTimeout(total=TIMEOUT)
+
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.post(url, headers=self.headers(), json=payload) as response:
                 body = await response.text()
-                if response.status != 200:
-                    raise RuntimeError(f"Gemini HTTP {response.status}: {body[:800]}")
-                data: dict[str, Any] = json.loads(body)
+                if response.status == 200:
+                    data: dict[str, Any] = json.loads(body)
+                    parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                    answer_parts = [
+                        p.get("text", "")
+                        for p in parts
+                        if p.get("text") and not p.get("thought", False)
+                    ]
+                    text = "".join(answer_parts).strip()
+                    if not text:
+                        raise RuntimeError(f"Gemini returned no visible answer text: {json.dumps(data)[:800]}")
+                    return text
 
-        parts = data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-        # Gemini thinking models may return internal reasoning as separate parts.
-        # Never send those parts to Discord; only use normal answer parts.
-        answer_parts = [
-            p.get("text", "")
-            for p in parts
-            if p.get("text") and not p.get("thought", False)
-        ]
-        text = "".join(answer_parts).strip()
-        if not text:
-            raise RuntimeError(f"Gemini returned no visible answer text: {json.dumps(data)[:800]}")
-        return text
+                # Newer Gemini models may reject generateContent with:
+                # "This model only supports Interactions API."
+                if response.status == 400 and "Interactions API" in body:
+                    interaction_url = f"{API_BASE}/interactions"
+                    interaction_payload = {
+                        "model": model,
+                        "input": prompt,
+                        "generation_config": {
+                            "max_output_tokens": int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1200")),
+                        },
+                        "store": False,
+                    }
+                    async with session.post(
+                        interaction_url,
+                        headers=self.headers(),
+                        json=interaction_payload,
+                    ) as interaction_response:
+                        interaction_body = await interaction_response.text()
+                        if interaction_response.status != 200:
+                            raise RuntimeError(
+                                f"Gemini Interactions HTTP {interaction_response.status}: "
+                                f"{interaction_body[:800]}"
+                            )
+                        interaction_data: dict[str, Any] = json.loads(interaction_body)
+                        # Interactions responses use structured output steps.
+                        answer_parts: list[str] = []
+                        for step in interaction_data.get("steps", []):
+                            if step.get("type") != "model_output":
+                                continue
+                            for part in step.get("content", []):
+                                if part.get("type") == "text" and part.get("text"):
+                                    answer_parts.append(part["text"])
+                        text = "".join(answer_parts).strip()
+                        if not text:
+                            # Also support the simplified output shape if returned.
+                            text = str(interaction_data.get("output_text", "")).strip()
+                        if not text:
+                            raise RuntimeError(
+                                f"Gemini Interactions returned no visible answer: "
+                                f"{json.dumps(interaction_data)[:800]}"
+                            )
+                        return text
+
+                if response.status == 429:
+                    # Do not burn through every model when the whole project is
+                    # quota-limited. The quota is project-wide, not per API key.
+                    raise RuntimeError(
+                        "Gemini quota/rate limit reached (HTTP 429). "
+                        "Wait for the quota window to reset or use a project/model "
+                        "with available quota."
+                    )
+
+                raise RuntimeError(f"Gemini HTTP {response.status}: {body[:800]}")
 
     async def ask(self, prompt: str) -> str:
         if not self.api_key:
