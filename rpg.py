@@ -767,7 +767,21 @@ def _build_class_skills():
                 candidates=CLASS_SKILL_EXTRA_POOL[class_index % len(CLASS_SKILL_EXTRA_POOL):] + CLASS_SKILL_EXTRA_POOL[:class_index % len(CLASS_SKILL_EXTRA_POOL)]
                 extras=[e for e in candidates if e not in used]
                 effect=extras[i-len(effects)]
-            name={"damage":"Direct Strike","heavy":"Heavy Strike","multi":"Double Strike","bleed":"Bleeding Strike","heal":"Heal","def_buff":"Defense Up","attack_buff":"Attack Up","armor_break":"Defense Break","poison":"Poison Strike","burn":"Burn Strike","freeze":"Freeze Strike","lifesteal":"Life Steal","mana_drain":"Mana Drain","dodge":"Evasion Up","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Execute","true_damage":"True Damage","ultimate":"Ultimate Finisher","signature":"Signature Finisher","stance":"Adaptive Stance","focus":"Critical Focus","mark":"Target Mark","silence":"Silence","curse":"Curse","terrain":"Battlefield Control","resource":"Resource Surge","stamina":"Stamina Surge","mana_burst":"Mana Burst","delayed":"Delayed Strike","sacrifice":"Blood Price","emergency":"Desperation Strike","combo":"Combo Strike","chain":"Chain Attack","team_buff":"Combat Rally","pet_boost":"Companion Boost","summon":"Summon Attack","aoe":"Area Strike","dispel":"Dispel","random":"Random Effect"}.get(effect,names[i] if i < len(names) else f"{class_name.replace('_',' ').title()} Technique {i+1}")
+            name={
+                "damage":"Cinderfang","heavy":"Titanfall","multi":"Twin Requiem","bleed":"Crimson Rend",
+                "heal":"Lumen's Grace","def_buff":"Aegis of the Dawn","attack_buff":"Warborn Ascension",
+                "armor_break":"Sunderer's Oath","poison":"Venomveil","burn":"Emberwake","freeze":"Frostwraith",
+                "lifesteal":"Sanguine Requiem","mana_drain":"Aether Siphon","dodge":"Phantom Step",
+                "counter":"Oathbound Reprisal","barrier":"Seraphic Aegis","vulnerability":"Mark of Ruin",
+                "execute":"Eclipse Execution","true_damage":"Worldrend","ultimate":"Cataclysm Aria",
+                "signature":"Sovereign's Verdict","stance":"Eclipse Stance","focus":"Keenstar Focus",
+                "mark":"Hunter's Sigil","silence":"Gravebind","curse":"Doomweaver's Hex",
+                "terrain":"Realmshaper's Decree","resource":"Astral Resurgence","stamina":"Warrior's Vigor",
+                "mana_burst":"Aetherflare","delayed":"Doomclock","sacrifice":"Blood Price",
+                "emergency":"Desperate Ascension","combo":"Rising Tempest","chain":"Myriad Blades",
+                "team_buff":"Banner of Valor","pet_boost":"Beastlord's Bond","summon":"Phantom Conjuration",
+                "aoe":"Starfall Cataclysm","dispel":"Nullsong","random":"Fateweaver's Gambit"
+            }.get(effect,names[i] if i < len(names) else f"{class_name.replace('_',' ').title()} Technique {i+1}")
             mechanic_name={
                 "damage":"Core Strike","heavy":"Power Blow","multi":"Rapid Sequence","bleed":"Bleeding Wound","heal":"Recovery","def_buff":"Defensive Stance","attack_buff":"Offensive Stance","armor_break":"Defense Break","poison":"Poison","burn":"Burn","freeze":"Freeze","lifesteal":"Merciful Requiem","mana_drain":"Aether Siphon","dodge":"Evasive Step","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Final Rupture","true_damage":"Piercing Damage","ultimate":"Signature Finisher","summon":"Summon","pet_boost":"Companion Empowerment","chain":"Chain Attack","team_buff":"Battle Rally","defend":"Guard","sacrifice":"Blood Price","emergency":"Desperation","attack_buff":"Rage Surge","combo":"Combo Technique","mana_burst":"Mana Burst","curse":"Curse","silence":"Silence","delayed":"Delayed Strike","stance":"Adaptive Stance","terrain":"Terrain Control","dispel":"Dispel","resource":"Resource Surge","random":"Volatile Mixture","dodge":"Haste","signature":"Class Signature","aoe":"Area Strike","recovery":"Recovery Pulse","stamina":"Stamina Surge","mark":"Target Mark","focus":"Focus"}.get(effect,effect.replace('_',' ').title())
             mechanic_desc={
