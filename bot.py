@@ -588,7 +588,11 @@ def build_rpg_ai_knowledge():
     lines.append("PET EGGS AND HATCHING:")
     for egg_key,egg in PET_EGGS.items():
         pool=PET_EGG_POOLS.get(egg_key,[])
-        lines.append(f"- {egg_key}: {egg.get('name',egg_key)}; rarity={egg.get('rarity','?')}; price={egg.get('price','?')}; exclusive hatch pool={', '.join(pool) or 'none'}")
+        if isinstance(egg,(tuple,list)) and len(egg)>=3:
+            egg_name,egg_rarity,egg_price=egg[0],egg[1],egg[2]
+        else:
+            egg_name,egg_rarity,egg_price=egg_key,egg.get('rarity','?'),egg.get('price','?')
+        lines.append(f"- {egg_key}: {egg_name}; rarity={egg_rarity}; price={egg_price}; exclusive hatch pool={', '.join(pool) or 'none'}")
     lines.append("ITEM MECHANICS: Item records are authoritative. When a player asks about an item, use its actual fields such as slot, rarity, price, atk, defense, hp, mp, speed, crit, heal, mana, stamina, upgrade/enchant compatibility and special effects. Never infer an item's effect from its name alone.")
     lines.append("EQUIPMENT: Equipment is persistent and slot-based. Upgrade levels, upgrade materials and gold costs come from the live RPG constants/methods. Enchantments are restricted by compatibility data. Explain the exact equipped slot and upgrade/enchant requirements when available.")
     lines.append("PLAYER PROGRESSION: Level, XP, gold, HP/MP, ATK, DEF, SPD and CRIT are persistent. Race/class/subclass/subrace choices affect stats/traits. Skill unlocks and mastery are separate from the four-slot combat loadout.")
