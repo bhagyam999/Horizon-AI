@@ -788,14 +788,24 @@ async def rpg_ai_fallback(guild_id, user_id, prompt):
         f"for a skill explanation or a combo and I'll use the local RPG data."
     )
 
+def _is_rpg_ai_request(text: str) -> bool:
+    lowered = (text or "").lower()
+    terms = (
+        "rpg", "skill", "combo", "loadout", "class", "subclass", "race", "subrace",
+        "quest", "pet", "egg", "dungeon", "boss", "arena", "pvp", "raid", "gacha",
+        "enchant", "craft", "item codex", "shop", "faction", "reputation", "stat",
+        "mastery", "equipment", "weapon", "armor", "amulet", "ring", "ability",
+        "battle", "damage", "heal", "lifesteal", "buff", "debuff"
+    )
+    return any(term in lowered for term in terms)
+
+
 async def ai_reply(guild_id, user_id, name, text, channel_id=None):
     settings=await bot.db.settings(guild_id)
     memories=await bot.db.memories(guild_id,30)
     profile=await bot.db.profile(guild_id,user_id)
     memory_text="\n".join(f"- {row[1]}" for row in memories)
     profile_text=f"nickname={profile['nickname'] or 'none'}; preferences={profile['preferences'] or 'none'}"
-    # Discord conversations are channel-scoped so two people talking to Horizon in
-    # the same channel share the actual dialogue, with speaker names embedded below.
     scope_id = f"channel:{channel_id}" if channel_id else f"user:{user_id}"
     rows=await bot.db.ai_conversation(guild_id,scope_id,13)
     context=_relevant_ai_context(rows,text,13)
@@ -803,16 +813,26 @@ async def ai_reply(guild_id, user_id, name, text, channel_id=None):
     guild=bot.get_guild(guild_id)
     guild_name=guild.name if guild else 'Log Horizon'
     rpg_player_context = await build_rpg_ai_player_context(guild_id, user_id)
-    system=build_system(guild_name,name,memory_text,settings['personality'],profile_text,context,server_history,text,RPG_AI_KNOWLEDGE,rpg_player_context)
+    system=build_system(
+        guild_name,name,memory_text,settings['personality'],profile_text,
+        context,server_history,text,RPG_AI_KNOWLEDGE,rpg_player_context
+    )
     await bot.db.add_ai_message(guild_id,scope_id,'user',f"{name} (user_id={user_id}): {text}")
     try:
         answer=await bot.ai.generate(system,text)
     except Exception as exc:
         await bot.db.remove_last_ai_message(guild_id,scope_id,'user')
-        # Keep RPG assistance available during Gemini project quota/rate-limit windows.
-        if "429" in str(exc) or "quota" in str(exc).lower() or "rate limit" in str(exc).lower():
-            answer = await rpg_ai_fallback(guild_id, user_id, text)
-            return answer
+        error_text=str(exc)
+        # Gemini being unavailable must never turn normal Horizon AI into an
+        # RPG-only bot. RPG requests get the deterministic live-data advisor;
+        # ordinary conversation gets a clear normal-AI offline response.
+        if _is_rpg_ai_request(text) and (
+            "429" in error_text or "quota" in error_text.lower()
+            or "rate limit" in error_text.lower()
+        ):
+            return await rpg_ai_fallback(guild_id, user_id, text)
+        if _is_rpg_ai_request(text) and not error_text:
+            return await rpg_ai_fallback(guild_id, user_id, text)
         raise
     await bot.db.add_ai_message(guild_id,scope_id,'model',answer)
     return answer
