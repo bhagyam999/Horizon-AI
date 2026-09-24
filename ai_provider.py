@@ -382,12 +382,18 @@ class DailyTokenBudget:
                 json.dump(self.data,f)
             os.replace(tmp,self.path)
 
-    async def moderate(self, message: str, context: str = "") -> list[dict]:
+    async def moderate(self, message: str, context: str = "", rpg_knowledge: str = "") -> list[dict]:
         """Run moderation triage through every configured AI provider."""
         system = """You are Horizon Discord safety classifier. Analyze the message for server-policy violations.
 Return ONLY JSON: {"action":"allow|flag|delete|timeout","category":"none|spam|harassment|hate|sexual|threat|self_harm|scam|malware|doxxing|other","severity":0-4,"confidence":0.0-1.0,"reason":"short factual reason"}.
+You are also knowledgeable about Horizon's RPG. RPG combat, quests, skills, classes, subclasses, races, enemies, bosses, PvP, guilds, bounties and fantasy terminology are normal game context.
+Do NOT classify fictional RPG combat language as a real-world threat merely because it contains words like kill, destroy, die, blood, attack, murder, weapon, execute, hunt, enemy, boss, or similar terms. Interpret those words in the surrounding game context first.
+Likewise, do not flag legitimate discussion of RPG mechanics, combos, damage, skills, builds, roleplay, fictional violence, or game strategy.
+However, RPG context does NOT excuse actual harassment, hate, sexual content, doxxing, scams, malware, credible real-world threats, or targeted abuse against a real person. Distinguish a game target/NPC/player character from a real person when context makes that distinction clear.
 Do not punish ordinary profanity, jokes, disagreement, slang, or harmless insults without meaningful harassment. Never invent context. This is classification only."""
         prompt = f"Message:\n{message[:3000]}\n\nRecent context:\n{context[-5000:]}"
+        if rpg_knowledge:
+            prompt += f"\n\nAUTHORITATIVE HORIZON RPG REFERENCE:\n{rpg_knowledge[:18000]}"
         async def run(provider):
             name="Gemini" if provider is self.gemini else provider.name
             try:
