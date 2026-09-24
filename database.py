@@ -155,6 +155,14 @@ class Database:
             await db.execute(f'UPDATE settings SET {key}=? WHERE guild_id=?', (value, guild_id))
             await db.commit()
 
+    async def add_warning(self, guild_id, user_id, moderator_id, reason):
+        async with aiosqlite.connect(self.path) as db:
+            await self._ensure_profile(db, guild_id, user_id)
+            await db.execute("UPDATE profiles SET warnings=warnings+1 WHERE guild_id=? AND user_id=?", (guild_id,user_id))
+            await db.execute("INSERT INTO warnings(guild_id,user_id,moderator_id,reason) VALUES(?,?,?,?)", (guild_id,user_id,moderator_id,reason))
+            await db.commit()
+        return (await self.profile(guild_id,user_id))["warnings"]
+
     async def profile(self, guild_id, user_id):
         async with aiosqlite.connect(self.path) as db:
             db.row_factory = aiosqlite.Row
