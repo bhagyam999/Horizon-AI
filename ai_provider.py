@@ -26,7 +26,17 @@ REFRESH_SECONDS = int(os.getenv("GEMINI_MODEL_REFRESH_SECONDS", "300"))
 
 class GeminiProvider:
     def __init__(self):
-        self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        # Support three Gemini keys with automatic failover/rotation.
+        # GEMINI_API_KEY remains supported as a backwards-compatible fallback.
+        self.api_keys = [
+            os.getenv("GEMINI_API_KEY_1", "").strip(),
+            os.getenv("GEMINI_API_KEY_2", "").strip(),
+            os.getenv("GEMINI_API_KEY_3", "").strip(),
+            os.getenv("GEMINI_API_KEY", "").strip(),
+        ]
+        self.api_keys = list(dict.fromkeys(k for k in self.api_keys if k))
+        self.key_index = 0
+        self.api_key = self.api_keys[0] if self.api_keys else ""
         self.preferred_model = self.normalize(DEFAULT_MODEL)
         if self.is_agent_model(self.preferred_model):
             self.preferred_model = "gemini-2.5-flash"
@@ -51,7 +61,15 @@ class GeminiProvider:
         return model
 
     def headers(self) -> dict[str, str]:
-        return {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
+        key = self.api_keys[self.key_index] if self.api_keys else ""
+        return {"Content-Type": "application/json", "x-goog-api-key": key}
+
+    def rotate_key(self):
+        if not self.api_keys:
+            return False
+        self.key_index = (self.key_index + 1) % len(self.api_keys)
+        self.api_key = self.api_keys[self.key_index]
+        return True
 
     async def refresh_models(self, force: bool = False) -> list[str]:
         if not self.api_key:
@@ -233,6 +251,10 @@ class GeminiProvider:
                 except Exception as exc:
                     last_error = exc
                     self.last_error = str(exc)
+                    # A key can be independently quota-limited. Try the next
+                    # configured Gemini key before abandoning the request.
+                    if "HTTP 429" in str(exc) or "rate limited" in str(exc).lower() or "quota" in str(exc).lower():
+                        self.rotate_key()
                     if not refreshed:
                         refreshed = True
                         try:
@@ -263,6 +285,8 @@ class GeminiProvider:
             statuses.append({"model":name,"status":health.get("status","available"),"detail":health.get("detail","Listed by Gemini and supports generation.")})
         return {
             "provider": "Gemini",
+            "configured_keys": len(self.api_keys),
+            "active_key": self.key_index + 1 if self.api_keys else None,
             "configured_model": self.preferred_model,
             "active_model": self.active_model,
             "available_models": self.available_models,
