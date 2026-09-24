@@ -853,22 +853,24 @@ async def ai_status(interaction: discord.Interaction):
         await interaction.followup.send(f"⚠️ Could not read Gemini health: `{str(exc)[:500]}`")
 
 
-@bot.tree.command(name="ai_models", description="Show Gemini models available to Horizon.")
+@bot.tree.command(name="ai_models", description="Show Gemini models and their current health.")
 async def ai_models(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True)
     try:
-        names = await bot.ai.gemini.model_names()
-        if not names:
-            await interaction.followup.send("I couldn't retrieve the Gemini model list right now.")
-            return
-        usable = [name for name in names if "gemini" in name.lower()]
-        text = "\n".join(f"• `{name}`" for name in usable[:40])
+        data=await bot.ai.gemini.status_data()
+        statuses=data.get("model_statuses",[])
+        icons={"available":"🟢","rate_limited":"🟠","unavailable":"🔴","temporarily_unavailable":"🟠","auth_error":"🔐"}
+        text="\n".join(
+            f"{icons.get(x['status'],'⚪')} `{x['model']}` — **{x['status'].replace('_',' ').title()}**"
+            for x in statuses[:50]
+        )
         await interaction.followup.send(
-            "**Gemini models visible to this API key:**\n" + (text or "No Gemini models were returned.")
+            "**Gemini model health:**\n"
+            + (text or "No Gemini models were returned.")
+            + "\n\n🟢 Available • 🟠 Rate limited/temporary issue • 🔴 Unavailable • 🔐 Access issue"
         )
     except Exception as exc:
         await interaction.followup.send(f"Model check failed: `{str(exc)[:300]}`")
-
 
 @bot.tree.command(name="ask", description="Ask Horizon using Gemini.")
 @app_commands.describe(question="Your question")
