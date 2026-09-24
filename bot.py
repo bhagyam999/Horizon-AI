@@ -827,12 +827,30 @@ async def ping(interaction: discord.Interaction):
     )
 
 
-@bot.tree.command(name="ai_status", description="Check Horizon AI connectivity.")
+@bot.tree.command(name="ai_status", description="Check Horizon AI and Gemini model health.")
 async def ai_status(interaction: discord.Interaction):
-    ok, detail = await bot.ai.status()
-    await interaction.response.send_message(
-        f"**Horizon AI:** {'Online' if ok else 'Offline'}\n{detail}"
-    )
+    await interaction.response.defer(thinking=True)
+    try:
+        data=await bot.ai.gemini.status_data()
+        statuses=data.get("model_statuses",[])
+        icons={"available":"🟢","rate_limited":"🟠","unavailable":"🔴","temporarily_unavailable":"🟠","auth_error":"🔐"}
+        lines=[]
+        for item in statuses[:40]:
+            status=item.get("status","unknown")
+            lines.append(f"{icons.get(status,'⚪')} `{item['model']}` — **{status.replace('_',' ').title()}**")
+        embed=discord.Embed(
+            title="🤖 Horizon AI — Gemini Health",
+            description=(
+                f"**Active:** `{data.get('active_model','unknown')}`\n"
+                f"**Configured:** `{data.get('configured_model','unknown')}`\n\n"
+                + ("\n".join(lines) if lines else "No Gemini models are currently available to this API key.")
+            )
+        )
+        if data.get("last_error"):
+            embed.set_footer(text=f"Last provider error: {data['last_error'][:180]}")
+        await interaction.followup.send(embed=embed)
+    except Exception as exc:
+        await interaction.followup.send(f"⚠️ Could not read Gemini health: `{str(exc)[:500]}`")
 
 
 @bot.tree.command(name="ai_models", description="Show Gemini models available to Horizon.")
