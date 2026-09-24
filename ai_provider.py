@@ -13,6 +13,7 @@ load_dotenv()
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+AGENT_ONLY_MODELS = {"deep-research-pro-preview-12-2025"}
 TIMEOUT = float(os.getenv("GEMINI_HTTP_TIMEOUT", os.getenv("GEMINI_TIMEOUT", "12")))
 RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "0"))
 REFRESH_SECONDS = int(os.getenv("GEMINI_MODEL_REFRESH_SECONDS", "300"))
@@ -22,6 +23,8 @@ class GeminiProvider:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.preferred_model = self.normalize(DEFAULT_MODEL)
+        if self.preferred_model in AGENT_ONLY_MODELS:
+            self.preferred_model = "gemini-2.5-flash"
         self.active_model = self.preferred_model
         self.available_models: list[str] = []
         self.last_refresh = 0.0
@@ -58,7 +61,7 @@ class GeminiProvider:
         for item in data.get("models", []):
             name = self.normalize(item.get("name", ""))
             methods = item.get("supportedGenerationMethods", [])
-            if name and "generateContent" in methods:
+            if name and "generateContent" in methods and name not in AGENT_ONLY_MODELS:
                 models.append(name)
 
         # Prefer the configured model, then sensible known aliases, then anything
