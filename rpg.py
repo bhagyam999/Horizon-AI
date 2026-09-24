@@ -4451,7 +4451,7 @@ class RPGService:
         stats=await self._combat_full_stats(guild_id,user_id,p,pet_bonus)
         pet=await self.pet_record(guild_id,user_id)
         loadout=await self.skill_loadout(guild_id,user_id)
-        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"subrace":p.get("subrace") or "","subclass":p.get("subclass") or "","turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"],"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill],"buffs":{},"enemy_debuffs":{},"enemy_statuses":{},"enemy_dot":0,"enemy_dot_turns":0,"enemy_ability_cooldowns":{},"enemy_guard_turns":0,"enemy_guard_pct":0,"player_dot":0,"player_dot_turns":0,"combo":0,"combo_chain":[],"last_skill_effect":"","delayed_damage":0,"shield_turns":int(stats.get("trait_start_shield_turns",0)),"shield_pct":float(stats.get("trait_start_shield",0))}
+        base={"player_hp":stats["hp"],"player_max_hp":stats["max_hp"],"player_mp":stats["mp"],"player_max_mp":stats["max_mp"],"player_stamina":p["stamina"],"class_name":p["class_name"],"subrace":p.get("subrace") or "","subclass":p.get("subclass") or "","turn":1,"skill_cooldowns":{},"pet_cooldown":0,"pet":pet_bonus,"combat_stats":stats,"player_level":p["level"],"equipped_skill_keys":[skill["key"] for _slot,skill in loadout if skill],"buffs":{},"enemy_debuffs":{},"enemy_statuses":{},"enemy_dot":0,"enemy_dot_turns":0,"enemy_ability_cooldowns":{},"enemy_guard_turns":0,"enemy_guard_pct":0,"player_dot":0,"player_dot_turns":0,"combo":0,"combo_chain":[],"combo_unique":[],"combo_last_skill":"","combo_repeat":0,"combo_peak":0,"last_skill_effect":"","delayed_damage":0,"shield_turns":int(stats.get("trait_start_shield_turns",0)),"shield_pct":float(stats.get("trait_start_shield",0))}
         if mode=="adventure":
             remaining=await self._cooldown(p,"last_adventure",20)
             if remaining>0:return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
@@ -4549,6 +4549,18 @@ class RPGService:
             mult*=1+float(stats["trait_high_target_pct"])/100
         if stats.get("trait_low_target_pct") and state.get("enemy_hp",0)<=enemy.get("hp",1)*.40:
             mult*=1+float(stats["trait_low_target_pct"])/100
+        # Advanced combo scaling:
+        # - every successful skill can continue the chain
+        # - varied skills get a small diversity bonus
+        # - repeating the exact same skill is still viable, but suffers a
+        #   repetition penalty so one-button spam is never optimal
+        combo=int(state.get("combo",0))
+        if combo>0:
+            combo_bonus=min(.45, .035*combo)
+            unique_count=len(set(state.get("combo_unique",[])))
+            diversity_bonus=min(.08, .015*max(0,unique_count-1))
+            repeat_penalty=min(.18, .035*max(0,int(state.get("combo_repeat",0))-1))
+            mult*=1+max(0.0,combo_bonus+diversity_bonus-repeat_penalty)
         if stats.get("trait_combo_pct"):
             mult*=1+min(.40,float(stats["trait_combo_pct"])*float(state.get("combo",0))/100)
         if stats.get("trait_next_skill_pct") and state.get("trait_next_skill_bonus",0):
@@ -4698,17 +4710,77 @@ class RPGService:
             hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.15); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.38))); state["enemy_debuffs"]["vulnerable"]=.12; state["enemy_debuffs"]["vuln_turns"]=2; log.append(f"👑 **{skill['name']}** combined damage and exposure for **{hit}**.")
         elif effect=="signature":
             hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.2); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.40))); state["buffs"]["atk_up"]=.18; state["buffs"]["atk_turns"]=2; log.append(f"✨ **{skill['name']}** unleashed your class signature for **{hit}** damage.")
-        # Skill-combo engine: repeated compatible effects create escalating but capped bonus damage.
-        effect=skill.get("effect","damage")
-        chain=state.setdefault("combo_chain",[])
-        if state.get("last_skill_effect"):
-            previous=state.get("last_skill_effect")
-            combo_pairs={("armor_break","heavy"),("mark","execute"),("vulnerability","execute"),("burn","freeze"),("bleed","lifesteal"),("poison","execute"),("curse","execute"),("def_buff","attack_buff"),("attack_buff","heavy"),("multi","bleed"),("freeze","heavy"),("mana_drain","ultimate"),("combo","multi")}
-            if (previous,effect) in combo_pairs or previous==effect:
-                state["combo"]=min(6,int(state.get("combo",0))+1); chain.append(effect); chain=chain[-4:]; state["combo_chain"]=chain
-                bonus=min(.30,.04*state["combo"]); extra=max(1,int(max(1,stats["atk"])*bonus)); state["enemy_hp"]=max(0,state["enemy_hp"]-extra); log.append(f"🔗 **COMBO x{state['combo']}!** +{extra} bonus damage.")
+        # Advanced combo engine.
+        # A combo is a sequence of successful skills, not a single skill being
+        # pressed repeatedly. Every damaging technique can continue it.
+        dealt_before_combo=max(0,start_enemy_hp-state["enemy_hp"])
+        if dealt_before_combo>0:
+            skill_key=str(skill.get("key",effect))
+            previous_key=state.get("combo_last_skill","")
+            previous_effect=state.get("last_skill_effect","")
+            chain=state.setdefault("combo_chain",[])
+            unique=state.setdefault("combo_unique",[])
+            if previous_key:
+                state["combo"]=min(10,int(state.get("combo",0))+1)
             else:
-                state["combo"]=0; state["combo_chain"]=[]
+                state["combo"]=1
+            if skill_key==previous_key:
+                state["combo_repeat"]=int(state.get("combo_repeat",0))+1
+            else:
+                state["combo_repeat"]=0
+            if skill_key not in unique:
+                unique.append(skill_key)
+                del unique[:-6]
+            chain.append(skill_key)
+            del chain[:-5]
+            state["combo_peak"]=max(int(state.get("combo_peak",0)),int(state["combo"]))
+
+            # Specific technique pairings create a small tactical bonus.
+            combo_pairs={
+                ("armor_break","heavy"):("🗡️ Armor shattered → Power Blow",.07),
+                ("mark","execute"):("🎯 Mark → Execution",.10),
+                ("vulnerability","execute"):("🔻 Exposure → Execution",.12),
+                ("bleed","lifesteal"):("🩸 Bleed → Blood Drain",.08),
+                ("poison","execute"):("☠️ Venom → Execution",.10),
+                ("curse","execute"):("🕯️ Curse → Execution",.10),
+                ("def_buff","attack_buff"):("🛡️ Guard → Counterpressure",.05),
+                ("attack_buff","heavy"):("⚔️ Power → Heavy Strike",.07),
+                ("multi","bleed"):("⚔️ Flurry → Bleeding Wound",.06),
+                ("freeze","heavy"):("❄️ Freeze → Shatter",.10),
+                ("mana_drain","ultimate"):("💧 Siphon → Ultimate",.08),
+                ("combo","multi"):("🔗 Chain → Flurry",.07),
+            }
+            pair=combo_pairs.get((previous_effect,effect))
+            if pair:
+                label,percent=pair
+                extra=max(1,int(dealt_before_combo*percent))
+                state["enemy_hp"]=max(0,state["enemy_hp"]-extra)
+                log.append(f"{label} • **+{extra} combo damage**")
+
+            # Finishers cash in the chain. They get stronger from the combo,
+            # then the chain resets so players must build it again.
+            if effect in {"execute","ultimate","signature","mythic"}:
+                finisher_combo=int(state.get("combo",1))
+                finisher_bonus=min(.60,.10*finisher_combo)
+                extra=max(1,int(max(1,stats["atk"])*finisher_bonus))
+                state["enemy_hp"]=max(0,state["enemy_hp"]-extra)
+                log.append(f"💥 **COMBO FINISHER x{finisher_combo}** • +{extra} bonus damage")
+                state["combo"]=0
+                state["combo_chain"]=[]
+                state["combo_unique"]=[]
+                state["combo_repeat"]=0
+            else:
+                unique_count=len(set(state.get("combo_unique",[])))
+                combo_bonus=min(45,int(round((.035*int(state["combo"])+.015*max(0,unique_count-1))*100)))
+                if combo_bonus>0:
+                    log.append(f"🔗 **COMBO x{state['combo']}** • +{combo_bonus}% chain damage")
+        else:
+            # Missed/zero-damage techniques break the offensive chain.
+            state["combo"]=0
+            state["combo_chain"]=[]
+            state["combo_unique"]=[]
+            state["combo_repeat"]=0
+
         state["last_skill_effect"]=effect
         dealt=max(0,start_enemy_hp-state["enemy_hp"])
         if dealt:
