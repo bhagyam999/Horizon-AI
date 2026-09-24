@@ -417,102 +417,6 @@ SUBCLASS_TRAITS = {
 
 
 # ---------------------------------------------------------------------------
-# Subclass skill kits
-# Every specialization gets six additional active skills.  The parent class
-# supplies the foundation; the subclass kit changes the way that foundation is
-# expressed so choosing a subclass matters in combat as well as on the stat
-# sheet.
-SUBCLASS_SKILL_EFFECTS = {
-    "vanguard":["def_buff","heavy","barrier","counter","armor_break","team_buff"],
-    "blade_master":["multi","heavy","bleed","armor_break","crit","execute"],
-    "berserk_lord":["heavy","bleed","sacrifice","lifesteal","emergency","execute"],
-    "iron_guardian":["barrier","def_buff","counter","heavy","team_buff","true_damage"],
-    "arcane_knight":["damage","mana_burst","barrier","burn","armor_break","true_damage"],
-    "fire_mage":["burn","aoe","heavy","vulnerability","mana_burst","ultimate"],
-    "frost_mage":["freeze","barrier","delayed","vulnerability","mana_drain","ultimate"],
-    "battle_mage":["damage","heavy","mana_burst","lifesteal","armor_break","execute"],
-    "shadow_assassin":["lifesteal","bleed","dodge","mark","execute","true_damage"],
-    "nightblade":["multi","bleed","poison","dodge","lifesteal","execute"],
-    "sniper":["mark","true_damage","heavy","delayed","execute","ultimate"],
-    "beast_master":["pet_boost","mark","damage","team_buff","execute","ultimate"],
-    "holy_priest":["heal","barrier","cleanse","team_buff","dispel","ultimate"],
-    "battle_cleric":["damage","heal","barrier","attack_buff","lifesteal","execute"],
-    "storm_druid":["burn","freeze","terrain","aoe","delayed","ultimate"],
-    "wild_druid":["lifesteal","heal","terrain","def_buff","aoe","execute"],
-    "dragon_monk":["combo","multi","counter","attack_buff","lifesteal","execute"],
-    "shadow_monk":["dodge","counter","multi","combo","true_damage","execute"],
-    "minstrel":["heal","team_buff","dodge","mana_drain","cleanse","ultimate"],
-    "war_chanter":["attack_buff","team_buff","heavy","vulnerability","combo","ultimate"],
-    "bone_lord":["summon","aoe","curse","barrier","sacrifice","ultimate"],
-    "soul_reaper":["lifesteal","bleed","mark","curse","execute","true_damage"],
-    "demon_pact":["sacrifice","lifesteal","curse","burn","vulnerability","ultimate"],
-    "void_caller":["curse","vulnerability","true_damage","delayed","mana_drain","ultimate"],
-    "bombardier":["aoe","burn","armor_break","delayed","execute","ultimate"],
-    "transmuter":["resource","heal","dispel","mana_burst","vulnerability","ultimate"],
-    "artificer":["summon","barrier","armor_break","mark","aoe","ultimate"],
-    "machinist":["damage","delayed","mark","barrier","true_damage","ultimate"],
-    "fencer":["counter","multi","dodge","mark","true_damage","execute"],
-    "champion":["heavy","combo","attack_buff","def_buff","lifesteal","ultimate"],
-    "dragoon":["heavy","multi","dodge","armor_break","execute","ultimate"],
-    "templar":["def_buff","barrier","heal","counter","attack_buff","true_damage"],
-    "crusader":["heavy","attack_buff","lifesteal","burn","execute","ultimate"],
-    "aegis_knight":["barrier","def_buff","counter","team_buff","heal","ultimate"],
-    "dawnbringer":["heal","team_buff","cleanse","barrier","lifesteal","ultimate"],
-    "blood_saint":["lifesteal","heal","bleed","attack_buff","execute","ultimate"],
-    "spellbreaker":["armor_break","true_damage","silence","vulnerability","mana_drain","execute"],
-    "arcane_fencer":["damage","burn","mana_burst","counter","true_damage","ultimate"],
-    "beastcaller":["pet_boost","summon","mark","team_buff","execute","ultimate"],
-    "conjurer":["summon","barrier","chain","aoe","mana_drain","ultimate"],
-    "eidolon_master":["summon","pet_boost","barrier","vulnerability","true_damage","ultimate"],
-}
-
-_SUBCLASS_SKILL_WORDS = {
-    "damage":"Arc","heavy":"Ruin","multi":"Flurry","bleed":"Rend","heal":"Mending Light",
-    "def_buff":"Aegis","attack_buff":"Ascension","armor_break":"Sunder","poison":"Venom",
-    "burn":"Inferno","freeze":"Frostbind","lifesteal":"Blood Feast","mana_drain":"Soul Siphon",
-    "dodge":"Veilstep","counter":"Riposte","barrier":"Bulwark","vulnerability":"Expose",
-    "execute":"Execution","true_damage":"Piercing Edge","ultimate":"Apotheosis","signature":"Ascension",
-    "focus":"Deadeye","mark":"Hunter's Mark","silence":"Silence","curse":"Hex",
-    "terrain":"Domain","resource":"Essence Flow","stamina":"Second Wind","mana_burst":"Mana Burst",
-    "delayed":"Delayed Ruin","sacrifice":"Blood Price","emergency":"Last Stand","combo":"Momentum",
-    "chain":"Chainstrike","team_buff":"War Hymn","pet_boost":"Bondcall","summon":"Summoning",
-    "aoe":"Tempest","dispel":"Purification","cleanse":"Cleansing Light","random":"Catalyst",
-}
-
-def _build_subclass_skills():
-    result={}
-    for subclass, data in SUBCLASSES.items():
-        parent=data[0]
-        effects=SUBCLASS_SKILL_EFFECTS.get(subclass, CLASS_SKILL_EFFECTS.get(parent, ["damage","heavy","def_buff","attack_buff","lifesteal","ultimate"])[:6])
-        title=subclass.replace("_"," ").title()
-        skills=[]
-        for i,effect in enumerate(effects[:6],1):
-            word=_SUBCLASS_SKILL_WORDS.get(effect,effect.replace("_"," ").title())
-            # Names describe the mechanic while still sounding like abilities
-            # from a fantasy RPG rather than generic "Skill 1" entries.
-            name=f"{title}'s {word}"
-            skills.append({
-                "key":f"sub_{subclass}_{i}",
-                "name":name,
-                "cost":SKILL_COSTS[min(i+1,len(SKILL_COSTS)-1)],
-                "mult":round(0.92 + (i-1)*0.045,3),
-                "effect":effect,
-                "cooldown":SKILL_COOLDOWNS[min(i+1,len(SKILL_COOLDOWNS)-1)],
-                "unlock":max(1, 5 + (i-1)*5),
-                "mechanic":word,
-                "desc":_skill_effect_text(effect),
-                "buff_text":_skill_buff_text(effect),
-                "debuff_text":_skill_debuff_text(effect),
-                "heal_pct":{"heal":.28,"lifesteal":.34,"ultimate":.08}.get(effect,0),
-                "damage_cap":.34 if effect in {"heavy","execute","ultimate","sacrifice","true_damage"} else .30,
-                "subclass":subclass,
-            })
-        result[subclass]=skills
-    return result
-
-SUBCLASS_SKILLS = _build_subclass_skills()
-
-# ---------------------------------------------------------------------------
 # Combat skills. Each class has a small, readable kit so battles are about
 # choosing the right action instead of pressing one "Skill" button forever.
 # Keys are stable so old characters automatically receive their class kit.
@@ -740,6 +644,103 @@ def _skill_effect_text(effect):
         "percent_damage":"Deals damage based on a percentage of enemy maximum HP.",
         "mythic":"Deals massive damage and applies vulnerability.",
     }.get(effect, f"Uses the {effect.replace('_',' ')} combat effect.")
+
+# ---------------------------------------------------------------------------
+# Subclass skill kits
+# Every specialization gets six additional active skills.  The parent class
+# supplies the foundation; the subclass kit changes the way that foundation is
+# expressed so choosing a subclass matters in combat as well as on the stat
+# sheet.
+SUBCLASS_SKILL_EFFECTS = {
+    "vanguard":["def_buff","heavy","barrier","counter","armor_break","team_buff"],
+    "blade_master":["multi","heavy","bleed","armor_break","crit","execute"],
+    "berserk_lord":["heavy","bleed","sacrifice","lifesteal","emergency","execute"],
+    "iron_guardian":["barrier","def_buff","counter","heavy","team_buff","true_damage"],
+    "arcane_knight":["damage","mana_burst","barrier","burn","armor_break","true_damage"],
+    "fire_mage":["burn","aoe","heavy","vulnerability","mana_burst","ultimate"],
+    "frost_mage":["freeze","barrier","delayed","vulnerability","mana_drain","ultimate"],
+    "battle_mage":["damage","heavy","mana_burst","lifesteal","armor_break","execute"],
+    "shadow_assassin":["lifesteal","bleed","dodge","mark","execute","true_damage"],
+    "nightblade":["multi","bleed","poison","dodge","lifesteal","execute"],
+    "sniper":["mark","true_damage","heavy","delayed","execute","ultimate"],
+    "beast_master":["pet_boost","mark","damage","team_buff","execute","ultimate"],
+    "holy_priest":["heal","barrier","cleanse","team_buff","dispel","ultimate"],
+    "battle_cleric":["damage","heal","barrier","attack_buff","lifesteal","execute"],
+    "storm_druid":["burn","freeze","terrain","aoe","delayed","ultimate"],
+    "wild_druid":["lifesteal","heal","terrain","def_buff","aoe","execute"],
+    "dragon_monk":["combo","multi","counter","attack_buff","lifesteal","execute"],
+    "shadow_monk":["dodge","counter","multi","combo","true_damage","execute"],
+    "minstrel":["heal","team_buff","dodge","mana_drain","cleanse","ultimate"],
+    "war_chanter":["attack_buff","team_buff","heavy","vulnerability","combo","ultimate"],
+    "bone_lord":["summon","aoe","curse","barrier","sacrifice","ultimate"],
+    "soul_reaper":["lifesteal","bleed","mark","curse","execute","true_damage"],
+    "demon_pact":["sacrifice","lifesteal","curse","burn","vulnerability","ultimate"],
+    "void_caller":["curse","vulnerability","true_damage","delayed","mana_drain","ultimate"],
+    "bombardier":["aoe","burn","armor_break","delayed","execute","ultimate"],
+    "transmuter":["resource","heal","dispel","mana_burst","vulnerability","ultimate"],
+    "artificer":["summon","barrier","armor_break","mark","aoe","ultimate"],
+    "machinist":["damage","delayed","mark","barrier","true_damage","ultimate"],
+    "fencer":["counter","multi","dodge","mark","true_damage","execute"],
+    "champion":["heavy","combo","attack_buff","def_buff","lifesteal","ultimate"],
+    "dragoon":["heavy","multi","dodge","armor_break","execute","ultimate"],
+    "templar":["def_buff","barrier","heal","counter","attack_buff","true_damage"],
+    "crusader":["heavy","attack_buff","lifesteal","burn","execute","ultimate"],
+    "aegis_knight":["barrier","def_buff","counter","team_buff","heal","ultimate"],
+    "dawnbringer":["heal","team_buff","cleanse","barrier","lifesteal","ultimate"],
+    "blood_saint":["lifesteal","heal","bleed","attack_buff","execute","ultimate"],
+    "spellbreaker":["armor_break","true_damage","silence","vulnerability","mana_drain","execute"],
+    "arcane_fencer":["damage","burn","mana_burst","counter","true_damage","ultimate"],
+    "beastcaller":["pet_boost","summon","mark","team_buff","execute","ultimate"],
+    "conjurer":["summon","barrier","chain","aoe","mana_drain","ultimate"],
+    "eidolon_master":["summon","pet_boost","barrier","vulnerability","true_damage","ultimate"],
+}
+
+_SUBCLASS_SKILL_WORDS = {
+    "damage":"Arc","heavy":"Ruin","multi":"Flurry","bleed":"Rend","heal":"Mending Light",
+    "def_buff":"Aegis","attack_buff":"Ascension","armor_break":"Sunder","poison":"Venom",
+    "burn":"Inferno","freeze":"Frostbind","lifesteal":"Blood Feast","mana_drain":"Soul Siphon",
+    "dodge":"Veilstep","counter":"Riposte","barrier":"Bulwark","vulnerability":"Expose",
+    "execute":"Execution","true_damage":"Piercing Edge","ultimate":"Apotheosis","signature":"Ascension",
+    "focus":"Deadeye","mark":"Hunter's Mark","silence":"Silence","curse":"Hex",
+    "terrain":"Domain","resource":"Essence Flow","stamina":"Second Wind","mana_burst":"Mana Burst",
+    "delayed":"Delayed Ruin","sacrifice":"Blood Price","emergency":"Last Stand","combo":"Momentum",
+    "chain":"Chainstrike","team_buff":"War Hymn","pet_boost":"Bondcall","summon":"Summoning",
+    "aoe":"Tempest","dispel":"Purification","cleanse":"Cleansing Light","random":"Catalyst",
+}
+
+def _build_subclass_skills():
+    result={}
+    for subclass, data in SUBCLASSES.items():
+        parent=data[0]
+        effects=SUBCLASS_SKILL_EFFECTS.get(subclass, CLASS_SKILL_EFFECTS.get(parent, ["damage","heavy","def_buff","attack_buff","lifesteal","ultimate"])[:6])
+        title=subclass.replace("_"," ").title()
+        skills=[]
+        for i,effect in enumerate(effects[:6],1):
+            word=_SUBCLASS_SKILL_WORDS.get(effect,effect.replace("_"," ").title())
+            # Names describe the mechanic while still sounding like abilities
+            # from a fantasy RPG rather than generic "Skill 1" entries.
+            name=f"{title}'s {word}"
+            skills.append({
+                "key":f"sub_{subclass}_{i}",
+                "name":name,
+                "cost":SKILL_COSTS[min(i+1,len(SKILL_COSTS)-1)],
+                "mult":round(0.92 + (i-1)*0.045,3),
+                "effect":effect,
+                "cooldown":SKILL_COOLDOWNS[min(i+1,len(SKILL_COOLDOWNS)-1)],
+                "unlock":max(1, 5 + (i-1)*5),
+                "mechanic":word,
+                "desc":_skill_effect_text(effect),
+                "buff_text":_skill_buff_text(effect),
+                "debuff_text":_skill_debuff_text(effect),
+                "heal_pct":{"heal":.28,"lifesteal":.34,"ultimate":.08}.get(effect,0),
+                "damage_cap":.34 if effect in {"heavy","execute","ultimate","sacrifice","true_damage"} else .30,
+                "subclass":subclass,
+            })
+        result[subclass]=skills
+    return result
+
+SUBCLASS_SKILLS = _build_subclass_skills()
+
 
 def _build_class_skills():
     result = {}
