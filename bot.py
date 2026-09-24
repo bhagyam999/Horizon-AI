@@ -204,12 +204,37 @@ class Horizon(commands.Bot):
         member=message.author if isinstance(message.author,discord.Member) else message.guild.get_member(message.author.id)
         if member and (member.guild_permissions.administrator or member.guild_permissions.manage_guild or member.guild_permissions.manage_messages): return
         history=self.mod_history.setdefault(message.author.id,[])
-        decision=self.mod.inspect(message.content, history=history[-8:])
-        history.append(message.content[:1000]); del history[:-8]
-        if decision.score < 2 and not decision.target and not decision.escalation: return
-        context="\n".join(history[-5:])
-        try: verdicts=await asyncio.wait_for(self.ai.moderate(message.content,context,rpg_knowledge=build_rpg_ai_knowledge()),timeout=12)
-        except Exception: verdicts=[]
+        decision=self.mod.inspect(message.content, history=history[-12:])
+        history.append(message.content[:1000]); del history[:-12]
+
+        # Moderation needs conversation context, not just the triggering sentence.
+        channel_context=[]
+        try:
+            rows=await self.db.ai_server_messages(message.guild.id,limit=20,channel_id=message.channel.id)
+            for row in rows[-16:]:
+                channel_context.append(f"{str(row[3])}: {str(row[4]).replace(chr(10),' ')[:700]}")
+        except Exception:
+            channel_context=[]
+        if not channel_context:
+            channel_context=[f"Author: {x}" for x in history[-10:]]
+        context="\n".join(channel_context[-16:])
+
+        suspicious=(
+            decision.score >= 2 or decision.target or decision.escalation
+            or any(term in message.content.lower() for term in (
+                "kill","die","hurt","shoot","stab","rape","dox","bomb","threat",
+                "suicide","kys","swat","address","ip","leak"
+            ))
+        )
+        if not suspicious:
+            return
+        try:
+            verdicts=await asyncio.wait_for(
+                self.ai.moderate(message.content,context,rpg_knowledge=build_rpg_ai_knowledge()),
+                timeout=12
+            )
+        except Exception:
+            verdicts=[]
         strong=[v for v in verdicts if float(v.get("confidence",0) or 0)>=0.75 and int(v.get("severity",0) or 0)>=2]
         from collections import Counter
         action_counts=Counter(str(v.get("action","allow")) for v in strong if str(v.get("action","allow"))!="allow")
