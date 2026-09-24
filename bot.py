@@ -686,6 +686,102 @@ def _relevant_ai_context(rows, prompt, recent_limit=13):
         lines.append(f"{'User' if role=='user' else 'Horizon'}: {content[:2000]}")
     return "\n".join(lines)
 
+
+async def rpg_ai_fallback(guild_id, user_id, prompt):
+    """Deterministic RPG advisor used when Gemini is temporarily unavailable.
+    It reads the live RPG data, so basic RPG explanations and combo advice still work
+    during a Gemini quota window.
+    """
+    p = await bot.rpg.player(guild_id, user_id)
+    if not p:
+        return "I can help with Horizon RPG, but you do not have an RPG character yet. Create a character first, then I can build advice around your class and skills."
+
+    text = (prompt or "").strip().lower()
+    loadout = await bot.rpg.skill_loadout(guild_id, user_id)
+    masteries = await bot.rpg.skill_masteries(guild_id, user_id)
+    skills = [skill for _, skill in loadout if skill]
+    if not skills:
+        unlocked = await bot.rpg.unlocked_skills(guild_id, user_id)
+        skills = unlocked[:4]
+
+    def skill_line(skill, slot=None):
+        bits = []
+        if slot is not None:
+            bits.append(f"Slot {slot}")
+        bits.append(f"**{skill.get('name', skill.get('key','Unknown'))}**")
+        bits.append(f"cost {skill.get('cost','?')}")
+        bits.append(f"CD {skill.get('cooldown','?')}")
+        bits.append(f"multiplier {skill.get('mult','?')}")
+        if skill.get('combo_role'):
+            bits.append(f"role {skill['combo_role']}")
+        if skill.get('buff_text'):
+            bits.append(skill['buff_text'])
+        if skill.get('debuff_text'):
+            bits.append(skill['debuff_text'])
+        if skill.get('heal_pct') not in (None, "", "?"):
+            bits.append(f"heal {skill['heal_pct']}%")
+        if skill.get('lifesteal_pct') not in (None, "", "?"):
+            bits.append(f"lifesteal {skill['lifesteal_pct']}%")
+        if skill.get('duration') not in (None, "", "?"):
+            bits.append(f"duration {skill['duration']} turns")
+        return " • ".join(str(x) for x in bits)
+
+    asks_combo = any(word in text for word in ("combo", "combos", "rotation", "skill order", "skill sequence", "loadout"))
+    asks_skill = any(word in text for word in ("skill", "ability", "what does", "how does"))
+
+    if asks_combo and skills:
+        role_order = {"starter":0, "setup":1, "linker":2, "finisher":3}
+        ordered = sorted(
+            enumerate(skills, 1),
+            key=lambda pair: (role_order.get(str(pair[1].get("combo_role","")).lower(), 1), pair[0])
+        )
+        chain = [skill for _, skill in ordered]
+        lines = [
+            f"**⚔️ RPG Combo Advisor — {p.get('class_name','your class')}**",
+            f"Your current loadout has **{len(skills)}** usable skills. I’m using the live skill data rather than guessing from the names.",
+            "",
+        ]
+        for n, skill in enumerate(chain, 1):
+            role = str(skill.get("combo_role") or "linker").title()
+            lines.append(f"**{n}. {skill.get('name',skill.get('key','Skill'))}** — {role}")
+            lines.append(f"   {skill.get('desc') or skill.get('effect') or 'Use this as the next part of the chain.'}")
+        lines += [
+            "",
+            "**Why this order:** open with the starter/setup effect, use linkers to maintain pressure, then spend the accumulated combo on the finisher when available.",
+            "Use the exact costs and cooldowns shown on your skill panel; if a skill is on cooldown or you lack the resource, move to the next available linker instead of repeating one skill.",
+        ]
+        return "\n".join(lines)
+
+    if asks_skill and skills:
+        matches = [s for s in skills if str(s.get("name","")).lower() in text or str(s.get("key","")).lower() in text]
+        if not matches:
+            matches = skills[:4]
+        lines = ["**📖 Your Current Skills**"]
+        for slot, skill in loadout:
+            if skill and (not matches or skill in matches):
+                rank = masteries.get(skill.get("key"), 1)
+                lines.append(
+                    f"**Slot {slot} — {skill.get('name',skill.get('key','Skill'))}** "
+                    f"(Mastery {rank}/5)\n"
+                    f"{skill.get('desc') or skill.get('effect') or 'No description available.'}\n"
+                    f"Cost: **{skill.get('cost','?')}** • Cooldown: **{skill.get('cooldown','?')}** • "
+                    f"Multiplier: **{skill.get('mult','?')}** • Role: **{skill.get('combo_role','?')}**"
+                )
+                if skill.get("buff_text"):
+                    lines.append(f"Buff: **{skill['buff_text']}**")
+                if skill.get("debuff_text"):
+                    lines.append(f"Debuff: **{skill['debuff_text']}**")
+        return "\n".join(lines)
+
+    return (
+        f"**Horizon RPG Advisor**\n"
+        f"You're playing **{p.get('class_name','?')}**, level **{p.get('level',1)}**, "
+        f"race **{p.get('race','?')}**, subclass **{p.get('subclass') or 'none'}**.\n"
+        f"I currently have your live RPG data available, including skills, loadout, mastery, "
+        f"stats, pets and faction information. Gemini is temporarily unavailable, so ask me "
+        f"for a skill explanation or a combo and I'll use the local RPG data."
+    )
+
 async def ai_reply(guild_id, user_id, name, text, channel_id=None):
     settings=await bot.db.settings(guild_id)
     memories=await bot.db.memories(guild_id,30)
@@ -705,8 +801,12 @@ async def ai_reply(guild_id, user_id, name, text, channel_id=None):
     await bot.db.add_ai_message(guild_id,scope_id,'user',f"{name} (user_id={user_id}): {text}")
     try:
         answer=await bot.ai.generate(system,text)
-    except Exception:
+    except Exception as exc:
         await bot.db.remove_last_ai_message(guild_id,scope_id,'user')
+        # Keep RPG assistance available during Gemini project quota/rate-limit windows.
+        if "429" in str(exc) or "quota" in str(exc).lower() or "rate limit" in str(exc).lower():
+            answer = await rpg_ai_fallback(guild_id, user_id, text)
+            return answer
         raise
     await bot.db.add_ai_message(guild_id,scope_id,'model',answer)
     return answer
