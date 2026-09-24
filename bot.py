@@ -761,11 +761,11 @@ Respond as a sensible conversational companion. Be natural first, useful second,
 and entertaining only when the conversation calls for it.
 """.strip()
 
-def _relevant_ai_context(rows, prompt, recent_limit=13):
+def _relevant_ai_context(rows, prompt, recent_limit=30):
     if not rows:
         return ""
-    # Deliberately use ONLY the latest 13 messages. Older private dialogue remains
-    # stored for continuity/debugging but is never fed back into the model.
+    # Keep a useful rolling dialogue window so Horizon can follow multi-message
+    # conversations while keeping the prompt bounded.
     rows = rows[-recent_limit:]
     lines=[]
     for _id,role,content,_created in rows:
@@ -938,8 +938,10 @@ async def ai_reply(guild_id, user_id, name, text, channel_id=None):
     memory_text="\n".join(f"- {row[1]}" for row in memories)
     profile_text=f"nickname={profile['nickname'] or 'none'}; preferences={profile['preferences'] or 'none'}"
     scope_id = f"channel:{channel_id}" if channel_id else f"user:{user_id}"
-    rows=await bot.db.ai_conversation(guild_id,scope_id,13)
-    context=_relevant_ai_context(rows,text,13)
+    # Keep enough recent dialogue for follow-ups such as "that one", "change skill 3",
+    # or "do the same thing" without requiring the player to repeat the whole context.
+    rows=await bot.db.ai_conversation(guild_id,scope_id,40)
+    context=_relevant_ai_context(rows,text,30)
     server_history=await bot.ai_server_context(guild_id,channel_id,text) if channel_id else ""
     guild=bot.get_guild(guild_id)
     guild_name=guild.name if guild else 'Log Horizon'
