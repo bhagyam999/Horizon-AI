@@ -143,6 +143,8 @@ class GeminiProvider:
                         for p in parts
                         if p.get("text") and not p.get("thought", False)
                     ]
+                    usage=data.get("usageMetadata") or {}
+                    self.last_usage_tokens=int(usage.get("totalTokenCount") or 0)
                     text = "".join(answer_parts).strip()
                     if not text:
                         raise RuntimeError(f"Gemini returned no visible answer text: {json.dumps(data)[:800]}")
@@ -325,55 +327,151 @@ class OpenAICompatibleProvider:
                 return text
 
 
-class AIProvider:
-    """Horizon AI failover chain: Gemini -> Groq -> OpenRouter."""
+class DailyTokenBudget:
+    """Persistent per-provider daily token guard. Reset is 17:30 IST."""
+    def __init__(self):
+        self.path=os.getenv("AI_USAGE_FILE", os.path.join(os.path.dirname(__file__), "ai_usage.json"))
+        self.limit=int(os.getenv("AI_DAILY_TOKEN_LIMIT","100000"))
+        self._lock=asyncio.Lock()
+        self.data={}
 
+    @staticmethod
+    def period_key():
+        from datetime import datetime, timedelta, timezone
+        ist=timezone(timedelta(hours=5,minutes=30))
+        now=datetime.now(ist)
+        if (now.hour,now.minute) < (17,30):
+            now-=timedelta(days=1)
+        return now.strftime("%Y-%m-%d")
+
+    async def _load(self):
+        if self.data:
+            return
+        try:
+            with open(self.path,"r",encoding="utf-8") as f:
+                self.data=json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            self.data={}
+
+    async def remaining(self, provider):
+        async with self._lock:
+            await self._load()
+            used=int(self.data.get(self.period_key(),{}).get(provider,0))
+            return max(0,self.limit-used)
+
+    async def can_spend(self, provider, estimated_tokens):
+        return (await self.remaining(provider)) >= max(1,int(estimated_tokens))
+
+    async def add(self, provider, tokens):
+        async with self._lock:
+            await self._load()
+            key=self.period_key()
+            row=self.data.setdefault(key,{})
+            row[provider]=int(row.get(provider,0))+max(0,int(tokens))
+            for old in sorted(list(self.data))[:-7]:
+                self.data.pop(old,None)
+            tmp=self.path+".tmp"
+            os.makedirs(os.path.dirname(self.path) or ".",exist_ok=True)
+            with open(tmp,"w",encoding="utf-8") as f:
+                json.dump(self.data,f)
+            os.replace(tmp,self.path)
+
+    async def status(self):
+        key=self.period_key()
+        used=self.data.get(key,{})
+        return {"date":key,"limit":self.limit,"used":dict(used)}
+
+
+class AIProvider:
+    """Failover: Gemini -> Grok -> Gemini recovery -> OpenRouter emergency."""
     def __init__(self):
         self.gemini=GeminiProvider()
-        self.groq=OpenAICompatibleProvider("Groq","GROQ_API_KEY","https://api.groq.com/openai/v1","GROQ_MODEL","openai/gpt-oss-120b")
+        self.grok=OpenAICompatibleProvider("Grok","XAI_API_KEY","https://api.x.ai/v1","GROK_MODEL","grok-4.7",aliases=("GROK_API_KEY","XAI_API_KEY"))
         self.openrouter=OpenAICompatibleProvider("OpenRouter","OPENROUTER_API_KEY","https://openrouter.ai/api/v1","OPENROUTER_MODEL","openrouter/free")
-        self.providers=[self.gemini,self.groq,self.openrouter]
+        self.budget=DailyTokenBudget()
         self.last_provider="Gemini"
         self.last_error=""
 
     @property
     def enabled(self):
-        return any(getattr(p,"enabled",False) for p in self.providers)
+        return any(getattr(p,"enabled",False) for p in (self.gemini,self.grok,self.openrouter))
 
     @property
     def model(self):
         if self.last_provider=="Gemini": return self.gemini.active_model
-        if self.last_provider=="Groq": return self.groq.model
+        if self.last_provider=="Grok": return self.grok.model
         return self.openrouter.model
 
-    @property
-    def provider_name(self):
-        return self.last_provider
+    @staticmethod
+    def estimate_tokens(system, prompt):
+        chars=len(system)+len(prompt)
+        return max(1,(chars+3)//4)+int(os.getenv("AI_MAX_OUTPUT_TOKENS","800"))
+
+    async def _try(self, provider, system, prompt):
+        estimate=self.estimate_tokens(system,prompt)
+        name="Gemini" if provider is self.gemini else provider.name
+        if not await self.budget.can_spend(name,estimate):
+            raise RuntimeError(f"{name} daily token budget exhausted.")
+        if provider is self.gemini:
+            result=await provider.ask(f"{system}\n\nUser message:\n{prompt}")
+            used=provider.last_usage_tokens or estimate
+        else:
+            result=await provider.generate(system,prompt)
+            used=provider.last_usage_tokens or estimate
+        await self.budget.add(name,used)
+        return result
 
     async def generate(self, system: str, prompt: str) -> str:
         errors=[]
-        for provider in self.providers:
-            if not getattr(provider,"enabled",False): continue
+        if self.gemini.enabled:
             try:
-                if provider is self.gemini: result=await provider.ask(f"{system}\n\nUser message:\n{prompt}")
-                else: result=await provider.generate(system,prompt)
-                self.last_provider=provider.name if provider is not self.gemini else "Gemini"
-                self.last_error=""
+                result=await self._try(self.gemini,system,prompt)
+                self.last_provider="Gemini"; self.last_error=""
                 return result
             except Exception as exc:
-                provider.last_error=str(exc)
-                errors.append(f"{provider.name if provider is not self.gemini else 'Gemini'}: {exc}")
+                errors.append(f"Gemini: {exc}")
+                self.gemini.last_error=str(exc)
+        if self.grok.enabled:
+            try:
+                result=await self._try(self.grok,system,prompt)
+                self.last_provider="Grok"; self.last_error=""
+                return result
+            except Exception as exc:
+                errors.append(f"Grok: {exc}")
+                self.grok.last_error=str(exc)
+        if self.gemini.enabled:
+            try:
+                result=await self._try(self.gemini,system,prompt)
+                self.last_provider="Gemini"; self.last_error=""
+                return result
+            except Exception as exc:
+                errors.append(f"Gemini recovery: {exc}")
+                self.gemini.last_error=str(exc)
+        if self.openrouter.enabled:
+            try:
+                result=await self._try(self.openrouter,system,prompt)
+                self.last_provider="OpenRouter"; self.last_error=""
+                return result
+            except Exception as exc:
+                errors.append(f"OpenRouter: {exc}")
+                self.openrouter.last_error=str(exc)
         self.last_error=" | ".join(errors) or "No AI provider API keys are configured."
         raise RuntimeError(f"All AI providers failed. {self.last_error}")
 
     async def status(self):
         lines=[]
-        for provider in self.providers:
-            name=provider.name if provider is not self.gemini else "Gemini"
+        for provider in (self.gemini,self.grok,self.openrouter):
+            name="Gemini" if provider is self.gemini else provider.name
             model=provider.active_model if provider is self.gemini else provider.model
-            lines.append(f"• {name} — {'configured' if provider.enabled else 'not configured'} — {model}")
+            remaining=await self.budget.remaining(name)
+            lines.append(f"• {name} — {'configured' if provider.enabled else 'not configured'} — {model} — {remaining:,} tokens remaining today")
             if provider.last_error: lines.append(f"  Last error: {provider.last_error[:250]}")
-        return self.enabled, "Failover order: Gemini → Groq → OpenRouter\n" + "\n".join(lines)
+        return self.enabled, "Failover order: Gemini → Grok → Gemini recovery → OpenRouter emergency\nDaily token limit per provider: " + f"{self.budget.limit:,}\n" + "\n".join(lines)
+
+    async def usage_status(self):
+        return await self.budget.status()
+
+_provider=AIProvider()
 
 _provider=AIProvider()
 
