@@ -363,7 +363,7 @@ SUBRACE_TRAITS = {
  "foxkin":{"name":"Mirage Pounce","desc":"Skills gain 25% damage after a dodge state is active.","next_skill_pct":25},
  "spring_fae":{"name":"Spring Bloom","desc":"Skills restore 4% max HP while below 60% HP.","conditional_skill_heal":4},
  "night_fae":{"name":"Night Veil","desc":"Below 50% HP, gain 10% skill damage and 12% evasion.","low_hp_skill_pct":10,"low_hp_evasion":12},
- "blood_vampire":{"name":"Blood Feast","desc":"Restore 6% of skill damage as HP, capped at 5% max HP per action.","trait_lifesteal":6,"trait_lifesteal_cap":5},
+ "blood_vampire":{"name":"Sanguine Feast","desc":"Restore 6% of skill damage as HP, capped at 5% max HP per action.","trait_lifesteal":6,"trait_lifesteal_cap":5},
  "noble_vampire":{"name":"Royal Hunger","desc":"Finisher skills deal 15% more damage.","finisher_pct":15},
  "iron_golem":{"name":"Iron Shell","desc":"Begin combat with a 25% shield for 2 turns.","start_shield":25,"start_shield_turns":2},
  "crystal_golem":{"name":"Prism Core","desc":"Reflect 20% of damage while your shield is active.","reflect":20},
@@ -378,7 +378,7 @@ SUBCLASS_TRAITS = {
  "iron_guardian":{"name":"Fortress Core","desc":"Begin combat with a 20% shield for 2 turns.","start_shield":20,"start_shield_turns":2},
  "arcane_knight":{"name":"Arcane Guard","desc":"Barrier skills deal 15% more damage.","effect_bonus":{"barrier":15}},
  "fire_mage":{"name":"Inferno Mastery","desc":"Burn skills deal 30% more damage.","effect_bonus":{"burn":30}},
- "frost_mage":{"name":"Absolute Zero","desc":"Freeze skills deal 25% more damage.","effect_bonus":{"freeze":25}},
+ "frost_mage":{"name":"Winter's Silence","desc":"Freeze skills deal 25% more damage.","effect_bonus":{"freeze":25}},
  "battle_mage":{"name":"Spellfist","desc":"Skills deal 7% more damage and you take 6% less damage.","skill_pct":7,"damage_reduction":6},
  "shadow_assassin":{"name":"Death from Shadows","desc":"Mark and execute skills deal 25% more damage.","effect_bonus":{"mark":25,"execute":25}},
  "nightblade":{"name":"Crimson Dance","desc":"Bleed and multi-hit skills deal 18% more damage.","effect_bonus":{"bleed":18,"multi":18}},
@@ -412,7 +412,7 @@ SUBCLASS_TRAITS = {
  "blood_saint":{"name":"Sanguine Faith","desc":"Offensive skills restore 10% of damage dealt as HP, capped at 8% max HP per skill; below 50% HP, skill damage increases by 15%.","trait_lifesteal":10,"trait_lifesteal_cap":8,"low_hp_skill_pct":15},
  "beastcaller":{"name":"Primal Bond","desc":"Pet attacks deal 30% more damage and successful pet attacks build Feral momentum.","pet_damage_pct":30,"pet_feral_pct":5},
  "conjurer":{"name":"Arcane Multiplicity","desc":"Summon skills deal 15% more damage and gain additional power when multiple summons are active.","effect_bonus":{"summon":15},"multi_summon_bonus":10},
- "eidolon_master":{"name":"Soul Link","desc":"Summon skills deal 20% more damage; successful summon actions build Soul Charges toward an empowered Eidolon attack.","effect_bonus":{"summon":20},"eidolon_charge":1},
+ "eidolon_master":{"name":"Eidolon Bond","desc":"Summon skills deal 20% more damage; successful summon actions build Soul Charges toward an empowered Eidolon attack.","effect_bonus":{"summon":20},"eidolon_charge":1},
 }
 
 
@@ -422,24 +422,24 @@ SUBCLASS_TRAITS = {
 # Keys are stable so old characters automatically receive their class kit.
 # ---------------------------------------------------------------------------
 CLASS_SKILL_NAMES = {
-    "warrior": ("Power Strike", "Guard Break", "Whirlwind", "Iron Will"),
-    "berserker": ("Raging Slash", "Blood Rush", "Rampage", "Berserker Fury"),
-    "knight": ("Shield Bash", "Crushing Blow", "Guardian Wall", "Royal Verdict"),
-    "mage": ("Arcane Bolt", "Flame Burst", "Frost Nova", "Meteor"),
-    "rogue": ("Twin Strike", "Poison Edge", "Shadow Step", "Assassinate"),
-    "assassin": ("Killing Edge", "Venom Cut", "Phantom Step", "Death Mark"),
-    "ranger": ("Aimed Shot", "Piercing Arrow", "Rain of Arrows", "Hunter's Mark"),
-    "paladin": ("Holy Strike", "Radiant Shield", "Divine Light", "Judgment"),
-    "summoner": ("Spirit Bolt", "Beast Assault", "Soul Link", "Primal Storm"),
-    "cleric": ("Holy Bolt", "Smite", "Renew", "Divine Grace"),
+    "warrior": ("Vanguard's Wrath", "Guard Break", "Tempest Requiem", "Iron Will"),
+    "berserker": ("Furyfang", "Blood Rush", "Rampage", "Berserker Fury"),
+    "knight": ("Dawnshield Crash", "Royal Maul", "Guardian Wall", "Throne of Judgment"),
+    "mage": ("Aetherbolt", "Cinderfall", "Glacial Aria", "Meteor"),
+    "rogue": ("Duskfang Waltz", "Poison Edge", "Shadow Step", "Assassinate"),
+    "assassin": ("Killing Edge", "Venom Cut", "Eclipse Step", "Reaper's Brand"),
+    "ranger": ("Hawkeye's Oath", "Starpiercer", "Heaven's Rain", "Predator's Sigil"),
+    "paladin": ("Dawn's Smite", "Radiant Shield", "Divine Light", "Judgment"),
+    "summoner": ("Eidolon Bolt", "Feral Conclave", "Eidolon Bond", "Primal Storm"),
+    "cleric": ("Lumen Bolt", "Judicator's Light", "Dawn's Renewal", "Divine Grace"),
     "druid": ("Thorn Lash", "Moonfire", "Nature's Gift", "Wild Tempest"),
     "monk": ("Chi Strike", "Flurry", "Inner Focus", "Dragon Fist"),
     "bard": ("Sonic Note", "Battle Anthem", "Healing Melody", "Finale"),
     "necromancer": ("Soul Bolt", "Bone Spear", "Dark Pact", "Soul Requiem"),
-    "warlock": ("Shadow Bolt", "Chaos Brand", "Life Drain", "Doom"),
+    "warlock": ("Shadow Bolt", "Chaos Brand", "Merciful Requiem", "Doom"),
     "alchemist": ("Acid Flask", "Bomb Toss", "Rejuvenation", "Grand Transmutation"),
     "engineer": ("Arc Shot", "Turret Burst", "Repair Drone", "Overclock"),
-    "duelist": ("Riposte", "Lunge", "Blade Dance", "Perfect Duel"),
+    "duelist": ("Mirrorsteel Reprisal", "Lunge", "Blade Dance", "Perfect Duel"),
     "lancer": ("Spear Thrust", "Vault", "Dragon Dive", "Heaven Pierce"),
     "spellblade": ("Arcane Slash", "Elemental Edge", "Mana Guard", "Ether Break"),
 }
@@ -447,16 +447,16 @@ CLASS_SKILL_NAMES = {
 # Six additional skills per class. They unlock progressively instead of all
 # being available at level 1, so high-level builds have meaningful choices.
 ADVANCED_SKILLS = {
-    "warrior": ("Cleave", "Battle Cry", "Sword Storm", "Lionheart", "King's Edge", "Warlord's Ascension"),
-    "berserker": ("Savage Break", "Frenzy", "Blood Cyclone", "Rage Unbound", "Executioner", "Worldbreaker"),
-    "knight": ("Shield Counter", "Fortress", "Knight's Oath", "Aegis Crash", "Royal Bulwark", "Divine Bastion"),
-    "mage": ("Arcane Lance", "Inferno", "Glacial Prison", "Arcane Barrage", "Starfall", "Cataclysm"),
+    "warrior": ("Gale Rend", "Warborn Roar", "Sword Storm", "Lionheart", "King's Edge", "Warlord's Ascension"),
+    "berserker": ("Ruinous Rend", "Frenzy", "Crimson Tempest", "Rage Unbound", "Executioner", "Apocalypse Unbound"),
+    "knight": ("Aegis Reprisal", "Fortress", "Knight's Oath", "Aegis Crash", "Royal Bulwark", "Divine Bastion"),
+    "mage": ("Arcane Lance", "Infernal Sonata", "Glacial Prison", "Arcane Barrage", "Starfall", "Cataclysm"),
     "rogue": ("Bleeding Flurry", "Smoke Veil", "Crimson Dance", "Phantom Barrage", "Death Spiral", "Eclipse"),
-    "assassin": ("Hemorrhage", "Veiled Step", "Nightmare Cut", "Phantom Barrage", "Silent Execution", "Void Reaper"),
-    "ranger": ("Volley", "Trap Mastery", "Storm Shot", "Predator's Mark", "Star Arrow", "Heaven's Volley"),
-    "paladin": ("Consecrated Blade", "Holy Ward", "Radiant Burst", "Guardian's Grace", "Sacred Verdict", "Heaven's Judgment"),
-    "summoner": ("Spirit Swarm", "Beast Guard", "Soul Chain", "Primal Roar", "Astral Summon", "World Caller"),
-    "cleric": ("Radiant Lance", "Blessed Ward", "Mass Renewal", "Holy Nova", "Seraphic Grace", "Divine Ascension"),
+    "assassin": ("Hemorrhage", "Veiled Step", "Nightmare Cut", "Phantom Barrage", "Silentus", "Void Reaper"),
+    "ranger": ("Volley", "Trap Mastery", "Storm Shot", "Predator's Mark", "Astral Arrow", "Celestial Volley"),
+    "paladin": ("Consecrated Blade", "Holy Ward", "Radiant Burst", "Guardian's Grace", "Sacred Verdict", "Heaven's Verdict"),
+    "summoner": ("Spirit Swarm", "Beast Guard", "Soul Chain", "Primal Roar", "Astral Summon", "Genesis Summons"),
+    "cleric": ("Radiant Lance", "Hallowed Veil", "Mass Renewal", "Holy Nova", "Seraphic Grace", "Seraphic Apotheosis"),
     "druid": ("Vine Prison", "Lunar Bloom", "Nature's Ward", "Wildfire", "Ancient Grove", "Worldroot"),
     "monk": ("Palm Burst", "Iron Body", "Sevenfold Strike", "Chi Storm", "Heavenly Fist", "Dragon Ascension"),
     "bard": ("Resonant Blast", "War Chorus", "Soothing Verse", "Grand Crescendo", "Heroic Symphony", "Mythic Finale"),
@@ -522,8 +522,8 @@ SKILL_RANK_HEAL = 0.02
 # per rank. Class trees are deliberately different in name/flavour, while the
 # mechanical bonuses stay small and predictable. Race trees add a second layer.
 CLASS_TALENT_TEMPLATES = {
-    "warrior": [("vanguard_heart","Vanguard Heart","+1.5% maximum HP per rank","hp_pct"),("weapon_mastery","Weapon Mastery","+1% skill damage per rank","skill_pct"),("iron_training","Iron Training","+1% DEF per rank","def_pct"),("battle_instinct","Battle Instinct","+0.5% Crit per rank","crit"),("second_wind","Second Wind","+1% healing received per rank","heal_pct"),("martial_focus","Martial Focus","+1% ATK per rank","atk_pct"),("steady_breath","Steady Breath","+1% maximum MP per rank","mp_pct"),("finisher_training","Finisher Training","+1% execute/ultimate damage per rank","finisher_pct")],
-    "berserker": [("blood_furnace","Blood Furnace","+1% ATK per rank","atk_pct"),("pain_to_power","Pain to Power","+1% skill damage per rank","skill_pct"),("scarred_hide","Scarred Hide","+1% DEF per rank","def_pct"),("predator_eye","Predator Eye","+0.5% Crit per rank","crit"),("blood_recovery","Blood Recovery","+1% healing per rank","heal_pct"),("fury_reserve","Fury Reserve","+1% maximum MP per rank","mp_pct"),("rage_body","Rage Body","+1.5% HP per rank","hp_pct"),("executioner_training","Executioner Training","+1% finisher damage per rank","finisher_pct")],
+    "warrior": [("vanguard_heart","Vanguard Heart","+1.5% maximum HP per rank","hp_pct"),("weapon_mastery","Weapon Mastery","+1% skill damage per rank","skill_pct"),("iron_training","Iron Training","+1% DEF per rank","def_pct"),("battle_instinct","Battle Instinct","+0.5% Crit per rank","crit"),("second_wind","Second Breath","+1% healing received per rank","heal_pct"),("martial_focus","Martial Focus","+1% ATK per rank","atk_pct"),("steady_breath","Steady Breath","+1% maximum MP per rank","mp_pct"),("finisher_training","Finisher Training","+1% execute/ultimate damage per rank","finisher_pct")],
+    "berserker": [("blood_furnace","Blood Furnace","+1% ATK per rank","atk_pct"),("pain_to_power","Pain to Power","+1% skill damage per rank","skill_pct"),("scarred_hide","Scarred Hide","+1% DEF per rank","def_pct"),("predator_eye","Predator Eye","+0.5% Crit per rank","crit"),("blood_recovery","Blood Requiem","+1% healing per rank","heal_pct"),("fury_reserve","Fury Reserve","+1% maximum MP per rank","mp_pct"),("rage_body","Rage Body","+1.5% HP per rank","hp_pct"),("executioner_training","Executioner Training","+1% finisher damage per rank","finisher_pct")],
     "knight": [("fortress_heart","Fortress Heart","+1.5% maximum HP per rank","hp_pct"),("shield_mastery","Shield Mastery","+1% skill damage per rank","skill_pct"),("plate_discipline","Plate Discipline","+1% DEF per rank","def_pct"),("battle_awareness","Battle Awareness","+0.5% Crit per rank","crit"),("guardian_grace","Guardian Grace","+1% healing per rank","heal_pct"),("holy_reserve","Holy Reserve","+1% maximum MP per rank","mp_pct"),("royal_strength","Royal Strength","+1% ATK per rank","atk_pct"),("verdict_mastery","Verdict Mastery","+1% finisher damage per rank","finisher_pct")],
     "mage": [("arcane_core","Arcane Core","+1.5% maximum MP per rank","mp_pct"),("spellcraft","Spellcraft","+1% skill damage per rank","skill_pct"),("warding","Warding","+1% DEF per rank","def_pct"),("arcane_precision","Arcane Precision","+0.5% Crit per rank","crit"),("mystic_recovery","Mystic Recovery","+1% healing per rank","heal_pct"),("ether_body","Ether Body","+1% HP per rank","hp_pct"),("arcane_force","Arcane Force","+1% ATK per rank","atk_pct"),("cataclysm_mastery","Cataclysm Mastery","+1% finisher damage per rank","finisher_pct")],
     "rogue": [("shadow_body","Shadow Body","+1% HP per rank","hp_pct"),("dirty_tricks","Dirty Tricks","+1% skill damage per rank","skill_pct"),("evasive_training","Evasive Training","+1% DEF per rank","def_pct"),("killer_eye","Killer Eye","+0.5% Crit per rank","crit"),("field_recovery","Field Recovery","+1% healing per rank","heal_pct"),("shadow_reserve","Shadow Reserve","+1% MP per rank","mp_pct"),("assassin_force","Assassin Force","+1% ATK per rank","atk_pct"),("execution_art","Execution Art","+1% finisher damage per rank","finisher_pct")],
@@ -554,16 +554,16 @@ RACE_TALENT_TEMPLATES = {
 
 
 _CLASS_SKILL_NAMES = {
-    "warrior": ["Power Strike", "Cleave", "Whirlwind", "Crushing Arc", "Second Wind", "Iron Guard", "Battle Cry", "Armor Sundering", "Open Wound", "Blazing Edge", "Concussion", "Warrior's Drain", "Battle Focus", "Swift Footwork", "Riposte", "Aegis Stance", "Weakpoint Slash", "Executioner's Cut", "Adamant Pierce", "Warlord's Verdict"],
-    "berserker": ["Raging Slash", "Savage Break", "Blood Cyclone", "Rupture", "Blood Recovery", "Frenzied Guard", "Rage Howl", "Bone Crusher", "Toxic Fury", "Inferno Rage", "Skull Freeze", "Blood Feast", "Rage Siphon", "Feral Step", "Fury Counter", "Berserker Hide", "Killing Instinct", "Execution", "Rage Piercer", "Worldbreaker"],
-    "knight": ["Shield Bash", "Crushing Blow", "Shield Sweep", "Bleeding Brand", "Knight's Mending", "Fortress Oath", "Royal Command", "Armor Rend", "Toxic Edge", "Flame Brand", "Frost Shield", "Valor Drain", "Mana Seal", "Guardian Step", "Shield Counter", "Aegis Wall", "Judging Gaze", "Executioner's Verdict", "Holy Pierce", "Royal Verdict"],
-    "mage": ["Arcane Bolt", "Flame Burst", "Frost Nova", "Arcane Rupture", "Mana Mend", "Prismatic Ward", "Arcane Overcharge", "Spell Fracture", "Venom Mist", "Inferno", "Absolute Zero", "Life Conversion", "Mana Siphon", "Blink", "Spell Counter", "Arcane Barrier", "Expose Core", "Arcane Execution", "Void Lance", "Meteor Cataclysm"],
-    "rogue": ["Twin Strike", "Shadow Cut", "Blade Flurry", "Open Vein", "Quick Recovery", "Smoke Guard", "Adrenaline", "Sunder Cut", "Venom Edge", "Ember Knife", "Crippling Dart", "Blood Tap", "Energy Snatch", "Shadowstep", "Dirty Counter", "Smoke Barrier", "Marked Prey", "Finishing Cut", "Piercing Dagger", "Nightfall"],
-    "assassin": ["Bloodfang", "Venom Veil", "Phantom Step", "Crimson Rend", "Night Harvest", "Death Mark", "Killer Instinct", "Armor Sever", "Deadly Venom", "Cinder Blade", "Nerve Freeze", "Blood Harvest", "Mana Theft", "Ghost Step", "Murderous Counter", "Void Veil", "Marked for Death", "Silent Execution", "Void Pierce", "Death Sentence"],
-    "ranger": ["Aimed Shot", "Piercing Arrow", "Rain of Arrows", "Barbed Arrow", "Field Dressing", "Hunter's Guard", "Predator's Focus", "Armor-Piercing Shot", "Venom Arrow", "Flame Arrow", "Freezing Shot", "Blood Arrow", "Siphon Arrow", "Windstep", "Countershot", "Aegis Trap", "Hunter's Mark", "Execution Shot", "Star Arrow", "Heaven's Volley"],
-    "paladin": ["Holy Strike", "Radiant Bulwark", "Divine Heal", "Crusader's Might", "Sacred Drain", "Judgment Counter", "Sunfire", "Consecrate", "Venom of Sin", "Radiant Ward", "Condemn", "Heaven's Judgment", "Faith Siphon", "Blessed Step", "Holy Counter", "Divine Barrier", "Verdict Brand", "Final Judgment", "Seraph Pierce", "Heaven's Judgment"],
-    "summoner": ["Spirit Bolt", "Beast Assault", "Soul Link", "Spectral Wound", "Spirit Mend", "Guardian Spirit", "Primal Command", "Soul Shatter", "Venom Familiar", "Flame Familiar", "Frost Familiar", "Life Bond", "Mana Pact", "Spirit Step", "Beast Counter", "Spirit Barrier", "Soul Brand", "Predator's Finish", "Astral Pierce", "World Caller"],
-    "cleric": ["Holy Bolt", "Smite", "Radiant Wave", "Searing Wound", "Renew", "Blessed Ward", "Prayer of Might", "Sunder Sin", "Purifying Venom", "Sacred Flame", "Frost Prayer", "Life Drain", "Faith Siphon", "Grace Step", "Divine Counter", "Sanctuary", "Expose Heresy", "Last Rites", "Judgment Lance", "Divine Ascension"],
+    "warrior": ["Vanguard's Wrath", "Gale Rend", "Tempest Requiem", "Ironfall Crescent", "Second Breath", "Aegis of Stone", "Warborn Roar", "Kingsplitter", "Scarlet Brand", "Emberbrand", "Skullbreaker", "Valor Reaver", "Warrior's Clarity", "Windborne March", "Mirrorsteel Reprisal", "Titan's Vigil", "Sundered Fate", "Grim Severance", "Adamantine Fang", "Thronebreaker"],
+    "berserker": ["Furyfang", "Ruinous Rend", "Crimson Tempest", "Hemorrhage Arc", "Blood Requiem", "Madman's Bulwark", "Warcry of Ruin", "Mangled Crown", "Venomous Rage", "Hellfire Frenzy", "Winter's Grasp", "Sanguine Feast", "Fury Reaver", "Predator's Rush", "Berserker's Reprisal", "Hide of the Ravager", "Murderous Instinct", "Final Rupture", "Furyspike", "Apocalypse Unbound"],
+    "knight": ["Dawnshield Crash", "Royal Maul", "Aegis Tempest", "Scarlet Oath", "Knight's Benediction", "Bastion Vow", "Sovereign's Call", "Kingsplitter", "Venom Oath", "Sunscar Brand", "Winter Aegis", "Valor Reaver", "Arcane Seal", "Bulwark Step", "Aegis Reprisal", "Citadel of Dawn", "Judicator's Gaze", "Royal Severance", "Seraphic Lance", "Throne of Judgment"],
+    "mage": ["Aetherbolt", "Cinderfall", "Glacial Aria", "Astral Rupture", "Etherial Grace", "Prism Aegis", "Leyline Ascension", "Runebreak", "Serpent's Veil", "Infernal Sonata", "Winter's Silence", "Sanguine Transmutation", "Aether Siphon", "Astral Step", "Arcanist's Reprisal", "Aetheric Bastion", "Leyline Exposure", "Void Sentence", "Starless Lance", "Celestial Cataclysm"],
+    "rogue": ["Duskfang Waltz", "Umbral Crescent", "Phantom Waltz", "Crimson Vein", "Rogue's Reprieve", "Veilguard", "Predator's Pulse", "Gloamrend", "Viper's Kiss", "Cinderfang", "Nightspine Dart", "Sanguine Touch", "Shadow Siphon", "Umbral Step", "Thief's Reprisal", "Veil of Ash", "Hunter's Brand", "Gravekiss", "Nightpiercer", "Ebon Eclipse"],
+    "assassin": ["Crimson Fang", "Viper's Shroud", "Eclipse Step", "Sanguine Requiem", "Moonless Harvest", "Reaper's Brand", "Predator's Omen", "Kingscar", "Widow's Ichor", "Ashen Fang", "Winter's Needle", "Blood Requiem", "Aether Theft", "Wraithstep", "Phantom Reprisal", "Veil of Oblivion", "Doomed Sigil", "Silentus", "Starless Fang", "Eclipse Execution"],
+    "ranger": ["Hawkeye's Oath", "Starpiercer", "Heaven's Rain", "Thornflight", "Hunter's Grace", "Warden's Hide", "Predator's Sight", "Adamant Arrow", "Viperflight", "Emberflight", "Frostflight", "Sanguine Arrow", "Soulstring", "Galefoot", "Reprisal Arrow", "Warden's Snare", "Predator's Sigil", "Last Hunt", "Astral Arrow", "Celestial Volley"],
+    "paladin": ["Dawn's Smite", "Aureate Aegis", "Lumen's Grace", "Seraphic Might", "Sanctified Requiem", "Judicator's Reprisal", "Solaris Brand", "Consecration", "Serpent's Sin", "Halo Bastion", "Heaven's Condemnation", "Heaven's Verdict", "Faith Reaver", "Pilgrim's Step", "Seraphic Reprisal", "Aegis of the Seraphim", "Judgment Sigil", "Apotheosis Verdict", "Seraph's Lance", "Heaven's Verdict"],
+    "summoner": ["Eidolon Bolt", "Feral Conclave", "Eidolon Bond", "Wraithscar", "Ethereal Mend", "Warden Eidolon", "Primal Sovereignty", "Eidolon Rupture", "Ichor Familiar", "Cinder Familiar", "Rime Familiar", "Vital Covenant", "Aether Pact", "Astral Passage", "Feral Reprisal", "Eidolon Aegis", "Soul Sigil", "Eidolon Devour", "Astral Fang", "Genesis Summons"],
+    "cleric": ["Lumen Bolt", "Judicator's Light", "Seraphic Tide", "Sunscar", "Dawn's Renewal", "Hallowed Veil", "Litany of Valor", "Heretic's Ruin", "Purge of Venom", "Censerfire", "Winter Litany", "Merciful Requiem", "Faith Reaver", "Halo Step", "Seraphic Reprisal", "Sanctum of Dawn", "Heretic's Brand", "Final Benediction", "Judgment Spear", "Seraphic Apotheosis"],
     "druid": ["Thorn Lash", "Moonfire", "Wild Sweep", "Briar Wound", "Nature's Gift", "Barkskin", "Predatory Growth", "Root Rend", "Toxic Bloom", "Wildfire", "Winter Bloom", "Sap Drain", "Mana Root", "Leafstep", "Thorn Counter", "Ancient Bark", "Spirit Bloom", "Feral Execution", "Worldroot Spear", "Primal Tempest"],
     "monk": ["Chi Strike", "Palm Break", "Flurry", "Bleeding Palm", "Inner Recovery", "Iron Body", "Fighting Spirit", "Pressure Point", "Venom Palm", "Burning Fist", "Frozen Knuckle", "Life Steal Palm", "Chi Siphon", "Wind Step", "Counter Palm", "Chi Barrier", "Open Meridian", "Dragon Finish", "Heaven Pierce", "Dragon Ascension"],
     "bard": ["Sonic Note", "Resonant Blast", "Battle Chord", "Discordant Wound", "Healing Melody", "Protective Verse", "War Anthem", "Armor-Shattering Chord", "Poisonous Refrain", "Flame Overture", "Frozen Ballad", "Vampiric Aria", "Mana Melody", "Swift Rhythm", "Counter Chorus", "Barrier Symphony", "Weakness Verse", "Finale", "Piercing Crescendo", "Mythic Performance"],
@@ -571,9 +571,9 @@ _CLASS_SKILL_NAMES = {
     "warlock": ["Shadow Bolt", "Chaos Brand", "Abyssal Burst", "Hemorrhaging Hex", "Pact Renewal", "Demon Hide", "Dark Empowerment", "Armor Curse", "Plague Hex", "Hellfire", "Frost Hex", "Life Siphon", "Pact Drain", "Void Step", "Demon Counter", "Abyssal Barrier", "Vulnerability Hex", "Doom", "Nether Lance", "Void Apocalypse"],
     "alchemist": ["Acid Flask", "Bomb Toss", "Catalyst Burst", "Corrosive Cut", "Rejuvenation", "Reactive Mixture", "Battle Tonic", "Armor Dissolver", "Toxic Compound", "Incendiary Flask", "Cryo Flask", "Life Elixir", "Mana Elixir", "Quickstep Tonic", "Counter Mixture", "Barrier Compound", "Weakness Serum", "Execution Bomb", "Piercing Compound", "Grand Transmutation"],
     "engineer": ["Arc Shot", "Siege Burst", "Drone Volley", "Bleeding Shrapnel", "Repair Drone", "Plated Frame", "Overclock", "Armor Breaker", "Toxic Payload", "Incendiary Round", "Cryo Round", "Leech Drone", "Energy Reclaimer", "Thruster Dash", "Counter Turret", "Energy Barrier", "Target Lock", "Finisher Cannon", "Rail Pierce", "Omega Protocol"],
-    "duelist": ["Riposte", "Lunge", "Blade Dance", "Crimson Feint", "Second Wind", "Perfect Guard", "Tempo Surge", "Guard Break", "Poisoned Point", "Flashing Edge", "Frost Feint", "Life-Stealing Lunge", "Tempo Siphon", "Flash Step", "Perfect Counter", "Duelist Barrier", "Opening Cut", "Final Thrust", "True Edge", "Absolute Duel"],
+    "duelist": ["Mirrorsteel Reprisal", "Lunge", "Blade Dance", "Crimson Feint", "Second Breath", "Perfect Guard", "Tempo Surge", "Guard Break", "Poisoned Point", "Flashing Edge", "Frost Feint", "Life-Stealing Lunge", "Tempo Siphon", "Flash Step", "Perfect Counter", "Duelist Barrier", "Opening Cut", "Final Thrust", "True Edge", "Absolute Duel"],
     "lancer": ["Spear Thrust", "Vault", "Dragon Dive", "Bleeding Impale", "Combat Recovery", "Spear Guard", "Resolve Surge", "Armor Skewer", "Venom Spear", "Flame Dive", "Frost Lance", "Blood Lance", "Resolve Siphon", "Skystep", "Counter Thrust", "Dragon Ward", "Weakpoint Impale", "Heavenfall", "Dragon Pierce", "Dragon Emperor"],
-    "spellblade": ["Arcane Slash", "Elemental Edge", "Rune Flurry", "Bleeding Rune", "Ether Renewal", "Mana Guard", "Arcane Might", "Rune Break", "Venom Rune", "Inferno Edge", "Frost Edge", "Soul Edge", "Mana Siphon", "Blink Blade", "Runic Counter", "Ether Barrier", "Expose Rune", "Ether Execution", "Astral Edge", "Reality Break"],
+    "spellblade": ["Arcane Slash", "Elemental Edge", "Rune Flurry", "Bleeding Rune", "Ether Renewal", "Mana Guard", "Arcane Might", "Rune Break", "Venom Rune", "Inferno Edge", "Frost Edge", "Soul Edge", "Aether Siphon", "Blink Blade", "Runic Counter", "Ether Barrier", "Expose Rune", "Ether Execution", "Astral Edge", "Reality Break"],
 }
 
 _CLASS_SKILL_NAMES.update({
@@ -698,11 +698,11 @@ SUBCLASS_SKILL_EFFECTS = {
 _SUBCLASS_SKILL_WORDS = {
     "damage":"Arc","heavy":"Ruin","multi":"Flurry","bleed":"Rend","heal":"Mending Light",
     "def_buff":"Aegis","attack_buff":"Ascension","armor_break":"Sunder","poison":"Venom",
-    "burn":"Inferno","freeze":"Frostbind","lifesteal":"Blood Feast","mana_drain":"Soul Siphon",
-    "dodge":"Veilstep","counter":"Riposte","barrier":"Bulwark","vulnerability":"Expose",
-    "execute":"Execution","true_damage":"Piercing Edge","ultimate":"Apotheosis","signature":"Ascension",
-    "focus":"Deadeye","mark":"Hunter's Mark","silence":"Silence","curse":"Hex",
-    "terrain":"Domain","resource":"Essence Flow","stamina":"Second Wind","mana_burst":"Mana Burst",
+    "burn":"Infernal Sonata","freeze":"Frostbind","lifesteal":"Sanguine Feast","mana_drain":"Soul Siphon",
+    "dodge":"Veilstep","counter":"Mirrorsteel Reprisal","barrier":"Bulwark","vulnerability":"Expose",
+    "execute":"Final Rupture","true_damage":"Piercing Edge","ultimate":"Apotheosis","signature":"Ascension",
+    "focus":"Deadeye","mark":"Predator's Sigil","silence":"Silence","curse":"Hex",
+    "terrain":"Domain","resource":"Essence Flow","stamina":"Second Breath","mana_burst":"Mana Burst",
     "delayed":"Delayed Ruin","sacrifice":"Blood Price","emergency":"Last Stand","combo":"Momentum",
     "chain":"Chainstrike","team_buff":"War Hymn","pet_boost":"Bondcall","summon":"Summoning",
     "aoe":"Tempest","dispel":"Purification","cleanse":"Cleansing Light","random":"Catalyst",
@@ -769,7 +769,7 @@ def _build_class_skills():
                 effect=extras[i-len(effects)]
             name={"damage":"Direct Strike","heavy":"Heavy Strike","multi":"Double Strike","bleed":"Bleeding Strike","heal":"Heal","def_buff":"Defense Up","attack_buff":"Attack Up","armor_break":"Defense Break","poison":"Poison Strike","burn":"Burn Strike","freeze":"Freeze Strike","lifesteal":"Life Steal","mana_drain":"Mana Drain","dodge":"Evasion Up","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Execute","true_damage":"True Damage","ultimate":"Ultimate Finisher","signature":"Signature Finisher","stance":"Adaptive Stance","focus":"Critical Focus","mark":"Target Mark","silence":"Silence","curse":"Curse","terrain":"Battlefield Control","resource":"Resource Surge","stamina":"Stamina Surge","mana_burst":"Mana Burst","delayed":"Delayed Strike","sacrifice":"Blood Price","emergency":"Desperation Strike","combo":"Combo Strike","chain":"Chain Attack","team_buff":"Combat Rally","pet_boost":"Companion Boost","summon":"Summon Attack","aoe":"Area Strike","dispel":"Dispel","random":"Random Effect"}.get(effect,names[i] if i < len(names) else f"{class_name.replace('_',' ').title()} Technique {i+1}")
             mechanic_name={
-                "damage":"Core Strike","heavy":"Power Blow","multi":"Rapid Sequence","bleed":"Bleeding Wound","heal":"Recovery","def_buff":"Defensive Stance","attack_buff":"Offensive Stance","armor_break":"Defense Break","poison":"Poison","burn":"Burn","freeze":"Freeze","lifesteal":"Life Drain","mana_drain":"Mana Siphon","dodge":"Evasive Step","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Execution","true_damage":"Piercing Damage","ultimate":"Signature Finisher","summon":"Summon","pet_boost":"Companion Empowerment","chain":"Chain Attack","team_buff":"Battle Rally","defend":"Guard","sacrifice":"Blood Price","emergency":"Desperation","attack_buff":"Rage Surge","combo":"Combo Technique","mana_burst":"Mana Burst","curse":"Curse","silence":"Silence","delayed":"Delayed Strike","stance":"Adaptive Stance","terrain":"Terrain Control","dispel":"Dispel","resource":"Resource Surge","random":"Volatile Mixture","dodge":"Haste","signature":"Class Signature","aoe":"Area Strike","recovery":"Recovery Pulse","stamina":"Stamina Surge","mark":"Target Mark","focus":"Focus"}.get(effect,effect.replace('_',' ').title())
+                "damage":"Core Strike","heavy":"Power Blow","multi":"Rapid Sequence","bleed":"Bleeding Wound","heal":"Recovery","def_buff":"Defensive Stance","attack_buff":"Offensive Stance","armor_break":"Defense Break","poison":"Poison","burn":"Burn","freeze":"Freeze","lifesteal":"Merciful Requiem","mana_drain":"Aether Siphon","dodge":"Evasive Step","counter":"Counter Stance","barrier":"Barrier","vulnerability":"Expose Weakness","execute":"Final Rupture","true_damage":"Piercing Damage","ultimate":"Signature Finisher","summon":"Summon","pet_boost":"Companion Empowerment","chain":"Chain Attack","team_buff":"Battle Rally","defend":"Guard","sacrifice":"Blood Price","emergency":"Desperation","attack_buff":"Rage Surge","combo":"Combo Technique","mana_burst":"Mana Burst","curse":"Curse","silence":"Silence","delayed":"Delayed Strike","stance":"Adaptive Stance","terrain":"Terrain Control","dispel":"Dispel","resource":"Resource Surge","random":"Volatile Mixture","dodge":"Haste","signature":"Class Signature","aoe":"Area Strike","recovery":"Recovery Pulse","stamina":"Stamina Surge","mark":"Target Mark","focus":"Focus"}.get(effect,effect.replace('_',' ').title())
             mechanic_desc={
                 "summon":"Calls a class-specific companion effect for sustained pressure.","pet_boost":"Empowers your companion and refreshes its combat rhythm.","chain":"Builds pressure from consecutive attacks.","team_buff":"Raises offensive and defensive combat performance.","sacrifice":"Spend HP to gain stronger damage.","emergency":"Becomes stronger when you are badly wounded.","attack_buff":"Converts momentum into stronger offense.","combo":"Scales with consecutive successful techniques.","mana_burst":"Deals damage while refunding some mana.","curse":"Applies a lingering vulnerability curse.","silence":"Disrupts enemy abilities for a short duration.","delayed":"Stores damage and detonates it later.","stance":"Chooses an offensive or defensive stance based on HP.","terrain":"Changes the battlefield to create an opening.","dispel":"Removes enemy advantages and punishes them.","resource":"Restores combat resources while attacking.","random":"A volatile effect with a controlled random outcome.","dodge":"Improves combat tempo and evasion.","signature":"A high-impact class-defining finisher.","aoe":"A wider attack pattern with capped damage.","stamina":"Restores stamina while maintaining pressure.","mark":"Marks the target for stronger follow-up attacks.","focus":"Improves critical consistency for a short window.",}.get(effect, f"A {class_name.replace('_',' ')}-specific combat technique.")
             mult=round(.78 + min(i,11)*.035,3)
@@ -942,7 +942,7 @@ ENCHANTMENTS = {
     "frostbind": {"name":"Frostbind","desc":"Adds a chance to slow enemies.","stat":"freeze","pct":2,"max_level":3},
     "warding": {"name":"Warding","desc":"Improves resistance to incoming skill damage.","stat":"def","pct":2,"max_level":4},
     "soulbound": {"name":"Soulbound","desc":"Improves resource recovery during long fights.","stat":"mp","pct":2,"max_level":4},
-    "hunter": {"name":"Hunter's Mark","desc":"Improves damage against marked targets.","stat":"atk","pct":2,"max_level":4},
+    "hunter": {"name":"Predator's Sigil","desc":"Improves damage against marked targets.","stat":"atk","pct":2,"max_level":4},
 }
 
 
@@ -1328,8 +1328,8 @@ ENEMY_ABILITIES = {
     "arcane_burst": {"name":"Arcane Burst","type":"magic","mult":1.18,"cooldown":3,"desc":"A concentrated magical blast."},
     "dragon_breath": {"name":"Dragon Breath","type":"burn","mult":1.10,"cooldown":4,"desc":"Burning breath that leaves a damage-over-time effect."},
     "frenzy": {"name":"Frenzy","type":"buff","mult":0.65,"cooldown":5,"desc":"A strike that increases the monster's attack."},
-    "power_strike": {"name":"Power Strike","type":"damage","mult":1.35,"cooldown":3,"desc":"A heavy physical attack."},
-    "guard": {"name":"Iron Guard","type":"guard","mult":0.55,"cooldown":4,"desc":"Raises the monster's defenses temporarily."},
+    "power_strike": {"name":"Vanguard's Wrath","type":"damage","mult":1.35,"cooldown":3,"desc":"A heavy physical attack."},
+    "guard": {"name":"Aegis of Stone","type":"guard","mult":0.55,"cooldown":4,"desc":"Raises the monster's defenses temporarily."},
     "regenerate": {"name":"Regenerate","type":"heal","mult":0.55,"cooldown":5,"desc":"Recovers a portion of maximum HP."},
     "venom": {"name":"Venom Spit","type":"poison","mult":0.88,"cooldown":4,"desc":"A poisonous attack that damages the hero over time."},
     "storm": {"name":"Storm Lance","type":"magic","mult":1.22,"cooldown":4,"desc":"A lightning strike with high critical pressure."},
@@ -1525,9 +1525,9 @@ for _k, _v in SECRET_CLASSES.items():
 # Give secret classes their own names while retaining the existing skill engine.
 _SECRET_SKILL_NAMES = {
     "void_knight": ["Void Slash","Rift Guard","Abyss Step","Null Strike","Graviton Edge","Void Chain","Black Aegis","Rift Breaker","Abyssal Roar","Null Field","Event Horizon","Void Reversal","Dimensional Cleave","Abyss Walker","Rift Execution","Singularity","World Rend","Void Dominion","Abyss Ascension","Zero Point"],
-    "chronomancer": ["Time Bolt","Second Wind","Temporal Step","Clockwork Lance","Haste Loop","Time Fracture","Rewind","Slow Field","Chrono Burst","Paradox","Time Stop","Future Sight","Age","Timeline Break","Temporal Prison","Epoch Collapse","Infinite Moment","Chronostasis","Eternal Cycle","Absolute Time"],
-    "dragon_lord": ["Dragon Fang","Scale Guard","Drake Rush","Flame Breath","Wing Slash","Dragon Roar","Inferno","Skyfall","Ancient Might","Draconic Ward","Elder Breath","Dragonheart","Meteor Wing","Worldfire","Dragon King's Command","Calamity","Heavenrend","Ancient Dragon Form","Cataclysm","True Dragon Dominion"],
-    "soul_reaper": ["Soul Cut","Grave Step","Spirit Guard","Reaper's Mark","Soul Drain","Death Bloom","Spectral Chains","Black Lantern","Soulfire","Gravebind","Death Sentence","Soul Harvest","Abyssal Reap","Phantom March","Last Rites","Soul Storm","Requiem","Kingdom of Death","Final Harvest","End of Souls"],
+    "chronomancer": ["Time Bolt","Second Breath","Temporal Step","Clockwork Lance","Haste Loop","Time Fracture","Rewind","Slow Field","Chrono Burst","Paradox","Time Stop","Future Sight","Age","Timeline Break","Temporal Prison","Epoch Collapse","Infinite Moment","Chronostasis","Eternal Cycle","Absolute Time"],
+    "dragon_lord": ["Dragon Fang","Scale Guard","Drake Rush","Flame Breath","Wing Slash","Dragon Roar","Infernal Sonata","Skyfall","Ancient Might","Draconic Ward","Elder Breath","Dragonheart","Meteor Wing","Worldfire","Dragon King's Command","Calamity","Heavenrend","Ancient Dragon Form","Cataclysm","True Dragon Dominion"],
+    "soul_reaper": ["Soul Cut","Grave Step","Spirit Guard","Reaper's Mark","Soul Drain","Death Bloom","Spectral Chains","Black Lantern","Soulfire","Gravebind","Eclipse Execution","Soul Harvest","Abyssal Reap","Phantom March","Final Benediction","Soul Storm","Requiem","Kingdom of Death","Final Harvest","End of Souls"],
 }
 for _k, _names in _SECRET_SKILL_NAMES.items():
     _base = [dict(x) for x in SKILLS["warrior"]]
