@@ -13,7 +13,12 @@ load_dotenv()
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-AGENT_ONLY_MODELS = {"deep-research-pro-preview-12-2025"}
+AGENT_ONLY_MODELS = {
+    "deep-research-pro-preview-12-2025",
+    "deep-research-preview-04-2026",
+    "deep-research-max-preview-04-2026",
+    "antigravity-preview-05-2026",
+}
 TIMEOUT = float(os.getenv("GEMINI_HTTP_TIMEOUT", os.getenv("GEMINI_TIMEOUT", "12")))
 RETRIES = int(os.getenv("GEMINI_MAX_RETRIES", "0"))
 REFRESH_SECONDS = int(os.getenv("GEMINI_MODEL_REFRESH_SECONDS", "300"))
@@ -23,12 +28,19 @@ class GeminiProvider:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.preferred_model = self.normalize(DEFAULT_MODEL)
-        if self.preferred_model in AGENT_ONLY_MODELS:
+        if self.is_agent_model(self.preferred_model):
             self.preferred_model = "gemini-2.5-flash"
         self.active_model = self.preferred_model
         self.available_models: list[str] = []
         self.last_refresh = 0.0
         self.last_error = ""
+
+    @staticmethod
+    def is_agent_model(model: str) -> bool:
+        model = (model or "").strip()
+        if model.startswith("models/"):
+            model = model[7:]
+        return model in AGENT_ONLY_MODELS or model.startswith("deep-research-") or model.startswith("antigravity-")
 
     @staticmethod
     def normalize(model: str) -> str:
@@ -61,7 +73,7 @@ class GeminiProvider:
         for item in data.get("models", []):
             name = self.normalize(item.get("name", ""))
             methods = item.get("supportedGenerationMethods", [])
-            if name and "generateContent" in methods and name not in AGENT_ONLY_MODELS:
+            if name and "generateContent" in methods and not self.is_agent_model(name):
                 models.append(name)
 
         # Prefer the configured model, then sensible known aliases, then anything
@@ -89,6 +101,10 @@ class GeminiProvider:
 
     async def _request(self, model: str, prompt: str) -> str:
         model = self.normalize(model)
+        if self.is_agent_model(model):
+            raise RuntimeError(
+                f"Gemini agent-only model {model!r} cannot be used as a normal chat model; falling back to a standard Gemini model."
+            )
         timeout = aiohttp.ClientTimeout(total=TIMEOUT)
 
         # Gemini's newer models can be Interaction-only. Try the legacy
