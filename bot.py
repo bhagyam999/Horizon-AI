@@ -2545,7 +2545,7 @@ def _combat_embed(state, result=None):
     player_level=int(state.get("player_level",1))
     equipped_keys=state.get("equipped_skill_keys",[])[:4]
     for key in equipped_keys:
-        skill=next((x for x in SKILLS.get(state.get("class_name", ""),[]) if x["key"]==key),None)
+        skill=next((x for x in bot.rpg.skills_for_player(state) if x["key"]==key),None)
         if not skill: continue
         cd=skill_cds.get(skill["key"],0)
         skill_lines.append(f"**{skill['name']}** · {skill['cost']} MP · CD {skill['cooldown']}t · {skill['mechanic']} · {skill.get('buff_text','No buff')} · {skill.get('debuff_text','No debuff')}" + (f" · READY" if not cd else f" · CD {cd}"))
@@ -2641,7 +2641,7 @@ def _pvp_embed(state, result=None):
     def block(uid,data):
         active=" ◀️ TURN" if turn==uid else ""
         pet=data.get("pet",{}) or {}
-        skills=[x for x in SKILLS.get(data.get("class",""),[]) if x["key"] in data.get("equipped_skill_keys",[])][:4]
+        skills=[x for x in bot.rpg.skills_for_player(data) if x["key"] in data.get("equipped_skill_keys",[])][:4]
         return (f"**{data['name']}** · Lv **{data.get('level',1)}** · {data.get('race','human').title()} {data.get('class','warrior').title()}{active}\n"
                 f"❤️ `{_bar(data['hp'],data['max_hp'])}` **{max(0,data['hp'])}/{data['max_hp']}**\n"
                 f"💧 `{_bar(data['mp'],data['max_mp'])}` **{max(0,data['mp'])}/{data['max_mp']} MP**\n"
@@ -3113,7 +3113,7 @@ async def rpg_classes(ctx):
     await _rpg_delete(ctx)
     rows=[(k,v) for k,v in CLASSES.items() if k not in SECRET_CLASS_KEYS]
     def fmt(x):
-        key,data=x; skills=SKILLS.get(key,[])[:4]; profile=CLASS_PROFILES.get(key,{"strength":data['desc'],"weakness":"No special weakness listed."})
+        key,data=x; skills=SKILLS.get(key,[])[:6]; profile=CLASS_PROFILES.get(key,{"strength":data['desc'],"weakness":"No special weakness listed."})
         return (f"**{key.replace('_',' ').title()}** · {data.get('resource','Resource')}\n{data['desc']}\n"
                 f"🟢 {profile['strength']}\n🔴 {profile['weakness']}\n"
                 f"❤️ HP +{data['hp']} • 💧 MP +{data['mp']} • ⚔️ ATK +{data['atk']} • 🛡️ DEF +{data['def']} • 💨 SPD +{data['spd']} • 🎯 Crit +{data['crit']}%\n"
@@ -3135,7 +3135,7 @@ async def rpg_class_info(ctx, *, class_name: str = ""):
         await _rpg_action_panel(ctx,"🌌 Secret Class — "+data['name'],body,True); return
     if key not in CLASSES:
         await _rpg_action_panel(ctx,"Class Details","Use `!rpg classes` first, then `!rpg class <class>`." ,False); return
-    data=CLASSES[key]; skills=SKILLS.get(key,[])
+    data=CLASSES[key]; skills=bot.rpg.skills_for_player({"class_name":key})
     strong=[k.replace('_',' ').title() for k,v in CLASS_MATCHUPS.get(key,{}).items() if v>1]
     weak=[k.replace('_',' ').title() for k,v in CLASS_MATCHUPS.items() if key in v and v[key]<1]
     profile=CLASS_PROFILES.get(key,{"strength":data.get("desc","Flexible class"),"weakness":"No special weakness listed."})
@@ -4069,7 +4069,7 @@ async def rpg_skills(ctx, page: int = 1):
     p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
     if not p:
         await _rpg_action_panel(ctx,"Combat Skills","Create your hero first with `!rpg start`.",False); return
-    rows=SKILLS.get(p["class_name"],[])
+    rows=bot.rpg.skills_for_player(p)
     mastery=await bot.rpg.skill_masteries(ctx.guild.id,ctx.author.id)
     loadout=await bot.rpg.skill_loadout(ctx.guild.id,ctx.author.id); active={slot:skill["key"] for slot,skill in loadout if skill}
     def fmt(x):
