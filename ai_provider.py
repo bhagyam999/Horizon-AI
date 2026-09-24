@@ -277,14 +277,20 @@ class GeminiProvider:
 
 
 class OpenAICompatibleProvider:
-    """Small OpenAI-compatible client for Groq and OpenRouter."""
+    """Small OpenAI-compatible client for Grok and OpenRouter."""
 
-    def __init__(self, name: str, api_key_env: str, base_url: str, model_env: str, default_model: str):
+    def __init__(self, name: str, api_key_env: str, base_url: str, model_env: str, default_model: str, aliases: tuple[str, ...] = ()):
         self.name=name
         self.api_key=os.getenv(api_key_env,"").strip()
+        if not self.api_key:
+            for alias in aliases:
+                self.api_key=os.getenv(alias,"").strip()
+                if self.api_key:
+                    break
         self.base_url=base_url.rstrip("/")
         self.model=os.getenv(model_env,default_model).strip()
         self.last_error=""
+        self.last_usage_tokens=0
 
     @property
     def enabled(self):
@@ -294,7 +300,11 @@ class OpenAICompatibleProvider:
         if not self.api_key:
             raise RuntimeError(f"{self.name} API key is not configured")
         timeout=aiohttp.ClientTimeout(total=TIMEOUT)
-        payload={"model":self.model,"messages":[{"role":"system","content":system},{"role":"user","content":prompt}],"max_tokens":int(os.getenv("AI_MAX_OUTPUT_TOKENS","1200"))}
+        payload={
+            "model":self.model,
+            "messages":[{"role":"system","content":system},{"role":"user","content":prompt}],
+            "max_tokens":int(os.getenv("AI_MAX_OUTPUT_TOKENS","800")),
+        }
         headers={"Content-Type":"application/json","Authorization":f"Bearer {self.api_key}"}
         if self.name=="OpenRouter":
             headers["HTTP-Referer"]=os.getenv("OPENROUTER_HTTP_REFERER","https://discord.com")
@@ -305,6 +315,8 @@ class OpenAICompatibleProvider:
                 if response.status!=200:
                     raise RuntimeError(f"{self.name} HTTP {response.status}: {body[:800]}")
                 data=json.loads(body)
+                usage=data.get("usage") or {}
+                self.last_usage_tokens=int(usage.get("total_tokens") or 0)
                 choices=data.get("choices") or []
                 text=(choices[0].get("message",{}).get("content","") if choices else "").strip()
                 if not text:
