@@ -4569,6 +4569,19 @@ class RPGService:
                 mult*=1+float(stats.get("trait_finisher_pct",0))/100
         mult*=1+float(stats.get("trait_skill_pct",0))/100
         effect=skill.get("effect","damage")
+
+        # Advanced combo scaling: the combo now changes the actual damage of
+        # the current skill instead of merely printing a combo counter.
+        combo_level=int(state.get("combo",0))
+        combo_unique=len(set(state.get("combo_unique",[])))
+        combo_repeat=int(state.get("combo_repeat",0))
+        if combo_level > 0:
+            chain_bonus=min(0.25, 0.025 * combo_level)
+            variety_bonus=min(0.10, 0.015 * max(0, combo_unique - 1))
+            repeat_penalty=min(0.25, 0.05 * combo_repeat)
+            mult *= 1.0 + chain_bonus + variety_bonus - repeat_penalty
+            if effect in {"execute","ultimate","signature","mythic"}:
+                mult *= 1.0 + min(0.20, 0.02 * combo_level)
         effect_bonus=float(stats.get("trait_effect_bonus",{}).get(effect,0))
         if effect_bonus:
             mult*=1+effect_bonus/100
@@ -4701,7 +4714,7 @@ class RPGService:
             hit=max(8,int(enemy["hp"]*.06)); state["enemy_hp"]-=hit; log.append(f"💠 **{skill['name']}** removed **{hit} HP** based on enemy vitality.")
         elif effect in {"aoe","chain","summon"}:
             mult=1.05 if effect=="aoe" else (1.0+min(.35,state.get("combo",0)*.08) if effect=="chain" else .90)
-            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*mult); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.30))); state["combo"]=min(5,state.get("combo",0)+1); log.append(f"🌪️ **{skill['name']}** dealt **{hit}** damage.")
+            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*mult); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.30))); log.append(f"🌪️ **{skill['name']}** dealt **{hit}** damage.")
         elif effect=="pet_boost":
             state["buffs"]["pet_up"]=.25; state["pet_cooldown"]=0; hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*.8); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.18))); log.append(f"🐾 **{skill['name']}** empowered your companion for the next assist.")
         elif effect=="resource":
@@ -4726,7 +4739,7 @@ class RPGService:
             else:
                 state["buffs"]["atk_up"]=.20; state["buffs"]["atk_turns"]=3; log.append(f"⚔️ **{skill['name']}** entered an offensive stance.")
         elif effect=="combo":
-            state["combo"]=min(6,state.get("combo",0)+1); hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*(1+.06*state["combo"])); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.30))); log.append(f"🔗 **{skill['name']}** chained for **{hit}** damage (combo {state['combo']}).")
+            hit=self._skill_damage(stats,enemy,skill,state,skill["mult"]*(1+.04*int(state.get("combo",0)))); state["enemy_hp"]-=min(hit,max(2,int(enemy["hp"]*.30))); log.append(f"🔗 **{skill['name']}** chained for **{hit}** damage (combo {state['combo']}).")
         elif effect=="mana_burst":
             dmg=self._skill_damage(stats,enemy,skill,state,skill["mult"]*1.08); dmg=min(dmg,max(2,int(enemy["hp"]*.30))); state["enemy_hp"]-=dmg; gain=max(3,int(stats["max_mp"]*.06)); state["player_mp"]=min(stats["max_mp"],state["player_mp"]+gain); log.append(f"💧 **{skill['name']}** released **{dmg}** damage and restored {gain} MP.")
         elif effect=="curse":
@@ -4800,9 +4813,12 @@ class RPGService:
                 state["combo_repeat"]=0
             else:
                 unique_count=len(set(state.get("combo_unique",[])))
-                combo_bonus=min(45,int(round((.035*int(state["combo"])+.015*max(0,unique_count-1))*100)))
-                if combo_bonus>0:
-                    log.append(f"🔗 **COMBO x{state['combo']}** • +{combo_bonus}% chain damage")
+                chain_bonus=min(25,int(round(.025*int(state["combo"])*100)))
+                variety_bonus=min(10,int(round(.015*max(0,unique_count-1)*100)))
+                repeat_penalty=min(25,int(round(.05*int(state.get("combo_repeat",0))*100)))
+                net_bonus=max(0,chain_bonus+variety_bonus-repeat_penalty)
+                if net_bonus>0:
+                    log.append(f"🔗 **COMBO x{state['combo']}** • +{net_bonus}% current-chain damage")
         else:
             # Missed/zero-damage techniques break the offensive chain.
             state["combo"]=0
