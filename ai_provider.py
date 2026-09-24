@@ -26,17 +26,9 @@ REFRESH_SECONDS = int(os.getenv("GEMINI_MODEL_REFRESH_SECONDS", "300"))
 
 class GeminiProvider:
     def __init__(self):
-        # Support three Gemini keys with automatic failover/rotation.
-        # GEMINI_API_KEY remains supported as a backwards-compatible fallback.
-        self.api_keys = [
-            os.getenv("GEMINI_API_KEY_1", "").strip(),
-            os.getenv("GEMINI_API_KEY_2", "").strip(),
-            os.getenv("GEMINI_API_KEY_3", "").strip(),
-            os.getenv("GEMINI_API_KEY", "").strip(),
-        ]
-        self.api_keys = list(dict.fromkeys(k for k in self.api_keys if k))
-        self.key_index = 0
-        self.api_key = self.api_keys[0] if self.api_keys else ""
+        # One Gemini key only. Provider-level failover is handled by AIProvider:
+        # Gemini -> Groq -> OpenRouter.
+        self.api_key = os.getenv("GEMINI_API_KEY", "").strip()
         self.preferred_model = self.normalize(DEFAULT_MODEL)
         if self.is_agent_model(self.preferred_model):
             self.preferred_model = "gemini-2.5-flash"
@@ -45,6 +37,7 @@ class GeminiProvider:
         self.last_refresh = 0.0
         self.last_error = ""
         self.model_health: dict[str, dict[str, Any]] = {}
+
 
     @staticmethod
     def is_agent_model(model: str) -> bool:
@@ -61,15 +54,7 @@ class GeminiProvider:
         return model
 
     def headers(self) -> dict[str, str]:
-        key = self.api_keys[self.key_index] if self.api_keys else ""
-        return {"Content-Type": "application/json", "x-goog-api-key": key}
-
-    def rotate_key(self):
-        if not self.api_keys:
-            return False
-        self.key_index = (self.key_index + 1) % len(self.api_keys)
-        self.api_key = self.api_keys[self.key_index]
-        return True
+        return {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
 
     async def refresh_models(self, force: bool = False) -> list[str]:
         if not self.api_key:
@@ -251,10 +236,6 @@ class GeminiProvider:
                 except Exception as exc:
                     last_error = exc
                     self.last_error = str(exc)
-                    # A key can be independently quota-limited. Try the next
-                    # configured Gemini key before abandoning the request.
-                    if "HTTP 429" in str(exc) or "rate limited" in str(exc).lower() or "quota" in str(exc).lower():
-                        self.rotate_key()
                     if not refreshed:
                         refreshed = True
                         try:
@@ -285,7 +266,7 @@ class GeminiProvider:
             statuses.append({"model":name,"status":health.get("status","available"),"detail":health.get("detail","Listed by Gemini and supports generation.")})
         return {
             "provider": "Gemini",
-            "configured_keys": len(self.api_keys),
+            "configured_keys": len([REMOVED_MULTI_GEMINI_KEYS]),
             "active_key": self.key_index + 1 if self.api_keys else None,
             "configured_model": self.preferred_model,
             "active_model": self.active_model,
@@ -295,58 +276,103 @@ class GeminiProvider:
         }
 
 
-class AIProvider:
-    """Bot-facing wrapper kept compatible with Horizon's bot.py interface."""
+class OpenAICompatibleProvider:
+    """Small OpenAI-compatible client for Groq and OpenRouter."""
 
-    def __init__(self):
-        self.gemini = GeminiProvider()
-
-    @property
-    def enabled(self) -> bool:
-        return bool(self.gemini.api_key)
-
-    @property
-    def model(self) -> str:
-        return self.gemini.active_model
+    def __init__(self, name: str, api_key_env: str, base_url: str, model_env: str, default_model: str):
+        self.name=name
+        self.api_key=os.getenv(api_key_env,"").strip()
+        self.base_url=base_url.rstrip("/")
+        self.model=os.getenv(model_env,default_model).strip()
+        self.last_error=""
 
     @property
-    def provider_name(self) -> str:
-        return "Gemini"
+    def enabled(self):
+        return bool(self.api_key)
 
     async def generate(self, system: str, prompt: str) -> str:
-        combined = f"{system}\n\nUser message:\n{prompt}"
-        return await self.gemini.ask(combined)
+        if not self.api_key:
+            raise RuntimeError(f"{self.name} API key is not configured")
+        timeout=aiohttp.ClientTimeout(total=TIMEOUT)
+        payload={"model":self.model,"messages":[{"role":"system","content":system},{"role":"user","content":prompt}],"max_tokens":int(os.getenv("AI_MAX_OUTPUT_TOKENS","1200"))}
+        headers={"Content-Type":"application/json","Authorization":f"Bearer {self.api_key}"}
+        if self.name=="OpenRouter":
+            headers["HTTP-Referer"]=os.getenv("OPENROUTER_HTTP_REFERER","https://discord.com")
+            headers["X-Title"]=os.getenv("OPENROUTER_X_TITLE","Horizon")
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(f"{self.base_url}/chat/completions",headers=headers,json=payload) as response:
+                body=await response.text()
+                if response.status!=200:
+                    raise RuntimeError(f"{self.name} HTTP {response.status}: {body[:800]}")
+                data=json.loads(body)
+                choices=data.get("choices") or []
+                text=(choices[0].get("message",{}).get("content","") if choices else "").strip()
+                if not text:
+                    raise RuntimeError(f"{self.name} returned no visible answer: {body[:800]}")
+                self.last_error=""
+                return text
+
+
+class AIProvider:
+    """Horizon AI failover chain: Gemini -> Groq -> OpenRouter."""
+
+    def __init__(self):
+        self.gemini=GeminiProvider()
+        self.groq=OpenAICompatibleProvider("Groq","GROQ_API_KEY","https://api.groq.com/openai/v1","GROQ_MODEL","openai/gpt-oss-120b")
+        self.openrouter=OpenAICompatibleProvider("OpenRouter","OPENROUTER_API_KEY","https://openrouter.ai/api/v1","OPENROUTER_MODEL","openrouter/free")
+        self.providers=[self.gemini,self.groq,self.openrouter]
+        self.last_provider="Gemini"
+        self.last_error=""
+
+    @property
+    def enabled(self):
+        return any(getattr(p,"enabled",False) for p in self.providers)
+
+    @property
+    def model(self):
+        if self.last_provider=="Gemini": return self.gemini.active_model
+        if self.last_provider=="Groq": return self.groq.model
+        return self.openrouter.model
+
+    @property
+    def provider_name(self):
+        return self.last_provider
+
+    async def generate(self, system: str, prompt: str) -> str:
+        errors=[]
+        for provider in self.providers:
+            if not getattr(provider,"enabled",False): continue
+            try:
+                if provider is self.gemini: result=await provider.ask(f"{system}\n\nUser message:\n{prompt}")
+                else: result=await provider.generate(system,prompt)
+                self.last_provider=provider.name if provider is not self.gemini else "Gemini"
+                self.last_error=""
+                return result
+            except Exception as exc:
+                provider.last_error=str(exc)
+                errors.append(f"{provider.name if provider is not self.gemini else 'Gemini'}: {exc}")
+        self.last_error=" | ".join(errors) or "No AI provider API keys are configured."
+        raise RuntimeError(f"All AI providers failed. {self.last_error}")
 
     async def status(self):
-        data = await self.gemini.status_data()
-        ok = bool(self.gemini.api_key) and bool(data["available_models"])
-        statuses=data.get("model_statuses", [])
-        counts={}
-        for item in statuses:
-            counts[item["status"]]=counts.get(item["status"],0)+1
-        summary=" • ".join(f"{k.replace('_',' ').title()}: {v}" for k,v in counts.items()) or "No model data"
-        detail=f"Active model: `{data['active_model']}`\nModel health: {summary}"
-        if statuses:
-            detail += "\n" + "\n".join(
-                f"• `{x['model']}` — **{x['status'].replace('_',' ').title()}**"
-                for x in statuses
-            )
-        if data["last_error"]:
-            detail += f"\nLast error: `{data['last_error'][:300]}`"
-        return ok, detail
+        lines=[]
+        for provider in self.providers:
+            name=provider.name if provider is not self.gemini else "Gemini"
+            model=provider.active_model if provider is self.gemini else provider.model
+            lines.append(f"• {name} — {'configured' if provider.enabled else 'not configured'} — {model}")
+            if provider.last_error: lines.append(f"  Last error: {provider.last_error[:250]}")
+        return self.enabled, "Failover order: Gemini → Groq → OpenRouter\n" + "\n".join(lines)
 
-
-# Backwards-compatible helpers for any older Horizon modules.
-_provider = GeminiProvider()
+_provider=AIProvider()
 
 async def ask_gemini(prompt: str):
-    return await _provider.ask(prompt)
+    return await _provider.generate("You are Horizon, a helpful Discord AI assistant.",prompt)
 
 async def get_ai_response(prompt: str):
-    return await _provider.ask(prompt)
+    return await _provider.generate("You are Horizon, a helpful Discord AI assistant.",prompt)
 
 async def ai_status():
-    return await _provider.status_data()
+    return {"provider":_provider.last_provider,"model":_provider.model,"last_error":_provider.last_error}
 
 async def list_gemini_models():
-    return await _provider.model_names()
+    return await _provider.gemini.model_names()
