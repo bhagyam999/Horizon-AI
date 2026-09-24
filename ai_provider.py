@@ -391,7 +391,13 @@ Do NOT classify fictional RPG combat language as a real-world threat merely beca
 Likewise, do not flag legitimate discussion of RPG mechanics, combos, damage, skills, builds, roleplay, fictional violence, or game strategy.
 However, RPG context does NOT excuse actual harassment, hate, sexual content, doxxing, scams, malware, credible real-world threats, or targeted abuse against a real person. Distinguish a game target/NPC/player character from a real person when context makes that distinction clear.
 Do not punish ordinary profanity, jokes, disagreement, slang, or harmless insults without meaningful harassment. Never invent context. This is classification only."""
-        prompt = f"Message:\n{message[:3000]}\n\nRecent context:\n{context[-5000:]}"
+        prompt = f"""Message being moderated:
+{message[:3000]}
+
+Conversation immediately before this message:
+{context[-7000:]}
+
+Interpret the message using the conversation as evidence. Do not punish a phrase solely because it contains violent words. A phrase such as "I'll kill you" can be joking, meme-like, roleplay, RPG combat, or a genuine real-world threat; determine which meaning is supported by the surrounding messages. Treat a clear friendly/joking exchange as allow unless there is additional evidence of targeted abuse or a credible threat. If context is ambiguous, prefer allow/flag rather than delete/timeout. Only recommend delete/timeout when the evidence in the message and conversation supports a real policy violation."""
         if rpg_knowledge:
             prompt += f"\n\nAUTHORITATIVE HORIZON RPG REFERENCE:\n{rpg_knowledge[:18000]}"
         async def run(provider):
