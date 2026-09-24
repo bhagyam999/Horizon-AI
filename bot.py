@@ -197,6 +197,56 @@ class Horizon(commands.Bot):
         await self.db.settings(guild.id)
         log.info("Horizon joined guild %s (%s)", guild.name, guild.id)
 
+    async def _automated_moderation(self, message: discord.Message):
+        if not message.guild or message.author.bot or not message.content.strip(): return
+        settings=await self.db.settings(message.guild.id)
+        if not int(settings.get("mod_enabled",1)): return
+        member=message.author if isinstance(message.author,discord.Member) else message.guild.get_member(message.author.id)
+        if member and (member.guild_permissions.administrator or member.guild_permissions.manage_guild or member.guild_permissions.manage_messages): return
+        history=self.mod_history.setdefault(message.author.id,[])
+        decision=self.mod.inspect(message.content, history=history[-8:])
+        history.append(message.content[:1000]); del history[:-8]
+        if decision.score < 2 and not decision.target and not decision.escalation: return
+        context="\n".join(history[-5:])
+        try: verdicts=await asyncio.wait_for(self.ai.moderate(message.content,context),timeout=12)
+        except Exception: verdicts=[]
+        strong=[v for v in verdicts if float(v.get("confidence",0) or 0)>=0.75 and int(v.get("severity",0) or 0)>=2]
+        from collections import Counter
+        action_counts=Counter(str(v.get("action","allow")) for v in strong if str(v.get("action","allow"))!="allow")
+        category_counts=Counter(str(v.get("category","other")) for v in strong if str(v.get("category","other"))!="none")
+        ai_action=action_counts.most_common(1)[0][0] if action_counts and action_counts.most_common(1)[0][1]>=2 else "allow"
+        ai_category=category_counts.most_common(1)[0][0] if category_counts else (decision.category or "other")
+        should_delete=ai_action=="delete" or (decision.score>=7 and decision.target)
+        should_timeout=ai_action=="timeout" or (decision.score>=8 and decision.target)
+        if not should_delete and not should_timeout:
+            if ai_action=="flag" and decision.score>=3:
+                await self.db.add_warning(message.guild.id,message.author.id,self.user.id,f"AI moderation flag: {ai_category}")
+            return
+        try:
+            if should_delete: await message.delete(reason=f"Horizon AI moderation: {ai_category}")
+            if should_timeout and member:
+                try: await member.timeout(datetime.timedelta(minutes=10),reason=f"Horizon AI moderation: {ai_category}")
+                except (discord.Forbidden,discord.HTTPException): pass
+            await self.db.add_warning(message.guild.id,message.author.id,self.user.id,f"Automatic moderation: {ai_category}")
+        except (discord.NotFound,discord.Forbidden,discord.HTTPException): pass
+        log_channel_id=int(settings.get("log_channel_id") or 0)
+        if log_channel_id:
+            channel=self.get_channel(log_channel_id)
+            if channel:
+                try:
+                    action="timeout + delete" if should_timeout else "delete"
+                    await channel.send(f"🛡️ **Horizon Auto-Mod** | {message.author.mention} in {message.channel.mention}\nAction: **{action}** • Category: **{ai_category}**\nLocal score: `{decision.score}` • AI agreement: `{dict(action_counts)}`")
+                except (discord.Forbidden,discord.HTTPException): pass
+
+    async def on_message(self, message: discord.Message):
+        if message.guild and not message.author.bot:
+            try: await self._automated_moderation(message)
+            except Exception: log.exception("Automated moderation failed")
+            if message.content.strip():
+                try: await self.db.add_ai_server_message(message.id,message.guild.id,message.channel.id,message.author.id,message.author.display_name,message.content)
+                except Exception: log.exception("Live AI history indexing failed")
+        await self.process_commands(message)
+
     async def on_ready(self):
         # Keep Horizon's Discord username in the requested Unicode style.
         if self.user and self.user.name != BOT_DISPLAY_NAME:
