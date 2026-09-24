@@ -54,6 +54,11 @@ class GeminiProvider:
             model = model[7:]
         return model
 
+    @property
+    def enabled(self) -> bool:
+        """Whether Gemini has a usable API key configured."""
+        return bool(self.api_key)
+
     def headers(self) -> dict[str, str]:
         return {"Content-Type": "application/json", "x-goog-api-key": self.api_key}
 
