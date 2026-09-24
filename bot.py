@@ -3689,7 +3689,7 @@ class QuestBoardView(discord.ui.View):
                 # Acknowledge immediately: reward/database work can take longer than
                 # Discord's 3-second interaction response window.
                 await interaction.response.defer()
-                ok,msg=await bot.rpg.claim_objective(
+                ok,msg=await bot.rpg.claim_quest2_objective(
                     self.ctx.guild.id,self.ctx.author.id,
                     q.get("period"),q.get("objective_key"),q.get("period_key")
                 )
