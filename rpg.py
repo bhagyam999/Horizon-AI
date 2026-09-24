@@ -793,7 +793,7 @@ async def _migrate_skill_loadouts(db_path):
             cur=await db.execute("SELECT DISTINCT class_name FROM rpg_players")
             classes={r[0] for r in await cur.fetchall()}
             for cls in classes:
-                valid={x["key"] for x in SKILLS.get(cls,[])}
+                valid={x["key"] for x in SKILLS.get(cls,[])} | {x["key"] for skills in SUBCLASS_SKILLS.values() for x in skills}
                 if not valid: continue
                 cur=await db.execute("SELECT guild_id,user_id,slot,skill_key FROM rpg_skill_loadout")
                 rows=await cur.fetchall()
@@ -2173,7 +2173,7 @@ class RPGService:
                     pcls=next(iter(classes),None) if len(classes)==1 else None
                     # Validate against every known class; invalid keys are removed
                     # only when they cannot exist in any current class kit.
-                    if not any(key in {x["key"] for x in SKILLS.get(cls,[])} for cls in SKILLS):
+                    if not any(key in {x["key"] for x in SKILLS.get(cls,[])} for cls in SKILLS) and not any(key in {x["key"] for x in skills} for skills in SUBCLASS_SKILLS.values()):
                         await db.execute("DELETE FROM rpg_skill_loadout WHERE guild_id=? AND user_id=? AND slot=?",(guild_id,user_id,slot))
                 await db.commit()
         except Exception:
