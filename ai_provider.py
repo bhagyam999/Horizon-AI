@@ -382,6 +382,26 @@ class DailyTokenBudget:
                 json.dump(self.data,f)
             os.replace(tmp,self.path)
 
+    async def moderate(self, message: str, context: str = "") -> list[dict]:
+        """Run moderation triage through every configured AI provider."""
+        system = """You are Horizon Discord safety classifier. Analyze the message for server-policy violations.
+Return ONLY JSON: {"action":"allow|flag|delete|timeout","category":"none|spam|harassment|hate|sexual|threat|self_harm|scam|malware|doxxing|other","severity":0-4,"confidence":0.0-1.0,"reason":"short factual reason"}.
+Do not punish ordinary profanity, jokes, disagreement, slang, or harmless insults without meaningful harassment. Never invent context. This is classification only."""
+        prompt = f"Message:\n{message[:3000]}\n\nRecent context:\n{context[-5000:]}"
+        async def run(provider):
+            name="Gemini" if provider is self.gemini else provider.name
+            try:
+                raw=await self._try(provider,system,prompt)
+                text=raw.strip().replace("```json","").replace("```","").strip()
+                start=text.find("{"); end=text.rfind("}")
+                if start<0 or end<=start: raise ValueError("classifier returned no JSON")
+                data=json.loads(text[start:end+1])
+                return {"provider":name, **data}
+            except Exception as exc:
+                return {"provider":name,"action":"allow","category":"none","severity":0,"confidence":0.0,"reason":f"classifier unavailable: {str(exc)[:120]}"}
+        providers=[p for p in (self.gemini,self.grok,self.openrouter) if p.enabled]
+        return await asyncio.gather(*(run(p) for p in providers)) if providers else []
+
     async def status(self):
         key=self.period_key()
         used=self.data.get(key,{})
