@@ -507,6 +507,41 @@ def build_rpg_ai_knowledge():
         desc=PET_ABILITY_DESCRIPTIONS.get(data.get("ability",""),"")
         lines.append(f"- {name}: {data.get('rarity','')} role={data.get('role','')}; HP+{data.get('hp',0)} ATK+{data.get('atk',0)} DEF+{data.get('def',0)} SPD+{data.get('spd',0)} CRIT+{data.get('crit',0)}; {data.get('ability','')}: {desc}")
 
+    def catalog_names(value, limit=500):
+        if isinstance(value, dict):
+            out=[]
+            for key,data in value.items():
+                if isinstance(data, dict):
+                    label=data.get("name") or data.get("title") or key
+                elif isinstance(data, (tuple,list)) and data:
+                    label=data[0]
+                else:
+                    label=key
+                out.append(str(label))
+            return out[:limit]
+        if isinstance(value, (list,tuple)):
+            out=[]
+            for row in value:
+                if isinstance(row, dict):
+                    out.append(str(row.get("name") or row.get("title") or row.get("key") or "Unknown"))
+                elif isinstance(row,(tuple,list)) and row:
+                    out.append(str(row[0]))
+                else:
+                    out.append(str(row))
+            return out[:limit]
+        return []
+
+    lines.append("ITEM CATALOG (names are authoritative; ask the player to use the item codex/shop for full live details):")
+    item_names=catalog_names(ITEMS)
+    for i in range(0,len(item_names),40):
+        lines.append("- "+", ".join(item_names[i:i+40]))
+    lines.append("RECIPES: "+", ".join(catalog_names(RECIPES)))
+    lines.append("ENCHANTMENTS: "+", ".join(catalog_names(ENCHANTMENTS)))
+    lines.append("ACHIEVEMENTS: "+", ".join(catalog_names(ACHIEVEMENTS)))
+    lines.append("WORLD AREAS: "+", ".join(catalog_names(AREAS)))
+    lines.append("GACHA: single pull cost="+str(GACHA_COST_SINGLE)+", ten-pull cost="+str(GACHA_COST_TEN)+", rates="+str(GACHA_RATES)+", Epic pity="+str(GACHA_EPIC_PITY)+", Mythic pity="+str(GACHA_MYTHIC_PITY)+".")
+    lines.append("ENCHANTMENT COMPATIBILITY: Use the live ENCHANTMENT_COMPATIBILITY/compatible_enchantments data; do not guess which item slot accepts an enchantment.")
+    lines.append("PVP MATCHUPS: race/class matchup multipliers are bounded around 0.82–1.18. Explain matchup mechanics from the live data rather than inventing counters.")
     lines.append("DUNGEONS:")
     for row in DUNGEONS:
         lines.append(f"- {row[0]}: level {row[1]}+, {row[2]} floors; {row[5] if len(row)>5 else row[-1]}")
