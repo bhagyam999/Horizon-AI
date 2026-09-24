@@ -1905,11 +1905,19 @@ async def prefix_ask(ctx, *, question: str = ""):
             await ctx.send("Horizon AI is temporarily unavailable.", delete_after=8)
 
 
-@bot.command(name="aistatus", aliases=["ai_status"])
+@bot.command(name="aistatus", aliases=["ai-status"])
 async def prefix_ai_status(ctx):
     await _quiet_delete(ctx.message)
-    ok, detail = await bot.ai.status()
-    await ctx.send(f"**Horizon AI:** {'Online' if ok else 'Offline'}\n{detail}", delete_after=12)
+    try:
+        ok, detail = await bot.ai.status()
+        # Discord caps normal message content at 2000 characters. Model health can
+        # contain many models, so always split it instead of letting this command fail.
+        chunks = split_text(f"**Horizon AI:** {'Online' if ok else 'Offline'}\n{detail}", 1900)
+        for chunk in chunks:
+            await ctx.send(chunk, delete_after=15)
+    except Exception as exc:
+        log.exception("AI status failed")
+        await ctx.send(f"AI status failed: {str(exc)[:300]}", delete_after=12)
 
 
 @bot.command(name="aimodels", aliases=["ai_models"])
