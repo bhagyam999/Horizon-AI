@@ -2565,7 +2565,12 @@ def _combat_embed(state, result=None):
         desc += "\n\n✨ **Skills**\n" + "\n".join(skill_lines)
     statuses=bot.rpg._status_summary(state.get("enemy_statuses",{})) if hasattr(bot.rpg,"_status_summary") else "None"
     desc += f"\n\n🧿 **Enemy Status:** {statuses}"
-    if state.get("combo",0): desc += f"\n🔗 **Combo:** x{state.get('combo',0)}"
+    if state.get("combo",0):
+        chain=state.get("combo_chain",[])
+        chain_text=" → ".join(chain[-4:]) if chain else "Building"
+        desc += f"\n🔗 **Combo x{state.get('combo',0)}** · {chain_text}"
+        if state.get("combo_repeat",0)>=2:
+            desc += " · ⚠️ Repetition penalty"
     desc += "\n\n" + "\n".join(f"• {line}" for line in state["log"][-5:])
     if result and result.get("finished"):
         if result.get("win"):
