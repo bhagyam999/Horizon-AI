@@ -3806,6 +3806,10 @@ async def rpg_blackjack(ctx, bet: int = 0):
 @rpg_root.command(name="mines")
 async def rpg_mines(ctx, bet: int = 0):
     await _rpg_delete(ctx)
+    # Recover an older 5x5 Mines session created before the Discord 4x4 layout fix.
+    active = await bot.rpg_gambling.active_session(ctx.guild.id, ctx.author.id)
+    if active and active.get("game") == "mines" and int(active.get("state", {}).get("size", 4)) != 4:
+        await bot.rpg_gambling.recover(ctx.guild.id, ctx.author.id)
     result = await bot.rpg_gambling.start_mines(ctx.guild.id, ctx.author.id, bet)
     if result.get("error"):
         await _rpg_action_panel(ctx, "💣 Mines", result["error"], False)
