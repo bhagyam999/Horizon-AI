@@ -24,7 +24,8 @@ from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
 from community_commands import setup as setup_community_commands
-from rpg import ENEMY_ABILITIES, RPGService\nfrom rpg_gambling import RPGGamblingService, MIN_BET, MAX_BET, RACES, CLASSES, SUBRACES, SUBCLASSES, SUBRACE_TRAITS, SUBCLASS_TRAITS, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, PET_EGGS, PET_EGG_POOLS, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, RACE_PROFILES, CLASS_PROFILES, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES, SUBCLASS_SKILLS, SKILL_UNLOCK_LEVELS, SKILL_COSTS, SKILL_COOLDOWNS, SKILL_COMBO_ROLES, CLASS_COMBO_TRAITS, SKILL_MAX_RANK, SKILL_RANK_DAMAGE, SKILL_RANK_HEAL, MAGIC_CLASSES, HEAL_CLASSES, PET_ABILITY_DESCRIPTIONS, AREA_CONNECTIONS
+from rpg import ENEMY_ABILITIES, RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, SUBRACE_TRAITS, SUBCLASS_TRAITS, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, PET_EGGS, PET_EGG_POOLS, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, RACE_PROFILES, CLASS_PROFILES, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES, SUBCLASS_SKILLS, SKILL_UNLOCK_LEVELS, SKILL_COSTS, SKILL_COOLDOWNS, SKILL_COMBO_ROLES, CLASS_COMBO_TRAITS, SKILL_MAX_RANK, SKILL_RANK_DAMAGE, SKILL_RANK_HEAL, MAGIC_CLASSES, HEAL_CLASSES, PET_ABILITY_DESCRIPTIONS, AREA_CONNECTIONS
+from rpg_gambling import RPGGamblingService, MIN_BET, MAX_BET
 from storage import backup_database, migrate_legacy_database, resolve_database_path
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -68,6 +69,7 @@ class Horizon(commands.Bot):
         self.games = GameManager()
         self.dashboard = Dashboard(self)
         self.rpg = RPGService(self.db_path)
+        self.rpg_gambling = RPGGamblingService(self.db_path)
         self._db_backup_task = None
         self.mod_history: dict[int, list[str]] = {}
         self._ai_history_backfill_task = None
@@ -122,6 +124,7 @@ class Horizon(commands.Bot):
         # Keep it explicit so a real storage error appears in Railway logs.
         await self.db.setup()
         await self.rpg.setup()
+        await self.rpg_gambling.setup()
         await setup_community_commands(self)
 
         # Backups are safety nets; they must never prevent Discord from coming online.
