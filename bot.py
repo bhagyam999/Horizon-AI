@@ -2098,7 +2098,8 @@ async def prefix_command(ctx, new_prefix: str = ""):
     if value.lower() in {"reset","default","!"}:
         value = "!"
     if value != "!" and (len(value) > 4 or any(ch.isspace() for ch in value) or value.startswith("<@")):
-        await ctx.send("Choose a prefix with 1–4 non-space characters. Example: `?`, `import asyncio
+        await ctx.send("Choose a prefix with 1–4 non-space characters. Example: `?`.", delete_after=10)
+        return
 import datetime
 import logging
 import json
