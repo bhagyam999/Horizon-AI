@@ -3394,6 +3394,253 @@ class RPGCombatView(discord.ui.View):
             except Exception: pass
 
 
+
+
+class RPGBlackjackView(discord.ui.View):
+    def __init__(self, ctx, session_id, state, bet):
+        super().__init__(timeout=600)
+        self.ctx = ctx
+        self.session_id = session_id
+        self.state = state
+        self.bet = int(bet)
+        self.message = None
+        self.processing = False
+        self.resolved = False
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This blackjack table belongs to another hero.", ephemeral=True)
+            return False
+        if self.resolved:
+            await interaction.response.send_message("This blackjack round is already finished.", ephemeral=True)
+            return False
+        return True
+
+    def render(self):
+        player = self.state.get("player", [])
+        dealer = self.state.get("dealer", [])
+        player_total = bot.rpg_gambling._hand_total(player)
+        dealer_total = bot.rpg_gambling._hand_total(dealer)
+        dealer_text = " • ".join(map(str, dealer))
+        if not self.resolved and dealer:
+            dealer_text = f"🂠 • {dealer[1]}"
+            dealer_total_text = "?"
+        else:
+            dealer_total_text = str(dealer_total)
+
+        e = discord.Embed(title="🃏 Horizon Blackjack", description=f"Bet: **{self.bet:,} Gold**")
+        e.add_field(name=f"Your Hand — {player_total}", value=" • ".join(map(str, player)) or "—", inline=False)
+        e.add_field(name=f"Dealer Hand — {dealer_total_text}", value=dealer_text or "—", inline=False)
+        if not self.resolved:
+            e.set_footer(text="Hit for another card or Stand to hold.")
+        return e
+
+    async def _act(self, interaction, action):
+        if self.processing or self.resolved:
+            await interaction.response.send_message("That blackjack action is already being processed.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        self.processing = True
+        for child in self.children:
+            child.disabled = True
+        try:
+            result = await bot.rpg_gambling.blackjack_action(
+                self.ctx.guild.id, self.ctx.author.id, self.session_id, action
+            )
+            if result.get("error"):
+                self.processing = False
+                for child in self.children:
+                    child.disabled = False
+                await interaction.followup.send(result["error"], ephemeral=True)
+                return
+
+            self.state = result.get("state", self.state)
+            if result.get("finished"):
+                self.resolved = True
+                for child in self.children:
+                    child.disabled = True
+                message = result.get("message", "Round complete.")
+                e = self.render()
+                e.description = (
+                    f"Bet: **{self.bet:,} Gold**\n\n{message}\n"
+                    f"Payout: **{int(result.get('payout', 0)):,} Gold** • "
+                    f"Net: **{int(result.get('net', 0)):+,} Gold**"
+                )
+                await interaction.edit_original_response(embed=e, view=self)
+                self.stop()
+                return
+
+            self.processing = False
+            for child in self.children:
+                child.disabled = False
+            await interaction.edit_original_response(embed=self.render(), view=self)
+        except Exception:
+            self.processing = False
+            for child in self.children:
+                child.disabled = False
+            raise
+
+    @discord.ui.button(label="Hit", emoji="🃏", style=discord.ButtonStyle.primary)
+    async def hit(self, interaction, button):
+        await self._act(interaction, "hit")
+
+    @discord.ui.button(label="Stand", emoji="🛑", style=discord.ButtonStyle.success)
+    async def stand(self, interaction, button):
+        await self._act(interaction, "stand")
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
+
+class RPGMinesView(discord.ui.View):
+    def __init__(self, ctx, session_id, state, bet):
+        super().__init__(timeout=600)
+        self.ctx = ctx
+        self.session_id = session_id
+        self.state = state
+        self.bet = int(bet)
+        self.message = None
+        self.processing = False
+        self.resolved = False
+        self._build_buttons()
+
+    async def interaction_check(self, interaction):
+        if interaction.user.id != self.ctx.author.id:
+            await interaction.response.send_message("This Mines board belongs to another hero.", ephemeral=True)
+            return False
+        if self.resolved:
+            await interaction.response.send_message("This Mines round is already finished.", ephemeral=True)
+            return False
+        return True
+
+    def _build_buttons(self):
+        revealed = set(self.state.get("revealed", []))
+        mines = set(self.state.get("mines", []))
+        finished = self.resolved
+        size = int(self.state.get("size", 4))
+        for cell in range(size * size):
+            button = discord.ui.Button(
+                label="💎" if cell in revealed and cell not in mines else ("💣" if finished and cell in mines else "❔"),
+                style=discord.ButtonStyle.success if cell in revealed and cell not in mines else (
+                    discord.ButtonStyle.danger if finished and cell in mines else discord.ButtonStyle.secondary
+                ),
+                row=cell // 4,
+                disabled=finished or cell in revealed,
+            )
+
+            async def callback(interaction, cell=cell):
+                await self._reveal(interaction, cell)
+
+            button.callback = callback
+            self.add_item(button)
+
+        cashout = discord.ui.Button(
+            label=f"Cash Out • {int(self.state.get('cashout', self.bet)):,} Gold",
+            emoji="💰",
+            style=discord.ButtonStyle.success,
+            row=4,
+            disabled=finished,
+        )
+
+        async def cashout_callback(interaction):
+            await self._cashout(interaction)
+
+        cashout.callback = cashout_callback
+        self.add_item(cashout)
+
+    def render(self, result=None):
+        safe = len(self.state.get("revealed", []))
+        multiplier = float(self.state.get("multiplier", 1.0))
+        cashout = int(self.state.get("cashout", self.bet))
+        e = discord.Embed(title="💣 Horizon Mines", description=(
+            f"Bet: **{self.bet:,} Gold**\n"
+            f"Safe tiles: **{safe}**\n"
+            f"Multiplier: **{multiplier:.2f}×**\n"
+            f"Current cash-out: **{cashout:,} Gold**"
+        ))
+        if result and result.get("message"):
+            e.add_field(name="Result", value=result["message"], inline=False)
+            e.add_field(
+                name="Round",
+                value=f"Payout: **{int(result.get('payout', 0)):,} Gold** • Net: **{int(result.get('net', 0)):+,} Gold**",
+                inline=False,
+            )
+        else:
+            e.set_footer(text="Find safe tiles to increase the payout. Cash out before you hit a mine.")
+        return e
+
+    async def _rebuild_message(self, interaction, result=None):
+        old_children = list(self.children)
+        self.clear_items()
+        self._build_buttons()
+        await interaction.edit_original_response(embed=self.render(result), view=self)
+        del old_children
+
+    async def _reveal(self, interaction, cell):
+        if self.processing or self.resolved:
+            await interaction.response.send_message("That Mines action is already being processed.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        self.processing = True
+        try:
+            result = await bot.rpg_gambling.mines_action(
+                self.ctx.guild.id, self.ctx.author.id, self.session_id, cell=cell
+            )
+            if result.get("error"):
+                self.processing = False
+                await interaction.followup.send(result["error"], ephemeral=True)
+                return
+
+            self.state = result.get("state", self.state)
+            if result.get("finished"):
+                self.resolved = True
+                await self._rebuild_message(interaction, result)
+                self.stop()
+                return
+
+            self.processing = False
+            await self._rebuild_message(interaction)
+        except Exception:
+            self.processing = False
+            raise
+
+    async def _cashout(self, interaction):
+        if self.processing or self.resolved:
+            await interaction.response.send_message("That Mines action is already being processed.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        self.processing = True
+        try:
+            result = await bot.rpg_gambling.mines_action(
+                self.ctx.guild.id, self.ctx.author.id, self.session_id, cashout=True
+            )
+            if result.get("error"):
+                self.processing = False
+                await interaction.followup.send(result["error"], ephemeral=True)
+                return
+            self.state = result.get("state", self.state)
+            self.resolved = True
+            await self._rebuild_message(interaction, result)
+            self.stop()
+        except Exception:
+            self.processing = False
+            raise
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
+
 @bot.group(name="rpg", invoke_without_command=True)
 async def rpg_root(ctx):
     await _rpg_delete(ctx)
