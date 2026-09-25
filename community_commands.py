@@ -475,6 +475,205 @@ async def setup(bot):
         await ctx.send(embed=e)
     await add("color",color,"Preview a hex color.")
 
+    # -------------------- Expanded Horizon community pack --------------------
+    EXTRA_ACTIONS = {
+        "feed": "🍰 feeds {target} a little snack.",
+        "carry": "🏋️ carries {target} like an anime protagonist.",
+        "bonk": "🔨 bonks {target} with the official Horizon bonk hammer.",
+        "comfort": "🫂 comforts {target}. Everything will be okay.",
+        "cheer": "📣 cheers for {target}!",
+        "protect": "🛡️ stands between danger and {target}.",
+        "shield": "🛡️ gives {target} a temporary friendship shield.",
+        "fistbump": "👊 fist-bumps {target}.",
+        "salute": "🫡 salutes {target}.",
+        "bow": "🙇 bows respectfully to {target}.",
+        "laughwith": "😂 laughs together with {target}.",
+        "crywith": "😭 cries together with {target}.",
+        "dancewith": "💃🕺 dances with {target}.",
+    }
+
+    async def extra_action(ctx, member: discord.Member=None):
+        name = ctx.command.name
+        if not await _guard(ctx, name): return
+        await _delete(ctx)
+        target = member.mention if member else ctx.author.mention
+        await ctx.send("**{}** {}".format(ctx.author.display_name, EXTRA_ACTIONS[name].format(target=target)))
+
+    for name in EXTRA_ACTIONS:
+        await add(name, extra_action, "Perform the {} action.".format(name))
+
+    async def relationship(ctx, left: discord.Member=None, right: discord.Member=None, *, mode="friendship"):
+        name = ctx.command.name
+        if not await _guard(ctx, name): return
+        await _delete(ctx)
+        a = left or ctx.author
+        candidates = [m for m in ctx.guild.members if not m.bot and m.id != a.id]
+        b = right or (random.choice(candidates) if candidates else ctx.author)
+        score = random.randint(1,100)
+        labels = {
+            "friendship": ("🤝 Friendship Check", "friendship"),
+            "compatibility": ("💞 Compatibility Check", "compatibility"),
+            "couple": ("💖 Couple Check", "couple potential"),
+            "duo": ("⚔️ Duo Check", "duo synergy"),
+        }
+        title, label = labels.get(name, ("💫 Relationship Check", "connection"))
+        await ctx.send("{}\n{} × {}\n**{}% {}**".format(title, a.mention, b.mention, score, label))
+
+    for name in ("friendship", "compatibility", "couple", "duo"):
+        await add(name, relationship, "Generate a playful {} result.".format(name))
+
+    async def crush(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"crush"): return
+        await _delete(ctx)
+        target = member
+        if not target:
+            candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
+            target=random.choice(candidates) if candidates else ctx.author
+        await ctx.send("💘 **Crush Detector**\n{} has a fictional server crush on **{}**. 💕".format(ctx.author.mention,target.display_name))
+    await add("crush",crush,"Reveal a playful fictional crush.")
+
+    async def bestie(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"bestie"): return
+        await _delete(ctx)
+        target=member
+        if not target:
+            candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
+            target=random.choice(candidates) if candidates else ctx.author
+        await ctx.send("👯 **Bestie Check:** {} and {} are now certified besties. 🤝".format(ctx.author.mention,target.mention))
+    await add("bestie",bestie,"Declare a playful best-friend pairing.")
+
+    async def rival(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"rival"): return
+        await _delete(ctx)
+        target=member
+        if not target:
+            candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
+            target=random.choice(candidates) if candidates else ctx.author
+        await ctx.send("⚔️ **Rivalry Detected:** {} vs {} — the anime arc begins.".format(ctx.author.mention,target.mention))
+    await add("rival",rival,"Create a playful rivalry.")
+
+    async def adopt(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"adopt"): return
+        await _delete(ctx)
+        target=member
+        if not target:
+            candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
+            target=random.choice(candidates) if candidates else ctx.author
+        await ctx.send("🧸 **Adoption Papers:** {} has been adopted by {}. Family unlocked. 💖".format(target.mention,ctx.author.mention))
+    await add("adopt",adopt,"Create a playful adoption pairing.")
+
+    async def breakup(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"breakup"): return
+        await _delete(ctx)
+        target=member or ctx.author
+        await ctx.send("💔 **Breakup Arc:** {} and {} have entered the dramatic anime separation episode.".format(ctx.author.mention,target.mention))
+    await add("breakup",breakup,"Start a fictional breakup scene.")
+
+    async def divorce(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"divorce"): return
+        await _delete(ctx)
+        target=member or ctx.author
+        await ctx.send("📜 **Divorce Papers:** {} and {} are officially divorced in the fictional Horizon universe.".format(ctx.author.mention,target.mention))
+    await add("divorce",divorce,"End a fictional marriage.")
+
+    async def truth(ctx):
+        if not await _guard(ctx,"truth"): return
+        await _delete(ctx)
+        truths=["What is the weirdest thing you have ever searched?","Who was your first fictional crush?","What game could you play for 100 hours?","What is one harmless secret you have?"]
+        await ctx.send("🟦 **Truth:** {}".format(random.choice(truths)))
+    await add("truth",truth,"Get a random truth question.")
+
+    async def dare(ctx):
+        if not await _guard(ctx,"dare"): return
+        await _delete(ctx)
+        dares=["Send a completely random emoji.","Change your status to something silly for 5 minutes.","Compliment the next person who talks.","Type your next message without using the letter e."]
+        await ctx.send("🟥 **Dare:** {}".format(random.choice(dares)))
+    await add("dare",dare,"Get a random harmless dare.")
+
+    async def wyr(ctx):
+        if not await _guard(ctx,"wyr"): return
+        await _delete(ctx)
+        rounds=[
+            ("be able to teleport anywhere","be able to fly anywhere"),
+            ("have infinite money","have infinite free time"),
+            ("live in your favorite anime","live in your favorite game"),
+            ("master every instrument","master every language"),
+        ]
+        a,b=random.choice(rounds)
+        await ctx.send("🤔 **Would You Rather?**\nA) {}\nB) {}\n\nReply with **A** or **B**.".format(a,b))
+    await add("wyr",wyr,"Get a random Would You Rather.")
+
+    async def rate(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"rate"): return
+        await _delete(ctx)
+        target=member or ctx.author
+        score=random.randint(1,100)
+        await ctx.send("⭐ **Horizon Rating:** {} gets **{}/100** today.".format(target.mention,score))
+    await add("rate",rate,"Give a random playful rating.")
+
+    async def judge(ctx, *, thing=""):
+        if not await _guard(ctx,"judge"): return
+        await _delete(ctx)
+        if not thing.strip():
+            await ctx.send("Usage: !judge <thing>",delete_after=6); return
+        verdict=random.choice(["Approved by the Council.","Suspicious, but acceptable.","Absolutely chaotic.","Certified Horizon moment.","The Council needs more evidence.","10/10 nonsense."])
+        await ctx.send("⚖️ **Horizon Court**\n**{}**\n{}".format(thing[:500],verdict))
+    await add("judge",judge,"Give a playful verdict.")
+
+    async def roast(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"roast"): return
+        await _delete(ctx)
+        target=member or ctx.author
+        lines=["You have the confidence of a final boss and the strategy of an NPC.","Your Wi-Fi has better decision-making than you.","Even the tutorial is asking you to slow down.","You are not late; you are on your own timezone."]
+        await ctx.send("🔥 **Roast for {}:** {}".format(target.mention,random.choice(lines)))
+    await add("roast",roast,"Give a harmless playful roast.")
+
+    async def compliment(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"compliment"): return
+        await _delete(ctx)
+        target=member or ctx.author
+        lines=["You make the server more fun to be around.","Your energy is genuinely nice to have here.","You have main-character levels of determination.","You deserve a small W today."]
+        await ctx.send("💙 **Compliment for {}:** {}".format(target.mention,random.choice(lines)))
+    await add("compliment",compliment,"Give a positive compliment.")
+
+    async def fortune(ctx):
+        if not await _guard(ctx,"fortune"): return
+        await _delete(ctx)
+        await ctx.send("🔮 **Horizon Fortune:** {}".format(random.choice(["A lucky roll is coming.","Someone will make you laugh today.","Your next idea will be better than expected.","A tiny victory is closer than it looks.","The RNG is watching. Be brave."])))
+    await add("fortune",fortune,"Reveal a random fortune.")
+
+    async def dice(ctx, count=1, sides=6):
+        if not await _guard(ctx,"dice"): return
+        await _delete(ctx)
+        try:
+            count=max(1,min(20,int(count))); sides=max(2,min(1000,int(sides)))
+        except Exception:
+            count,sides=1,6
+        rolls=[random.randint(1,sides) for _ in range(count)]
+        await ctx.send("🎲 **Dice:** {} → **{}**".format(" + ".join(map(str,rolls)),sum(rolls)))
+    await add("dice",dice,"Roll one or more dice.")
+
+    async def pick(ctx, *, choices=""):
+        if not await _guard(ctx,"pick"): return
+        await _delete(ctx)
+        items=[x.strip() for x in re.split(r"\s*\|\s*|\s*,\s*",choices) if x.strip()]
+        if len(items)<2:
+            await ctx.send("Usage: !pick pizza | ramen | curry",delete_after=6); return
+        await ctx.send("🎯 **Horizon Pick:** {}".format(random.choice(items)))
+    await add("pick",pick,"Pick one option at random.")
+
+    async def random_cmd(ctx, *, text=""):
+        if not await _guard(ctx,"random"): return
+        await _delete(ctx)
+        if not text.strip():
+            await ctx.send("🎲 **Random:** {}".format(random.randint(1,100)))
+            return
+        items=[x.strip() for x in re.split(r"\s*\|\s*|\s*,\s*",text) if x.strip()]
+        if len(items)<2:
+            await ctx.send("Usage: !random one | two | three",delete_after=6); return
+        await ctx.send("🎲 **Random choice:** {}".format(random.choice(items)))
+    await add("random",random_cmd,"Choose randomly from options.")
+
     async def prefix(ctx):
         if not await _guard(ctx,"prefix"): return
         await _delete(ctx)
