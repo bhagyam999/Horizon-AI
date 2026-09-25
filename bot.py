@@ -2084,26 +2084,11 @@ def _prefix_help_text(category: str | None = None):
 `!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf
 `!rps <rock|paper|scissors>` — RPS
 `!stop` — stop the current game",
-        "fun": "**🎲 Fun**
-`!rps <choice>` — rock, paper, scissors
-`!rpgroll` — RPG dice roll
-`!game <name>` — pick/start a game
-More lightweight fun commands are being expanded here.",
-        "social": "**💬 Social**
-`!userinfo @user` — member information
-`!avatar @user` — avatar
-`!profile` — server profile
-`!leaderboard` — server leaderboard
-`!ship @user @user` — relationship fun (when enabled)",
-        "actions": "**🤝 Actions**
-`!hug @user` `!pat @user` `!highfive @user` `!slap @user`
-Use these for lightweight server interactions.",
-        "emotes": "**🙂 Emotes**
-`!wave` `!dance` `!shrug` `!blush` `!cry` `!smug`
-Quick expression commands for normal chat.",
-        "meme": "**😂 Meme**
-`!meme` — generate a lightweight random meme response
-Meme tools are kept separate from moderation and RPG commands.",
+        "fun": "**🎲 Fun**\n\`!8ball <question>\` — magic 8-ball\n\`!coinflip\` — flip a coin\n\`!roll [sides]\` — roll dice\n\`!choose a | b | c\` — choose one option\n\`!rps <choice>\` — rock, paper, scissors\n\`!game <name>\` — start a game",
+        "social": "**💬 Social**\n\`!userinfo @user\` — member information\n\`!avatar @user\` — avatar\n\`!profile\` — server profile\n\`!leaderboard\` — server leaderboard\n\`!ship @user @user\` — compatibility game",
+        "actions": "**🤝 Actions**\n\`!hug @user\` \`!pat @user\` \`!highfive @user\` \`!slap @user\` \`!poke @user\`\n\`!wave\` — wave to the server",
+        "emotes": "**🙂 Emotes**\n\`!dance\` \`!shrug\` \`!blush\` \`!cry\` \`!smug\` \`!think\`",
+        "meme": "**😂 Meme**\n\`!meme\` — random Horizon meme response",
         "community": "**🌐 Community**
 `!announce` — typed announcements
 `/community giveaway create` — giveaways
@@ -4302,6 +4287,93 @@ Meme tools are kept separate from moderation and RPG commands.",
     bot.prefix_cache[ctx.guild.id] = value
     await ctx.send(f"✅ Horizon's prefix for **{ctx.guild.name}** is now `{value}`." if value != "!" else f"✅ Horizon's prefix has been reset to `!`.")
 
+
+@bot.command(name="8ball", aliases=["eightball"])
+async def prefix_8ball(ctx, *, question: str = ""):
+    await _quiet_delete(ctx.message)
+    if not question.strip():
+        await ctx.send("🎱 Ask me a yes/no question.", delete_after=7)
+        return
+    answers = ["It is certain.", "Without a doubt.", "Most likely.", "Signs point to yes.",
+               "Ask again later.", "The answer is unclear.", "Probably not.", "Very doubtful."]
+    await ctx.send(f"🎱 **8-Ball:** {random.choice(answers)}")
+
+@bot.command(name="coinflip", aliases=["coin"])
+async def prefix_coinflip(ctx):
+    await _quiet_delete(ctx.message)
+    await ctx.send(f"🪙 **{random.choice(['Heads', 'Tails'])}**")
+
+@bot.command(name="roll")
+async def prefix_roll(ctx, sides: int = 100):
+    await _quiet_delete(ctx.message)
+    sides = max(2, min(int(sides), 100000))
+    await ctx.send(f"🎲 **{ctx.author.display_name}** rolled **{random.randint(1, sides)}** / {sides}")
+
+@bot.command(name="choose")
+async def prefix_choose(ctx, *, choices: str = ""):
+    await _quiet_delete(ctx.message)
+    options = [x.strip() for x in choices.split("|") if x.strip()]
+    if len(options) < 2:
+        await ctx.send("Use !choose option 1 | option 2 | option 3.", delete_after=8)
+        return
+    await ctx.send(f"🎯 I choose **{random.choice(options)}**")
+
+@bot.command(name="ship")
+async def prefix_ship(ctx, member1: discord.Member = None, member2: discord.Member = None):
+    await _quiet_delete(ctx.message)
+    if member1 is None:
+        member1 = ctx.author
+    if member2 is None:
+        await ctx.send("Use !ship @user @user or !ship @user.", delete_after=8)
+        return
+    score = random.randint(0, 100)
+    hearts = "❤️" * max(1, min(10, score // 10))
+    await ctx.send(f"💞 **{member1.display_name} × {member2.display_name}**\n{hearts} **{score}%** compatibility")
+
+ACTION_RESPONSES = {
+    "hug": ("🤗", "{a} gives {b} a warm hug."),
+    "pat": ("🫳", "{a} pats {b} on the head."),
+    "highfive": ("✋", "{a} high-fives {b}!"),
+    "slap": ("👋", "{a} gives {b} a playful slap."),
+    "poke": ("👉", "{a} pokes {b}."),
+    "wave": ("👋", "{a} waves at everyone!"),
+}
+EMOTE_RESPONSES = {
+    "dance": ("💃", "{a} starts dancing."),
+    "shrug": ("🤷", "{a} shrugs."),
+    "blush": ("😊", "{a} blushes."),
+    "cry": ("😢", "{a} starts crying."),
+    "smug": ("😏", "{a} looks smug."),
+    "think": ("🤔", "{a} is thinking."),
+}
+
+def _make_action_command(name, icon, template, needs_member=False):
+    async def action(ctx, member: discord.Member = None):
+        await _quiet_delete(ctx.message)
+        if needs_member and member is None:
+            await ctx.send(f"Use !{name} @user.", delete_after=7)
+            return
+        target = member.mention if member else "everyone"
+        await ctx.send(f"{icon} " + template.format(a=ctx.author.mention, b=target))
+    action.__name__ = f"prefix_{name}"
+    bot.command(name=name)(action)
+
+for _name, (_icon, _template) in ACTION_RESPONSES.items():
+    _make_action_command(_name, _icon, _template, _name not in {"wave"})
+for _name, (_icon, _template) in EMOTE_RESPONSES.items():
+    _make_action_command(_name, _icon, _template, False)
+
+@bot.command(name="meme")
+async def prefix_meme(ctx):
+    await _quiet_delete(ctx.message)
+    memes = [
+        "When the code works on the first try: **impossible.**",
+        "Me: I'll fix one bug.\nThe bug: *summons three more bugs.*",
+        "Horizon RPG players: *just one more quest.*\nAlso Horizon RPG: **here are twelve.**",
+        "Discord at 3 AM: **perfectly reasonable time to deploy.**",
+        "Developer: it's a small change.\nThe database: **oh no.**",
+    ]
+    await ctx.send(f"😂 {random.choice(memes)}")
 
 @bot.command(name="ping")
 async def prefix_ping(ctx):
