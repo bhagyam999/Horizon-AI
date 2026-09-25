@@ -23,6 +23,7 @@ from database import Database
 from moderation import ModerationEngine
 from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
 from dashboard import Dashboard
+from community_commands import setup as setup_community_commands
 from rpg import ENEMY_ABILITIES, RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, SUBRACE_TRAITS, SUBCLASS_TRAITS, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, PET_EGGS, PET_EGG_POOLS, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, RACE_PROFILES, CLASS_PROFILES, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES, SUBCLASS_SKILLS, SKILL_UNLOCK_LEVELS, SKILL_COSTS, SKILL_COOLDOWNS, SKILL_COMBO_ROLES, CLASS_COMBO_TRAITS, SKILL_MAX_RANK, SKILL_RANK_DAMAGE, SKILL_RANK_HEAL, MAGIC_CLASSES, HEAL_CLASSES, PET_ABILITY_DESCRIPTIONS, AREA_CONNECTIONS
 from storage import backup_database, migrate_legacy_database, resolve_database_path
 
@@ -121,6 +122,7 @@ class Horizon(commands.Bot):
         # Keep it explicit so a real storage error appears in Railway logs.
         await self.db.setup()
         await self.rpg.setup()
+        await setup_community_commands(self)
 
         # Backups are safety nets; they must never prevent Discord from coming online.
         try:
@@ -1994,6 +1996,15 @@ async def prefix_day_end(ctx):
 
 @bot.command(name="kill")
 async def prefix_kill(ctx, member: discord.User = None):
+    # Keep Mafia/Werewolf kill private in DMs; outside a game it is a playful action.
+    if ctx.guild and not isinstance(ctx.channel, discord.DMChannel):
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+        target = member.mention if member else ctx.author.mention
+        await ctx.send(f"**{ctx.author.display_name}** ⚔️ challenges {target} to a fictional anime duel.")
+        return
     await _hidden_action(ctx, "kill", member)
 
 @bot.command(name="protect")
@@ -2045,11 +2056,17 @@ async def prefix_rps(ctx, choice: str = ""):
 def _prefix_help_text(category: str | None = None):
     pages = {
         "ai": "**AI**\n`!ai <message>` — chat with Horizon\n`!ask <question>` — ask Horizon\n`!aistatus` — AI provider status\n`!aimodels` — available models\n`!personality <text>` — server personality (staff)\n`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
-        "games": "**Games**\n`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — hidden-role lobby\n`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf\n`!rps <rock|paper|scissors>` — RPS\n`!stop` — stop the current game",
+        "games": "**Games**\n`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — hidden-role lobby\n`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf\n`!rps <rock|paper|scissors>` — RPS\n`!slots` `!coinflip` `!lottery` `!blackjack` `!snailgarden` `!mines` `!highlow`\n`!stop` — stop the current game",
         "rpg": "**🌌 Horizon RPG**\n`!rpg` — RPG hub\n`!rpg start <name> <race> <class>` — create hero\n`!rpg profile` / `!rpg stats` — character sheet\n`!rpg adventure` / `!rpg dungeon` — PvE\n`!rpg quests` / `!rpg quest accept <id>` / `!rpg quest claim <id>`\n`!rpg party create/join/dungeon` — team play\n`!rpg guild create/join/members/deposit/upgrade` — guild system\n`!rpg shop/buy/sell/craft/market` — economy\n`!rpg trade @player` — secure direct trading\n`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
         "moderation": "**Moderation**\n`!warn @user [reason]`\n`!warnings @user`\n`!mod on|off`\n`!modaction log|warn|timeout`\n`!clear <1-100>`\n`!timeout @user <minutes> [reason]`\n`!kick @user [reason]`\n`!ban @user [reason]`",
         "announcements": "**Announcements**\n`!announce <type> <ping> [#channel] | <title> | <message>`\nTypes: `general`, `event`, `tournament`, `game`, `community`, `update`, `important`, `warning`, `maintenance`, `giveaway`, `news`\nPing: `none`, `@here`, `@everyone`, a role mention, or a member mention.\nExample: `!announce tournament @Tournament #events | Anigame Tournament | Sign-ups open Saturday at 8 PM IST.`",
         "server": "**Server**\n`!config show`\n`!config welcome #channel`\n`!config logs #channel`\n`!config personality <text>`\n`!serverinfo`\n`!permissions`\n`!userinfo @user`\n`!avatar @user`\n`!channelinfo`",
+        "fun": "**Fun**\n`!8b` `!define` `!gif` `!pic` `!translate` `!roll` `!choose` `!bell`",
+        "social": "**Social**\n`!cookie` `!ship` `!pray` `!curse` `!marry` `!emoji` `!profile` `!level` `!wallpaper` `!owoify` `!avatar`",
+        "memes": "**Meme Generation**\n`!spongebobchicken` `!slapcar` `!isthisa` `!drake` `!distractedbf` `!communismcat` `!eject` `!emergencymeeting` `!headpat` `!tradeoffer` `!waddle`\nUse `|` between meme text parts.",
+        "emotes": "**Emotes**\n`!blush` `!cry` `!dance` `!lewd` `!pout` `!shrug` `!sleepy` `!smile` `!smug` `!thumbsup` `!wag` `!thinking` `!triggered` `!teehee` `!deredere` `!thonking` `!scoff` `!happy` `!thumbs` `!grin`",
+        "actions": "**Actions**\n`!cuddle` `!hug` `!kiss` `!lick` `!nom` `!pat` `!poke` `!slap` `!stare` `!highfive` `!bite` `!greet` `!punch` `!handholding` `!tickle` `!kill` `!hold` `!pats` `!wave` `!boop` `!snuggle` `!bully`",
+        "utility": "**Utility**\n`!ping` `!stats` `!link` `!guildlink` `!disable` `!censor` `!patreon` `!announcement` `!rules` `!suggest` `!shards` `!math` `!color` `!prefix`",
     }
     if category and category.lower() in pages:
         return pages[category.lower()]
@@ -5012,7 +5029,7 @@ async def prefix_daily(ctx): await rpg_daily.callback(ctx)
 @bot.command(name="questlist", aliases=["quest_list", "quests"])
 async def prefix_quest_list(ctx): await rpg_quests.callback(ctx)
 
-@bot.command(name="rpgroll", aliases=["rpg_roll", "roll"])
+@bot.command(name="rpgroll", aliases=["rpg_roll"])
 async def prefix_rpg_roll(ctx):
     await _quiet_delete(ctx.message)
     p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
