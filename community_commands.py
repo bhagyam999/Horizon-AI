@@ -193,8 +193,7 @@ async def setup(bot):
         await ctx.send(embed=_gif_embed("🙂 Horizon • {}".format(name.title()), "**{}** {}".format(ctx.author.display_name, EMOTES.get(name, "emotes.")), gif))
 
     for name in ACTION_LINES:
-        if name != "kill":
-            await add(name, action, "Perform the {} action.".format(name))
+        await add(name, action, "Perform the {} action with an animated GIF.".format(name))
     for name in EMOTES:
         await add(name, emote, "Use the {} emote.".format(name))
 
@@ -595,10 +594,19 @@ async def setup(bot):
         if not await _guard(ctx, name): return
         await _delete(ctx)
         target = member.mention if member else ctx.author.mention
-        await ctx.send("**{}** {}".format(ctx.author.display_name, EXTRA_ACTIONS[name].format(target=target)))
+        text = EXTRA_ACTIONS[name].format(target=target)
+        gif = await _get_gif(ACTION_GIFS.get(name, "happy"))
+        # Every action command sends its reaction GIF directly; users never need !gif.
+        await ctx.send(
+            embed=_gif_embed(
+                "✨ Horizon • {}".format(name.title()),
+                "**{}** {}".format(ctx.author.display_name, text),
+                gif
+            )
+        )
 
     for name in EXTRA_ACTIONS:
-        await add(name, extra_action, "Perform the {} action.".format(name))
+        await add(name, extra_action, "Perform the {} action with an animated GIF.".format(name))
 
     async def relationship(ctx, left: discord.Member=None, right: discord.Member=None, *, mode="friendship"):
         name = ctx.command.name
