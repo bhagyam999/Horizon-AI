@@ -2060,66 +2060,23 @@ async def prefix_rps(ctx, choice: str = ""):
 
 def _prefix_help_text(category: str | None = None):
     pages = {
-        "ai": "**🤖 AI**
-`!ai <message>` — chat with Horizon
-`!ask <question>` — ask Horizon
-`!aistatus` — provider status
-`!aimodels` — available models
-`!personality <text>` — server AI personality (staff)
-`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
-        "rpg": "**⚔️ Horizon RPG**
-`!rpg` — RPG hub
-`!rpg profile` / `!rpg stats` — character sheet
-`!rpg skills` / `!rpg equip-skill` — skills and loadout
-`!rpg adventure` / `!rpg dungeon` — PvE
-`!rpg quests` — Quest 2.0 board
-`!rpg party` / `!rpg guild` — team systems
-`!rpg shop` / `!rpg craft` / `!rpg market` — economy
-`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
-        "games": "**🎮 Games**
-`!games` — game hub
-`!game <name>` — start a game
-`!guess <letter>` — Hangman
-`!join` / `!begin` — hidden-role lobby
-`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf
-`!rps <rock|paper|scissors>` — RPS
-`!stop` — stop the current game",
+        "ai": "**🤖 AI**\n\`!ai <message>\` — chat with Horizon\n\`!ask <question>\` — ask Horizon\n\`!aistatus\` — provider status\n\`!aimodels\` — available models\n\`!personality <text>\` — server AI personality (staff)\n\`!remember <fact>\` / \`!forget <id>\` / \`!memories\` — server knowledge",
+        "rpg": "**⚔️ Horizon RPG**\n\`!rpg\` — RPG hub\n\`!rpg profile\` / \`!rpg stats\` — character sheet\n\`!rpg skills\` / \`!rpg equip-skill\` — skills and loadout\n\`!rpg adventure\` / \`!rpg dungeon\` — PvE\n\`!rpg quests\` — Quest 2.0 board\n\`!rpg party\` / \`!rpg guild\` — team systems\n\`!rpg shop\` / \`!rpg craft\` / \`!rpg market\` — economy\n\`!rpg pet\` / \`!rpg achievements\` / \`!rpg leaderboard\` — progression",
+        "games": "**🎮 Games**\n\`!games\` — game hub\n\`!game <name>\` — start a game\n\`!guess <letter>\` — Hangman\n\`!join\` / \`!begin\` — hidden-role lobby\n\`!vote @user\` / \`!dayend\` / \`!nightend\` — Mafia/Werewolf\n\`!rps <rock|paper|scissors>\` — RPS\n\`!stop\` — stop the current game",
         "fun": "**🎲 Fun**\n\`!8ball <question>\` — magic 8-ball\n\`!coinflip\` — flip a coin\n\`!roll [sides]\` — roll dice\n\`!choose a | b | c\` — choose one option\n\`!rps <choice>\` — rock, paper, scissors\n\`!game <name>\` — start a game",
         "social": "**💬 Social**\n\`!userinfo @user\` — member information\n\`!avatar @user\` — avatar\n\`!profile\` — server profile\n\`!leaderboard\` — server leaderboard\n\`!ship @user @user\` — compatibility game",
         "actions": "**🤝 Actions**\n\`!hug @user\` \`!pat @user\` \`!highfive @user\` \`!slap @user\` \`!poke @user\`\n\`!wave\` — wave to the server",
         "emotes": "**🙂 Emotes**\n\`!dance\` \`!shrug\` \`!blush\` \`!cry\` \`!smug\` \`!think\`",
         "meme": "**😂 Meme**\n\`!meme\` — random Horizon meme response",
-        "community": "**🌐 Community**
-`!announce` — typed announcements
-`/community giveaway create` — giveaways
-`/community reactionrole create` — reaction roles
-`/dashboard` — server control panel",
-        "moderation": "**🛡️ Moderation**
-`!warn @user [reason]`
-`!warnings @user`
-`!mod on|off`
-`!modaction log|warn|timeout`
-`!clear <1-100>`
-`!timeout @user <minutes> [reason]`
-`!kick @user [reason]`
-`!ban @user [reason]`",
-        "utility": "**🔧 Utility**
-`!help [category]` — command categories
-`!ping` — latency
-`!prefix <new>` — change this server's prefix (Manage Server)
-`!prefix reset` — restore `!`
-`!serverinfo` `!channelinfo` `!permissions`",
-        "server": "**🏰 Server**
-`!config show`
-`!config welcome #channel`
-`!config logs #channel`
-`!config personality <text>`
-`!serverinfo` `!permissions` `!userinfo @user` `!avatar @user` `!channelinfo`",
+        "community": "**🌐 Community**\n\`!announce\` — typed announcements\n\`/community giveaway create\` — giveaways\n\`/community reactionrole create\` — reaction roles\n\`/dashboard\` — server control panel",
+        "moderation": "**🛡️ Moderation**\n\`!warn @user [reason]\`\n\`!warnings @user\`\n\`!mod on|off\`\n\`!modaction log|warn|timeout\`\n\`!clear <1-100>\`\n\`!timeout @user <minutes> [reason]\`\n\`!kick @user [reason]\`\n\`!ban @user [reason]\`",
+        "utility": "**🔧 Utility**\n\`!help [category]\` — command categories\n\`!ping\` — latency\n\`!prefix <new>\` — change this server's prefix (Manage Server)\n\`!prefix reset\` — restore \`!\`\n\`!serverinfo\` \`!channelinfo\` \`!permissions\`",
+        "server": "**🏰 Server**\n\`!config show\`\n\`!config welcome #channel\`\n\`!config logs #channel\`\n\`!config personality <text>\`\n\`!serverinfo\` \`!permissions\` \`!userinfo @user\` \`!avatar @user\` \`!channelinfo\`",
     }
     if category and category.lower() in pages:
         return pages[category.lower()]
     order = ["ai","rpg","games","fun","social","actions","emotes","meme","community","moderation","utility","server"]
-    return "**🌌 Horizon Command Categories**\n\n" + "\n\n".join(pages[k] for k in order) + "\n\nUse `!help <category>` for one section.\nUse `!prefix <new>` to set a custom server prefix."
+    return "**🌌 Horizon Command Categories**\n\n" + "\n\n".join(pages[k] for k in order) + "\n\nUse \`!help <category>\` for one section.\nUse \`!prefix <new>\` to set a custom server prefix."
 
 
 @bot.command(name="help", aliases=["commands"])
