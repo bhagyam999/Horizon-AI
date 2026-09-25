@@ -1778,20 +1778,73 @@ async def horizon_permissions(interaction: discord.Interaction):
     await interaction.response.send_message("**Horizon Permission Check**\n\n" + "\n".join(lines) + note, ephemeral=True)
 
 
-@bot.tree.command(name="help", description="Show Horizon's command guide.")
-async def help_command(interaction: discord.Interaction):
-    embed = discord.Embed(
+HELP_PAGES = {
+    "ai": ("🤖 AI", "`!ai <message>` — chat with Horizon\n`!ask <question>` — ask Horizon\n`!aistatus` — AI provider status\n`!aimodels` — available models\n`!personality <text>` — server personality (staff)\n`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge"),
+    "games": ("🎮 Games", "`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — Werewolf/Mafia lobby\n`!vote @user` / `!dayend` / `!nightend` — hidden-role controls\n`!rps <rock|paper|scissors>` — RPS\n`!slots` `!coinflip` `!lottery` `!blackjack`\n`!snailgarden` `!mines` `!highlow` `!truth` `!dare` `!wyr`"),
+    "rpg": ("🌌 Horizon RPG", "`!rpg` — RPG hub\n`!rpg start <name> <race> <class>` — create hero\n`!rpg profile` / `!rpg stats` — character sheet\n`!rpg adventure` / `!rpg dungeon` — PvE\n`!rpg quests` / `!rpg party` / `!rpg guild`\n`!rpg shop` / `!rpg craft` / `!rpg market` / `!rpg trade`\n`!rpg pet` / `!rpg achievements` / `!rpg leaderboard`"),
+    "moderation": ("🛡️ Moderation", "`!warn @user [reason]`\n`!warnings @user`\n`!mod on|off`\n`!modaction log|warn|timeout`\n`!clear <1-100>`\n`!timeout @user <minutes> [reason]`\n`!kick @user [reason]`\n`!ban @user [reason]`"),
+    "announcements": ("📢 Announcements", "`!announce <type> <ping> [#channel] | <title> | <message>`\nTypes: `general`, `event`, `tournament`, `game`, `community`, `update`, `important`, `warning`, `maintenance`, `giveaway`, `news`\nPing: `none`, `@here`, `@everyone`, role, or member"),
+    "server": ("🏠 Server", "`!config show`\n`!config welcome #channel`\n`!config logs #channel`\n`!config personality <text>`\n`!serverinfo` `!permissions` `!userinfo @user` `!avatar @user` `!channelinfo`"),
+    "fun": ("🎉 Fun", "`!8b` `!define` `!gif` `!pic` `!translate`\n`!roll` `!choose` `!pick` `!random` `!dice` `!bell`\n`!fortune` `!rate` `!judge` `!roast` `!compliment`"),
+    "social": ("💚 Social", "`!cookie` `!ship` `!pray` `!curse` `!marry`\n`!emoji` `!level` `!wallpaper` `!owoify`\n`!friendship` `!compatibility` `!couple` `!duo`\n`!crush` `!bestie` `!rival` `!adopt` `!breakup` `!divorce`"),
+    "memes": ("😂 Meme Generation", "`!spongebobchicken` `!slapcar` `!isthisa` `!drake`\n`!distractedbf` `!communismcat` `!eject` `!emergencymeeting`\n`!headpat` `!tradeoffer` `!waddle`\nUse `|` between meme text parts."),
+    "emotes": ("🙂 Emotes", "`!blush` `!cry` `!dance` `!lewd` `!pout` `!shrug`\n`!sleepy` `!smile` `!smug` `!thumbsup` `!wag` `!thinking`\n`!triggered` `!teehee` `!deredere` `!thonking` `!scoff`\n`!happy` `!thumbs` `!grin`"),
+    "actions": ("🫂 Actions", "`!cuddle` `!hug` `!kiss` `!lick` `!nom` `!pat` `!poke`\n`!slap` `!stare` `!highfive` `!bite` `!greet` `!punch`\n`!handholding` `!tickle` `!kill` `!hold` `!pats` `!wave`\n`!boop` `!snuggle` `!bully`\nExtra: `!feed` `!carry` `!bonk` `!comfort` `!cheer` `!protect` `!shield` `!fistbump` `!salute` `!bow` `!laughwith` `!crywith` `!dancewith`"),
+    "utility": ("🔧 Utility", "`!ping` `!stats` `!link` `!guildlink`\n`!disable <command>` `!enable <command>` `!censor <text>`\n`!patreon` `!announcement <text>` `!rules` `!suggest <idea>`\n`!shards` `!math <expression>` `!color <hex>` `!prefix`"),
+}
+HELP_ALIASES = {
+    "ai":"ai", "games":"games", "game":"games", "rpg":"rpg",
+    "mod":"moderation", "moderation":"moderation", "announce":"announcements",
+    "announcements":"announcements", "server":"server", "fun":"fun",
+    "social":"social", "memes":"memes", "meme":"memes", "emotes":"emotes",
+    "emote":"emotes", "actions":"actions", "action":"actions", "utility":"utility",
+    "utils":"utility",
+}
+
+def _build_help_embeds(category: str = ""):
+    key = HELP_ALIASES.get(category.lower().strip(), "") if category else ""
+    selected = [key] if key else list(HELP_PAGES.keys())
+    fields = [HELP_PAGES[name] for name in selected if name in HELP_PAGES]
+    if not fields:
+        selected = list(HELP_PAGES.keys())
+        fields = [HELP_PAGES[name] for name in selected]
+        category_note = "Unknown category {{}}. Showing the full guide.".format(category)
+    else:
+        category_note = "Showing **{}** commands.".format(fields[0][0]) if category else "Everything in one guide — AI, games, RPG, server tools and the full community pack."
+
+    embeds = []
+    current = discord.Embed(
         title="🌌 Horizon Command Guide",
-        description="Horizon uses compact `!` prefix commands for everyday server use. Slash commands remain available where useful.",
+        description=category_note,
         colour=discord.Colour.blurple(),
     )
-    embed.add_field(name="AI", value="`!ai <message>` `!ask <question>` `!aistatus` `!aimodels` `!personality` `!remember` `!forget` `!memories`", inline=False)
-    embed.add_field(name="Games", value="`!games` `!game <name>` `!guess <letter>` `!join` `!begin` `!vote @user` `!dayend` `!nightend` `!stop` `!rps <choice>`", inline=False)
-    embed.add_field(name="RPG / Community", value="`!rpg` `!rpg start` `!rpg profile` `!rpg adventure` `!rpg quests` `!rpg party` `!rpg guild` `!rpg dungeon` `!rpg shop` `!rpg craft` `!rpg market` `!rpg pet` `!rpg achievements` `!rpg leaderboard`", inline=False)
-    embed.add_field(name="Moderation", value="`!warn @user` `!warnings @user` `!mod on/off` `!modaction <log|warn|timeout>` `!clear <amount>` `!timeout @user <minutes>` `!kick @user` `!ban @user`", inline=False)
-    embed.add_field(name="Server / Announcements", value="`!announce <type> <ping> [#channel] | <title> | <message>` `!config show` `!config welcome #channel` `!config logs #channel` `!serverinfo` `!permissions`", inline=False)
-    embed.add_field(name="Help", value="/help for slash commands • /dashboard for server controls • /community giveaway ... and /community reactionrole ... for community tools • !help <category> for prefix commands", inline=False)
-    await interaction.response.send_message(embed=embed)
+    used = len(current.title) + len(current.description)
+
+    for name, value in fields:
+        cost = len(name) + len(value)
+        if current.fields and used + cost > 5600:
+            current.set_footer(text="Use `/help <category>` or `!help <category>` for a focused section.")
+            embeds.append(current)
+            current = discord.Embed(
+                title="🌌 Horizon Command Guide",
+                description="More Horizon commands",
+                colour=discord.Colour.blurple(),
+            )
+            used = len(current.title) + len(current.description)
+        current.add_field(name=name, value=value, inline=False)
+        used += cost
+
+    all_embeds = embeds + [current]
+    total = len(all_embeds)
+    for index, embed in enumerate(all_embeds, 1):
+        embed.set_footer(text="Page {}/{} • `/help <category>` or `!help <category>`".format(index, total))
+    return all_embeds
+
+
+@bot.tree.command(name="help", description="Show Horizon's command guide.")
+@app_commands.describe(category="Optional category: ai, games, rpg, social, actions, fun, memes, emotes, utility, server")
+async def help_command(interaction: discord.Interaction, category: str = ""):
+    await interaction.response.send_message(embeds=_build_help_embeds(category))
 
 
 # -------------------- Prefix commands / compact game mode --------------------
@@ -2054,29 +2107,13 @@ async def prefix_rps(ctx, choice: str = ""):
 # -------------------- General prefix command system --------------------
 
 def _prefix_help_text(category: str | None = None):
-    pages = {
-        "ai": "**AI**\n`!ai <message>` — chat with Horizon\n`!ask <question>` — ask Horizon\n`!aistatus` — AI provider status\n`!aimodels` — available models\n`!personality <text>` — server personality (staff)\n`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
-        "games": "**Games**\n`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — hidden-role lobby\n`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf\n`!rps <rock|paper|scissors>` — RPS\n`!slots` `!coinflip` `!lottery` `!blackjack` `!snailgarden` `!mines` `!highlow`\n`!stop` — stop the current game",
-        "rpg": "**🌌 Horizon RPG**\n`!rpg` — RPG hub\n`!rpg start <name> <race> <class>` — create hero\n`!rpg profile` / `!rpg stats` — character sheet\n`!rpg adventure` / `!rpg dungeon` — PvE\n`!rpg quests` / `!rpg quest accept <id>` / `!rpg quest claim <id>`\n`!rpg party create/join/dungeon` — team play\n`!rpg guild create/join/members/deposit/upgrade` — guild system\n`!rpg shop/buy/sell/craft/market` — economy\n`!rpg trade @player` — secure direct trading\n`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
-        "moderation": "**Moderation**\n`!warn @user [reason]`\n`!warnings @user`\n`!mod on|off`\n`!modaction log|warn|timeout`\n`!clear <1-100>`\n`!timeout @user <minutes> [reason]`\n`!kick @user [reason]`\n`!ban @user [reason]`",
-        "announcements": "**Announcements**\n`!announce <type> <ping> [#channel] | <title> | <message>`\nTypes: `general`, `event`, `tournament`, `game`, `community`, `update`, `important`, `warning`, `maintenance`, `giveaway`, `news`\nPing: `none`, `@here`, `@everyone`, a role mention, or a member mention.\nExample: `!announce tournament @Tournament #events | Anigame Tournament | Sign-ups open Saturday at 8 PM IST.`",
-        "server": "**Server**\n`!config show`\n`!config welcome #channel`\n`!config logs #channel`\n`!config personality <text>`\n`!serverinfo`\n`!permissions`\n`!userinfo @user`\n`!avatar @user`\n`!channelinfo`",
-        "fun": "**Fun**\n`!8b` `!define` `!gif` `!pic` `!translate` `!roll` `!choose` `!bell`",
-        "social": "**Social**\n`!cookie` `!ship` `!pray` `!curse` `!marry` `!emoji` `!profile` `!level` `!wallpaper` `!owoify` `!avatar`",
-        "memes": "**Meme Generation**\n`!spongebobchicken` `!slapcar` `!isthisa` `!drake` `!distractedbf` `!communismcat` `!eject` `!emergencymeeting` `!headpat` `!tradeoffer` `!waddle`\nUse `|` between meme text parts.",
-        "emotes": "**Emotes**\n`!blush` `!cry` `!dance` `!lewd` `!pout` `!shrug` `!sleepy` `!smile` `!smug` `!thumbsup` `!wag` `!thinking` `!triggered` `!teehee` `!deredere` `!thonking` `!scoff` `!happy` `!thumbs` `!grin`",
-        "actions": "**Actions**\n`!cuddle` `!hug` `!kiss` `!lick` `!nom` `!pat` `!poke` `!slap` `!stare` `!highfive` `!bite` `!greet` `!punch` `!handholding` `!tickle` `!kill` `!hold` `!pats` `!wave` `!boop` `!snuggle` `!bully`",
-        "utility": "**Utility**\n`!ping` `!stats` `!link` `!guildlink` `!disable` `!censor` `!patreon` `!announcement` `!rules` `!suggest` `!shards` `!math` `!color` `!prefix`",
-    }
-    if category and category.lower() in pages:
-        return pages[category.lower()]
-    return "**🌌 Horizon Prefix Commands**\n\n" + "\n\n".join(pages.values()) + "\n\nUse `!help <category>` for one section."
+    return _build_help_embeds(category or "")
 
 
 @bot.command(name="help", aliases=["commands"])
 async def prefix_help(ctx, category: str = ""):
     await _quiet_delete(ctx.message)
-    await ctx.send(_prefix_help_text(category), allowed_mentions=discord.AllowedMentions.none())
+    await ctx.send(embeds=_build_help_embeds(category), allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.command(name="ping")
