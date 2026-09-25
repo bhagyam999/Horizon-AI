@@ -3520,6 +3520,10 @@ class RPGMinesView(discord.ui.View):
         return True
 
     def _build_buttons(self):
+        # Discord views have only 5 rows. Mines is intentionally 4x4 so row 4
+        # remains available for the cash-out button.
+        if int(self.state.get("size", 4)) != 4:
+            self.state["size"] = 4
         revealed = set(self.state.get("revealed", []))
         mines = set(self.state.get("mines", []))
         finished = self.resolved
