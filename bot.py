@@ -62,6 +62,7 @@ class Horizon(commands.Bot):
         # into the persistent location before initializing the schema.
         migrate_legacy_database(self.db_path, os.path.join(BASE_DIR, "horizon.db"))
         self.db = Database(self.db_path)
+        self.prefix_cache: dict[int, str] = {}
         self.ai = AIProvider()
         self.mod = ModerationEngine()
         self.games = GameManager()
@@ -76,6 +77,21 @@ class Horizon(commands.Bot):
         self._rpg_command_locks: dict[tuple[int, int], asyncio.Lock] = {}
         self._rpg_command_timeout = 30
         self._giveaway_task = None
+
+    async def get_prefix(self, message):
+        """Return the server's custom prefix while always keeping ! as a recovery prefix."""
+        if not getattr(message, "guild", None):
+            return "!"
+        guild_id = int(message.guild.id)
+        prefix = self.prefix_cache.get(guild_id)
+        if prefix is None:
+            try:
+                settings = await self.db.settings(guild_id)
+                prefix = str(settings.get("prefix") or "!").strip() or "!"
+            except Exception:
+                prefix = "!"
+            self.prefix_cache[guild_id] = prefix
+        return "!" if prefix == "!" else [prefix, "!"]
 
     async def invoke(self, ctx):
         """Run RPG prefix commands with a per-player lock and hard timeout.
@@ -2044,22 +2060,2247 @@ async def prefix_rps(ctx, choice: str = ""):
 
 def _prefix_help_text(category: str | None = None):
     pages = {
-        "ai": "**AI**\n`!ai <message>` — chat with Horizon\n`!ask <question>` — ask Horizon\n`!aistatus` — AI provider status\n`!aimodels` — available models\n`!personality <text>` — server personality (staff)\n`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
-        "games": "**Games**\n`!games` — game hub\n`!game <name>` — start a game\n`!guess <letter>` — Hangman\n`!join` / `!begin` — hidden-role lobby\n`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf\n`!rps <rock|paper|scissors>` — RPS\n`!stop` — stop the current game",
-        "rpg": "**🌌 Horizon RPG**\n`!rpg` — RPG hub\n`!rpg start <name> <race> <class>` — create hero\n`!rpg profile` / `!rpg stats` — character sheet\n`!rpg adventure` / `!rpg dungeon` — PvE\n`!rpg quests` / `!rpg quest accept <id>` / `!rpg quest claim <id>`\n`!rpg party create/join/dungeon` — team play\n`!rpg guild create/join/members/deposit/upgrade` — guild system\n`!rpg shop/buy/sell/craft/market` — economy\n`!rpg trade @player` — secure direct trading\n`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
-        "moderation": "**Moderation**\n`!warn @user [reason]`\n`!warnings @user`\n`!mod on|off`\n`!modaction log|warn|timeout`\n`!clear <1-100>`\n`!timeout @user <minutes> [reason]`\n`!kick @user [reason]`\n`!ban @user [reason]`",
-        "announcements": "**Announcements**\n`!announce <type> <ping> [#channel] | <title> | <message>`\nTypes: `general`, `event`, `tournament`, `game`, `community`, `update`, `important`, `warning`, `maintenance`, `giveaway`, `news`\nPing: `none`, `@here`, `@everyone`, a role mention, or a member mention.\nExample: `!announce tournament @Tournament #events | Anigame Tournament | Sign-ups open Saturday at 8 PM IST.`",
-        "server": "**Server**\n`!config show`\n`!config welcome #channel`\n`!config logs #channel`\n`!config personality <text>`\n`!serverinfo`\n`!permissions`\n`!userinfo @user`\n`!avatar @user`\n`!channelinfo`",
+        "ai": "**🤖 AI**
+`!ai <message>` — chat with Horizon
+`!ask <question>` — ask Horizon
+`!aistatus` — provider status
+`!aimodels` — available models
+`!personality <text>` — server AI personality (staff)
+`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
+        "rpg": "**⚔️ Horizon RPG**
+`!rpg` — RPG hub
+`!rpg profile` / `!rpg stats` — character sheet
+`!rpg skills` / `!rpg equip-skill` — skills and loadout
+`!rpg adventure` / `!rpg dungeon` — PvE
+`!rpg quests` — Quest 2.0 board
+`!rpg party` / `!rpg guild` — team systems
+`!rpg shop` / `!rpg craft` / `!rpg market` — economy
+`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
+        "games": "**🎮 Games**
+`!games` — game hub
+`!game <name>` — start a game
+`!guess <letter>` — Hangman
+`!join` / `!begin` — hidden-role lobby
+`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf
+`!rps <rock|paper|scissors>` — RPS
+`!stop` — stop the current game",
+        "fun": "**🎲 Fun**
+`!rps <choice>` — rock, paper, scissors
+`!rpgroll` — RPG dice roll
+`!game <name>` — pick/start a game
+More lightweight fun commands are being expanded here.",
+        "social": "**💬 Social**
+`!userinfo @user` — member information
+`!avatar @user` — avatar
+`!profile` — server profile
+`!leaderboard` — server leaderboard
+`!ship @user @user` — relationship fun (when enabled)",
+        "actions": "**🤝 Actions**
+`!hug @user` `!pat @user` `!highfive @user` `!slap @user`
+Use these for lightweight server interactions.",
+        "emotes": "**🙂 Emotes**
+`!wave` `!dance` `!shrug` `!blush` `!cry` `!smug`
+Quick expression commands for normal chat.",
+        "meme": "**😂 Meme**
+`!meme` — generate a lightweight random meme response
+Meme tools are kept separate from moderation and RPG commands.",
+        "community": "**🌐 Community**
+`!announce` — typed announcements
+`/community giveaway create` — giveaways
+`/community reactionrole create` — reaction roles
+`/dashboard` — server control panel",
+        "moderation": "**🛡️ Moderation**
+`!warn @user [reason]`
+`!warnings @user`
+`!mod on|off`
+`!modaction log|warn|timeout`
+`!clear <1-100>`
+`!timeout @user <minutes> [reason]`
+`!kick @user [reason]`
+`!ban @user [reason]`",
+        "utility": "**🔧 Utility**
+`!help [category]` — command categories
+`!ping` — latency
+`!prefix <new>` — change this server's prefix (Manage Server)
+`!prefix reset` — restore `!`
+`!serverinfo` `!channelinfo` `!permissions`",
+        "server": "**🏰 Server**
+`!config show`
+`!config welcome #channel`
+`!config logs #channel`
+`!config personality <text>`
+`!serverinfo` `!permissions` `!userinfo @user` `!avatar @user` `!channelinfo`",
     }
     if category and category.lower() in pages:
         return pages[category.lower()]
-    return "**🌌 Horizon Prefix Commands**\n\n" + "\n\n".join(pages.values()) + "\n\nUse `!help <category>` for one section."
+    order = ["ai","rpg","games","fun","social","actions","emotes","meme","community","moderation","utility","server"]
+    return "**🌌 Horizon Command Categories**\n\n" + "\n\n".join(pages[k] for k in order) + "\n\nUse `!help <category>` for one section.\nUse `!prefix <new>` to set a custom server prefix."
 
 
 @bot.command(name="help", aliases=["commands"])
 async def prefix_help(ctx, category: str = ""):
     await _quiet_delete(ctx.message)
     await ctx.send(_prefix_help_text(category), allowed_mentions=discord.AllowedMentions.none())
+
+
+@bot.command(name="prefix")
+@commands.has_guild_permissions(manage_guild=True)
+async def prefix_command(ctx, new_prefix: str = ""):
+    await _quiet_delete(ctx.message)
+    if not new_prefix:
+        settings = await bot.db.settings(ctx.guild.id)
+        current = settings.get("prefix") or "!"
+        await ctx.send(f"🔧 Current Horizon prefix: `{current}`\nUse `{current}prefix <new>` or `!prefix <new>`. Example: `!prefix ?`.", delete_after=12)
+        return
+    value = new_prefix.strip()
+    if value.lower() in {"reset","default","!"}:
+        value = "!"
+    if value != "!" and (len(value) > 4 or any(ch.isspace() for ch in value) or value.startswith("<@")):
+        await ctx.send("Choose a prefix with 1–4 non-space characters. Example: `?`, `import asyncio
+import datetime
+import logging
+import json
+import os
+import random
+import re
+import shlex
+import time
+from urllib.parse import quote
+import aiosqlite
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from dotenv import load_dotenv
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+from ai_provider import AIProvider
+from database import Database
+from moderation import ModerationEngine
+from games import GameManager, WYR_ROUNDS, TRUTHS, DARES, WyrView, TruthDareView, make_hangman, make_trivia
+from dashboard import Dashboard
+from rpg import ENEMY_ABILITIES, RPGService, RACES, CLASSES, SUBRACES, SUBCLASSES, SUBRACE_TRAITS, SUBCLASS_TRAITS, CLASS_EVOLUTIONS, AREAS, ITEMS, DUNGEONS, ACHIEVEMENTS, RECIPES, KINGDOM_ROLES, SKILLS, PET_SPECIES, PET_EGGS, PET_EGG_POOLS, RARITIES, RACE_ABILITIES, RACE_MATCHUPS, CLASS_MATCHUPS, matchup_multiplier, RACE_PROFILES, CLASS_PROFILES, ENCHANTMENTS, ENCHANTMENT_COMPATIBILITY, compatible_enchantments, GACHA_RATES, GACHA_COST_SINGLE, GACHA_COST_TEN, GACHA_EPIC_PITY, GACHA_MYTHIC_PITY, SECRET_CLASSES, SECRET_CLASS_KEYS, LEGENDARY_CHALLENGES, FACTION_PASSIVES, SUBCLASS_SKILLS, SKILL_UNLOCK_LEVELS, SKILL_COSTS, SKILL_COOLDOWNS, SKILL_COMBO_ROLES, CLASS_COMBO_TRAITS, SKILL_MAX_RANK, SKILL_RANK_DAMAGE, SKILL_RANK_HEAL, MAGIC_CLASSES, HEAL_CLASSES, PET_ABILITY_DESCRIPTIONS, AREA_CONNECTIONS
+from storage import backup_database, migrate_legacy_database, resolve_database_path
+
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
+if not TOKEN:
+    raise RuntimeError("DISCORD_TOKEN is missing from .env")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+log = logging.getLogger("horizon")
+BOT_DISPLAY_NAME = "ℍ𝕠𝕣𝕚𝕫𝕠𝕟"
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+
+
+def level_for(xp: int) -> int:
+    return xp // 100 + 1
+
+
+def split_text(text: str, limit: int = 1900):
+    return [text[i:i + limit] for i in range(0, len(text), limit)] or [""]
+
+
+class Horizon(commands.Bot):
+    def __init__(self):
+        super().__init__(
+            command_prefix="!",
+            intents=intents,
+            help_command=None,
+        )
+        self.db_path = resolve_database_path(BASE_DIR)
+        # If an older deployment stored the DB beside the bot code, migrate it
+        # into the persistent location before initializing the schema.
+        migrate_legacy_database(self.db_path, os.path.join(BASE_DIR, "horizon.db"))
+        self.db = Database(self.db_path)
+        self.prefix_cache: dict[int, str] = {}
+        self.ai = AIProvider()
+        self.mod = ModerationEngine()
+        self.games = GameManager()
+        self.dashboard = Dashboard(self)
+        self.rpg = RPGService(self.db_path)
+        self._db_backup_task = None
+        self.mod_history: dict[int, list[str]] = {}
+        self._ai_history_backfill_task = None
+        self._ai_history_backfilled = False
+        # Prevent overlapping prefix RPG commands for the same player and stop
+        # a slow database/API operation from making a command appear frozen.
+        self._rpg_command_locks: dict[tuple[int, int], asyncio.Lock] = {}
+        self._rpg_command_timeout = 30
+        self._giveaway_task = None
+
+    async def get_prefix(self, message):
+        """Return the server's custom prefix while always keeping ! as a recovery prefix."""
+        if not getattr(message, "guild", None):
+            return "!"
+        guild_id = int(message.guild.id)
+        prefix = self.prefix_cache.get(guild_id)
+        if prefix is None:
+            try:
+                settings = await self.db.settings(guild_id)
+                prefix = str(settings.get("prefix") or "!").strip() or "!"
+            except Exception:
+                prefix = "!"
+            self.prefix_cache[guild_id] = prefix
+        return "!" if prefix == "!" else [prefix, "!"]
+
+    async def invoke(self, ctx):
+        """Run RPG prefix commands with a per-player lock and hard timeout.
+
+        A slow SQLite operation or a duplicate click/command should never leave
+        the user staring at a command that appears to have done nothing.
+        Interactive Discord UI callbacks are handled separately and are not
+        subject to this prefix-command guard.
+        """
+        command = getattr(ctx, "command", None)
+        root = getattr(command, "root_parent", None) if command else None
+        is_rpg = bool(command and (getattr(command, "name", "") == "rpg" or getattr(root, "name", "") == "rpg"))
+        if not is_rpg:
+            return await super().invoke(ctx)
+
+        guild_id = getattr(getattr(ctx, "guild", None), "id", 0)
+        user_id = getattr(getattr(ctx, "author", None), "id", 0)
+        lock_key = (int(guild_id), int(user_id))
+        lock = self._rpg_command_locks.setdefault(lock_key, asyncio.Lock())
+        if lock.locked():
+            try:
+                await ctx.send("⏳ Your previous RPG command is still processing. Please wait a moment before sending another one.", delete_after=7)
+            except discord.HTTPException:
+                pass
+            return
+
+        await lock.acquire()
+        try:
+            await asyncio.wait_for(super().invoke(ctx), timeout=self._rpg_command_timeout)
+        except asyncio.TimeoutError:
+            log.error("RPG command timed out after %ss: guild=%s user=%s command=%s", self._rpg_command_timeout, guild_id, user_id, getattr(command, "qualified_name", "unknown"))
+            try:
+                await ctx.send("⚠️ That RPG command took too long and was stopped. Your saved data was not intentionally reset. Please try again; if it keeps happening, check the Railway logs for a database error.", delete_after=12)
+            except discord.HTTPException:
+                pass
+        finally:
+            lock.release()
+            if not lock.locked():
+                self._rpg_command_locks.pop(lock_key, None)
+
+    async def setup_hook(self):
+        # Database initialization is required for the RPG and server systems.
+        # Keep it explicit so a real storage error appears in Railway logs.
+        await self.db.setup()
+        await self.rpg.setup()
+
+        # Backups are safety nets; they must never prevent Discord from coming online.
+        try:
+            backup_database(self.db_path)
+        except Exception:
+            log.exception("Initial database backup failed; continuing startup.")
+        self._db_backup_task = asyncio.create_task(self._database_backup_loop())
+        self._giveaway_task = asyncio.create_task(self._giveaway_loop())
+
+        try:
+            await self.dashboard.start()
+        except Exception:
+            # The web dashboard is optional. A port/configuration problem must not
+            # take the Discord bot offline.
+            log.exception("Dashboard failed to start; continuing without dashboard.")
+
+        # IMPORTANT: do not sync application commands during startup. Discord can
+        # rate-limit command registration, and a startup sync should never be able
+        # to hold the entire bot before READY. Existing slash commands already
+        # registered in Discord continue to work. New/changed commands can be
+        # registered deliberately with the owner-only !sync command.
+        log.info("Startup slash-command sync skipped; bot will continue to READY.")
+
+    async def _sync_commands_safely(self, *, global_sync: bool = False):
+        """Manually register slash commands with exactly one Discord sync request."""
+        if global_sync:
+            await self.tree.sync()
+            log.info("Global Horizon commands synced.")
+            return
+
+        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
+        if not guild_id.isdigit():
+            raise RuntimeError("DISCORD_GUILD_ID is missing or invalid; use !sync global instead.")
+
+        guild = discord.Object(id=int(guild_id))
+        # Copy the current global command definitions to the configured guild and
+        # perform one guild sync. Never clear commands or perform multiple syncs.
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+        log.info("Guild commands synced to %s.", guild_id)
+
+    async def _database_backup_loop(self):
+        while True:
+            await asyncio.sleep(1800)
+            try:
+                backup_database(self.db_path)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Scheduled database backup failed.")
+
+    async def close(self):
+        for task_name in ('_db_backup_task', '_ai_history_backfill_task', '_giveaway_task'):
+            task = getattr(self, task_name, None)
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        try:
+            backup_database(self.db_path)
+        except Exception:
+            log.exception("Final database backup failed.")
+        await super().close()
+
+    def ai_context_from_rows(self, rows, prompt):
+        return _relevant_ai_context(rows, prompt)
+
+    def build_ai_system(self, guild_name, user_name, memories, personality, profile, context, prompt=""):
+        return build_system(guild_name, user_name, memories, personality, profile, context, prompt=prompt)
+
+    async def on_guild_join(self, guild: discord.Guild):
+        await self.db.settings(guild.id)
+        log.info("Horizon joined guild %s (%s)", guild.name, guild.id)
+
+    async def _automated_moderation(self, message: discord.Message):
+        if not message.guild or message.author.bot:
+            return
+        settings=await self.db.settings(message.guild.id)
+        if str(settings.get("moderation_enabled","1")).lower() in {"0","false","off","no"}:
+            return
+        member=message.author if isinstance(message.author,discord.Member) else message.guild.get_member(message.author.id)
+        if member and (member.guild_permissions.administrator or member.guild_permissions.manage_guild or member.guild_permissions.manage_messages):
+            return
+
+        # Stage 1: cheap local moderation only. The AI is deliberately NOT called
+        # for ordinary messages or merely suspicious keywords. This keeps token
+        # usage low and lets the local engine decide when AI review is warranted.
+        history=self.mod_history.setdefault(message.author.id,[])
+        decision=self.mod.inspect(message.content,history=history[-12:])
+        history.append(message.content[:1000])
+        del history[:-12]
+
+        if not decision.alert:
+            return
+
+        # Stage 2: only messages actually flagged by local moderation reach the AI.
+        channel_context=[]
+        try:
+            rows=await self.db.ai_server_messages(message.guild.id,limit=20,channel_id=message.channel.id)
+            for row in rows[-16:]:
+                channel_context.append(f"{str(row[3])}: {str(row[4]).replace(chr(10),' ')[:700]}")
+        except Exception:
+            channel_context=[]
+        if not channel_context:
+            channel_context=[f"Author: {x}" for x in history[-10:]]
+        context="\n".join(channel_context[-16:])
+
+        try:
+            verdicts=await asyncio.wait_for(
+                self.ai.moderate(message.content,context,rpg_knowledge=build_rpg_ai_knowledge()),
+                timeout=12
+            )
+        except Exception:
+            verdicts=[]
+
+        strong=[v for v in verdicts if float(v.get("confidence",0) or 0)>=0.75 and int(v.get("severity",0) or 0)>=2]
+        from collections import Counter
+        action_counts=Counter(str(v.get("action","allow")) for v in strong if str(v.get("action","allow"))!="allow")
+        category_counts=Counter(str(v.get("category","other")) for v in strong if str(v.get("category","other"))!="none")
+        ai_action=action_counts.most_common(1)[0][0] if action_counts and action_counts.most_common(1)[0][1]>=2 else "allow"
+        ai_category=category_counts.most_common(1)[0][0] if category_counts else (decision.category or "other")
+        should_delete=ai_action=="delete" or (decision.score>=7 and decision.target)
+        should_timeout=ai_action=="timeout" or (decision.score>=8 and decision.target)
+
+        if not should_delete and not should_timeout:
+            if ai_action=="flag":
+                await self.db.add_warning(
+                    message.guild.id,message.author.id,self.user.id,
+                    f"AI moderation flag: {ai_category}"
+                )
+            return
+
+        try:
+            if should_delete:
+                await message.delete(reason=f"Horizon AI moderation: {ai_category}")
+            if should_timeout and member:
+                try:
+                    await member.timeout(
+                        datetime.timedelta(minutes=10),
+                        reason=f"Horizon AI moderation: {ai_category}"
+                    )
+                except (discord.Forbidden,discord.HTTPException):
+                    pass
+            await self.db.add_warning(
+                message.guild.id,message.author.id,self.user.id,
+                f"Automatic moderation: {ai_category}"
+            )
+        except (discord.NotFound,discord.Forbidden,discord.HTTPException):
+            pass
+
+        log_channel_id=int(settings.get("log_channel_id") or 0)
+        if log_channel_id:
+            channel=self.get_channel(log_channel_id)
+            if channel:
+                try:
+                    action="timeout + delete" if should_timeout else "delete"
+                    await channel.send(
+                        f"🛡️ **Horizon Auto-Mod** | {message.author.mention} in {message.channel.mention}\n"
+                        f"Action: **{action}** • Category: **{ai_category}**\n"
+                        f"Local score: `{decision.score}` • AI agreement: `{dict(action_counts)}`"
+                    )
+                except (discord.Forbidden,discord.HTTPException):
+                    pass
+
+    async def on_message(self, message: discord.Message):
+        if message.guild and not message.author.bot:
+            try: await self._automated_moderation(message)
+            except Exception: log.exception("Automated moderation failed")
+            if message.content.strip():
+                try: await self.db.add_ai_server_message(message.id,message.guild.id,message.channel.id,message.author.id,message.author.display_name,message.content)
+                except Exception: log.exception("Live AI history indexing failed")
+        await self.process_commands(message)
+
+    async def on_ready(self):
+        # Keep Horizon's Discord username in the requested Unicode style.
+        if self.user and self.user.name != BOT_DISPLAY_NAME:
+            try:
+                await self.user.edit(username=BOT_DISPLAY_NAME)
+                log.info("Bot username updated to %s.", BOT_DISPLAY_NAME)
+            except discord.HTTPException:
+                log.exception("Could not update the bot username.")
+        log.info(
+            "Horizon online as %s | guilds=%s | AI=%s",
+            self.user,
+            len(self.guilds),
+            self.ai.model,
+        )
+        if not self._ai_history_backfilled and (not self._ai_history_backfill_task or self._ai_history_backfill_task.done()):
+            self._ai_history_backfill_task = asyncio.create_task(self._backfill_ai_history())
+
+    async def _backfill_ai_history(self):
+        """Index a bounded amount of public server history for contextual AI answers.
+
+        Only channels visible to @everyone are indexed. This deliberately avoids
+        turning private/staff channels into AI knowledge. Live messages are also
+        indexed by on_message, so the archive stays current after this one-time pass.
+        """
+        try:
+            max_channels = int(os.getenv("AI_HISTORY_BACKFILL_CHANNELS", "50"))
+            max_messages = int(os.getenv("AI_HISTORY_BACKFILL_MESSAGES", "250"))
+            for guild in list(self.guilds):
+                channels = []
+                for channel in guild.text_channels:
+                    try:
+                        everyone = guild.default_role
+                        perms = channel.permissions_for(everyone)
+                        me = channel.permissions_for(guild.me) if guild.me else None
+                        if not perms.view_channel or not me or not me.view_channel or not me.read_message_history:
+                            continue
+                        channels.append(channel)
+                    except Exception:
+                        continue
+                channels = channels[:max_channels]
+                log.info("AI history backfill: guild=%s channels=%s messages_per_channel=%s", guild.id, len(channels), max_messages)
+                for channel in channels:
+                    try:
+                        async for message in channel.history(limit=max_messages, oldest_first=True):
+                            if message.author.bot or not message.content.strip():
+                                continue
+                            await self.db.add_ai_server_message(
+                                message.id, guild.id, channel.id, message.author.id,
+                                message.author.display_name, message.content,
+                            )
+                    except (discord.Forbidden, discord.HTTPException):
+                        continue
+                    except Exception:
+                        log.exception("AI history backfill failed for #%s", channel.name)
+                    await asyncio.sleep(0.12)
+            self._ai_history_backfilled = True
+            log.info("AI history backfill complete.")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("AI history backfill failed; live indexing will continue.")
+
+    async def ai_server_context(self, guild_id, channel_id, prompt):
+        """Return relevant public server history while keeping the live dialogue short."""
+        try:
+            rows = await self.db.ai_server_messages(guild_id, 1600)
+        except Exception:
+            log.exception("AI server-history lookup failed; continuing with rolling dialogue only.")
+            return ""
+        if not rows:
+            return ""
+        words = set(re.findall(r"[a-zA-Z0-9_']{3,}", prompt.lower()))
+        current = [r for r in rows if int(r[1]) == int(channel_id)]
+        recent_current = current[-24:]
+        scored = []
+        for row in rows:
+            if int(row[1]) == int(channel_id):
+                continue
+            content = row[4]
+            overlap = len(words & set(re.findall(r"[a-zA-Z0-9_']{3,}", content.lower())))
+            if overlap:
+                scored.append((overlap, row[5], row))
+        scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        selected = []
+        seen = set()
+        for row in recent_current[-16:]:
+            if row[0] not in seen:
+                selected.append(row); seen.add(row[0])
+        for _, _, row in scored[:10]:
+            if row[0] not in seen:
+                selected.append(row); seen.add(row[0])
+        if not selected:
+            return ""
+        lines = []
+        for message_id, row_channel, author_id, author_name, content, created_at in selected[-26:]:
+            location = "this channel" if int(row_channel) == int(channel_id) else "another public server channel"
+            lines.append(f"[{location}] {author_name}: {content[:700]}")
+        return "\n".join(lines)
+
+    async def _giveaway_loop(self):
+        await asyncio.sleep(8)
+        while True:
+            try:
+                now=time.time()
+                for giveaway in await self.db.active_giveaways():
+                    if giveaway["ends_at"] <= now:
+                        await self._finish_giveaway(giveaway["id"])
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("Giveaway worker failed")
+            await asyncio.sleep(15)
+
+    async def _finish_giveaway(self, giveaway_id):
+        giveaway=await self.db.giveaway(giveaway_id)
+        if not giveaway or giveaway["ended"]:
+            return
+        if not await self.db.end_giveaway(giveaway_id):
+            return
+        entries=await self.db.giveaway_entries(giveaway_id)
+        winners=max(1,int(giveaway["winners"]))
+        selected=random.sample(entries,min(winners,len(entries))) if entries else []
+        channel=self.get_channel(giveaway["channel_id"])
+        if channel:
+            try:
+                message=await channel.fetch_message(giveaway["message_id"])
+                if selected:
+                    mentions=", ".join(f"<@{uid}>" for uid in selected)
+                    await message.edit(content=f"🎉 **GIVEAWAY ENDED** — **{giveaway['prize']}**\nWinner(s): {mentions}")
+                    await channel.send(f"🎊 Congratulations {mentions}! You won **{giveaway['prize']}**.")
+                else:
+                    await message.edit(content=f"🎉 **GIVEAWAY ENDED** — **{giveaway['prize']}**\nNo valid entries were received.")
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == self.user.id:
+            return
+        guild=self.get_guild(payload.guild_id) if payload.guild_id else None
+        if not guild:
+            return
+        emoji=str(payload.emoji)
+        role_id=await self.db.reaction_role(guild.id,payload.message_id,emoji)
+        if role_id:
+            member=guild.get_member(payload.user_id)
+            role=guild.get_role(role_id)
+            if member and role and not member.bot:
+                try:
+                    await member.add_roles(role,reason="Horizon reaction role")
+                except discord.Forbidden:
+                    log.warning("Cannot add reaction role %s in guild %s",role_id,guild.id)
+            return
+        # Giveaway entry: the 🎉 reaction is the entry button.
+        active=await self.db.active_giveaways()
+        for giveaway in active:
+            if giveaway["message_id"] != payload.message_id:
+                continue
+            if emoji != "🎉":
+                continue
+            if payload.user_id == giveaway["host_id"]:
+                continue
+            await self.db.add_giveaway_entry(giveaway["id"],payload.user_id)
+            return
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == self.user.id or not payload.guild_id:
+            return
+        guild=self.get_guild(payload.guild_id)
+        if not guild:
+            return
+        emoji=str(payload.emoji)
+        role_id=await self.db.reaction_role(guild.id,payload.message_id,emoji)
+        if role_id:
+            member=guild.get_member(payload.user_id)
+            role=guild.get_role(role_id)
+            if member and role and not member.bot:
+                try:
+                    await member.remove_roles(role,reason="Horizon reaction role removed")
+                except discord.Forbidden:
+                    pass
+            return
+        for giveaway in await self.db.active_giveaways():
+            if giveaway["message_id"] == payload.message_id and emoji == "🎉":
+                await self.db.remove_giveaway_entry(giveaway["id"],payload.user_id)
+                return
+
+    async def on_member_join(self, member: discord.Member):
+        if member.bot or not member.guild:
+            return
+        settings = await self.db.settings(member.guild.id)
+        channel_id = settings["welcome_channel_id"]
+        if channel_id:
+            channel = member.guild.get_channel(channel_id)
+            if channel:
+                try:
+                    await channel.send(
+                        f"Welcome to **{member.guild.name}**, {member.mention}!"
+                    )
+                except discord.HTTPException:
+                    pass
+
+    async def xp_message(self, message: discord.Message):
+        if not message.guild:
+            return
+        if await self.db.is_cooldown(message.guild.id, message.author.id, "xp"):
+            return
+
+        await self.db.cooldown(message.guild.id, message.author.id, "xp", 45)
+        before = await self.db.profile(message.guild.id, message.author.id)
+        after = await self.db.add_xp(
+            message.guild.id,
+            message.author.id,
+            random.randint(5, 12),
+        )
+
+        if level_for(after["xp"]) > level_for(before["xp"]):
+            try:
+                await message.channel.send(
+                    f"**{message.author.display_name}** reached "
+                    f"**Level {level_for(after['xp'])}**!"
+                )
+            except discord.HTTPException:
+                pass
+
+
+bot = Horizon()
+
+
+def _ai_tone_cue(prompt: str, context: str = "") -> str:
+    """Return a request-local tone hint. It deliberately expires after this reply.
+
+    Playful mode is opt-in from the current conversation rather than a persistent
+    personality state. This prevents a joke/roast session from leaking into the
+    next serious or technical question.
+    """
+    text = (prompt or "").strip().lower()
+    explicit_playful = (
+        "i'm bored" in text or "im bored" in text or "i am bored" in text
+        or "bored af" in text or "so bored" in text
+        or "make me laugh" in text or "tell me a joke" in text
+        or "roast me" in text or "roast us" in text
+        or "mess around" in text or "mess with me" in text
+        or "let's joke" in text or "lets joke" in text
+        or "let's banter" in text or "lets banter" in text
+        or "be sarcastic" in text or "be a little sarcastic" in text
+        or "sarcasm mode" in text or "banter mode" in text
+    )
+    if explicit_playful:
+        return (
+            "PLAYFUL MOMENT: The user is explicitly inviting light humor right now. "
+            "You may use mild sarcasm, teasing, or a short joke when it fits. Keep it "
+            "natural and concise; do not turn the reply into a comedy routine. This cue "
+            "applies ONLY to the current response and must not carry into the next request. "
+            "If the user changes subject or asks a normal/serious question, immediately "
+            "return to the normal conversational tone."
+        )
+    return (
+        "NORMAL MOMENT: Do not intentionally add sarcasm or banter. Respond naturally "
+        "to the current request. A small spontaneous joke is fine only if it genuinely "
+        "fits; do not continue a previous playful mood when the user has changed subject."
+    )
+
+
+def build_rpg_ai_knowledge():
+    """Compact, code-derived RPG manual for Horizon's AI advisor.
+    This is generated from the live RPG constants so the AI stays aligned with
+    the actual game instead of a hand-written duplicate ruleset.
+    """
+    lines = [
+        "HORIZON RPG — AUTHORITATIVE GAME KNOWLEDGE",
+        "Use this section as the source of truth for RPG questions. Never invent a skill, stat, cost, unlock, reward, or rule when it is not present here.",
+        "SYSTEMS: character creation; races and subraces; classes and subclasses; class/subclass skills; skill mastery ranks; 4 combat skill slots; equipment, upgrades, sets and enchantments; inventory; item codex; rotating shop; crafting and gathering; professions; pets and eggs; gacha and pity; Quest 2.0; factions and reputation; kingdoms; guilds and parties; world map and exploration; dungeons and bosses; world bosses; PvP arena and duels; raids; bounties; achievements and titles; secret classes; legendary challenges; endgame ascension.",
+        "COMBAT: ATK, DEF, HP, MP, SPD and CRIT are core stats. Skills have MP/resource cost, cooldown, unlock level, multiplier, effect, combo role and damage cap. Effects include damage, heavy, multi-hit, bleed, heal, defense buff, attack buff, armor break, poison, burn, freeze, lifesteal, mana drain, dodge, counter, barrier, vulnerability, execute, true damage, ultimate/signature and utility effects.",
+        "SKILL PROGRESSION: skills unlock at levels "+", ".join(map(str, SKILL_UNLOCK_LEVELS))+"; mastery is rank 1-5; each mastery rank adds "+f"{SKILL_RANK_DAMAGE*100:.1f}% skill damage and {SKILL_RANK_HEAL*100:.1f}% healing scaling.",
+        "COMBO RULES: combo damage increases by 2.5% per combo level up to +30%; using different skills adds up to +12% variety bonus; repeating the same skill adds up to a 30% repetition penalty; finisher skills gain an additional 3.5% per combo level up to +25%; starter skills gain +5% when beginning a chain. Class combo traits further modify chains/finishers/status/crit/lifesteal depending on class. Therefore recommend varied setup → linker → finisher chains instead of button-mashing one skill.",
+        "SKILL ROLES: starter begins a chain; setup prepares buffs/debuffs/marks/defense; linker extends pressure; finisher converts combo into a powerful ending.",
+        "RESOURCES: classes use their listed resource (Rage, Mana, Energy, Focus, Faith, Valor, Nature, Chi, Inspiration, Soul, Pact, Catalyst, Charge, Tempo, Resolve, Arcana, etc.).",
+        "ROTATIONS: the RPG uses the shared 17:30 IST rotation clock; shop rotates every 4 hours, daily quests daily, weekly quests Monday, monthly quests on the 1st.",
+    ]
+
+    lines.append("CLASSES:")
+    for key,data in CLASSES.items():
+        profile_data=CLASS_PROFILES.get(key,{})
+        skills=[s.get("name","?") for s in SKILLS.get(key,[])]
+        lines.append(f"- {key}: {data.get('desc','')}; stats HP+{data.get('hp',0)} MP+{data.get('mp',0)} ATK+{data.get('atk',0)} DEF+{data.get('def',0)} SPD+{data.get('spd',0)} CRIT+{data.get('crit',0)}; resource={data.get('resource','')}; identity={profile_data.get('strength','')}; skills: "+", ".join(skills))
+
+    lines.append("SUBCLASSES:")
+    for key,data in SUBCLASSES.items():
+        parent,desc,bonus=data
+        skills=[s.get("name","?") for s in SUBCLASS_SKILLS.get(key,[])]
+        trait=SUBCLASS_TRAITS.get(key,{})
+        lines.append(f"- {key} ({parent}): {desc}; bonuses={bonus}; trait={trait.get('name','')}: {trait.get('desc','')}; skills: "+", ".join(skills))
+
+    lines.append("FULL SKILL MECHANICS — every class and subclass skill currently implemented:")
+    def skill_line(skill):
+        if not isinstance(skill, dict):
+            return str(skill)
+        parts=[
+            str(skill.get("name") or skill.get("key") or "Unknown"),
+            f"key={skill.get('key','?')}",
+            f"unlock={skill.get('unlock','?')}",
+            f"cost={skill.get('cost','?')}",
+            f"cooldown={skill.get('cooldown','?')}",
+            f"multiplier={skill.get('mult','?')}",
+            f"role={skill.get('combo_role','?')}",
+            f"effect={skill.get('effect','?')}",
+        ]
+        for field,label in (("buff_text","buff"),("debuff_text","debuff"),("heal_pct","heal_pct"),("duration","duration"),("hits","hits"),("lifesteal_pct","lifesteal_pct"),("crit_bonus","crit_bonus"),("damage_bonus","damage_bonus")):
+            if skill.get(field) not in (None,"","?"):
+                parts.append(f"{label}={skill.get(field)}")
+        if skill.get("desc"):
+            parts.append(f"description={skill.get('desc')}")
+        return "; ".join(parts)
+    for class_key,skills in SKILLS.items():
+        lines.append(f"CLASS SKILLS — {class_key}:")
+        for skill in skills:
+            lines.append("- "+skill_line(skill))
+    for subclass_key,skills in SUBCLASS_SKILLS.items():
+        lines.append(f"SUBCLASS SKILLS — {subclass_key}:")
+        for skill in skills:
+            lines.append("- "+skill_line(skill))
+
+    lines.append("SKILL EXPLANATION RULES: When a player asks what a skill does, always give the exact live numbers available in the skill data: damage multiplier/base scaling, heal percentage or amount, ATK/DEF/SPD/CRIT or other stat percentage changes, duration in turns, MP/resource cost, cooldown, hit count, status chance/duration, lifesteal percentage, unlock level and mastery scaling when present. Do not replace numeric mechanics with vague phrases such as 'increases attack' or 'heals a lot'. Fantasy skill names are presentation only; mechanics come from the live fields.")
+    lines.append("LOADOUT RULES: Characters have exactly 4 combat skill slots. Slot numbers are independent. Equipping a skill into slot 4 must not silently leave the old skill in slot 3; replacing slot 3 only changes slot 3. When recommending a build, list Slot 1, Slot 2, Slot 3 and Slot 4 explicitly.")
+    lines.append("QUEST 2.0: The unified Quest Board contains Main Story, Daily, Weekly, Monthly, Class, Race, Faction, Bounty, Secret and Legendary categories. Daily resets at 17:30 IST, Weekly resets Monday at 17:30 IST, Monthly resets on the 1st at 17:30 IST, and the shop rotates every 4 hours from the shared 17:30 IST anchor. Completed rotating quests can be claimed for their stored XP/gold/item rewards; claimed quests cannot be claimed again.")
+    lines.append("COMBAT ADVICE: The AI may calculate a practical combo from the player's actual four equipped skills, unlocked skills, costs, cooldowns, combo roles, buffs, debuffs, statuses and current stats. Prefer varied chains such as starter/setup/linker/finisher when supported. Never assume that a fantasy name implies an effect; verify the live skill fields.")
+    lines.append("RPG HELP STYLE: If the player is confused, explain the mechanic step-by-step with an example using their actual character. If information is not present in the live RPG knowledge or player context, say that it is not confirmed instead of inventing a rule.")
+    lines.append("SKILL SYSTEM RULES:")
+    lines.append("Each character has 4 combat skill slots. Skill loadouts are slot-based; changing one slot replaces only that slot.")
+    lines.append("Skill mastery ranks are 1-5 and improve the skill's scaling according to the live mastery constants.")
+    lines.append("Combo behavior is data-driven by each skill's combo_role and the live class combo traits. Do not invent an effect just because a skill name sounds like it should do it.")
+    lines.append("When building a combo, first check the player's actual equipped/unlocked skills, then order starter/setup/linker/finisher roles, resource costs, cooldowns, buffs, debuffs and enemy state. Clearly label any proposed optimization that is not an explicit game rule.")
+
+    lines.append("RACES:")
+    for key,data in RACES.items():
+        prof=RACE_PROFILES.get(key,{})
+        ability=RACE_ABILITIES.get(key,("", "")) if isinstance(RACE_ABILITIES.get(key,("", "")),tuple) else ("","")
+        lines.append(f"- {key}: {data.get('desc','')}; HP+{data.get('hp',0)} ATK+{data.get('atk',0)} DEF+{data.get('def',0)} SPD+{data.get('spd',0)} CRIT+{data.get('crit',0)}; strength={prof.get('strength','')}; ability={ability[0]}: {ability[1]}")
+
+    lines.append("SUBRACES:")
+    for key,value in SUBRACES.items():
+        parent,bonus=value
+        trait=SUBRACE_TRAITS.get(key,{})
+        lines.append(f"- {key} ({parent}): bonuses={bonus}; trait={trait.get('name','')}: {trait.get('desc','')}")
+
+    lines.append("PETS:")
+    for name,data in PET_SPECIES.items():
+        desc=PET_ABILITY_DESCRIPTIONS.get(data.get("ability",""),"")
+        lines.append(f"- {name}: {data.get('rarity','')} role={data.get('role','')}; HP+{data.get('hp',0)} ATK+{data.get('atk',0)} DEF+{data.get('def',0)} SPD+{data.get('spd',0)} CRIT+{data.get('crit',0)}; {data.get('ability','')}: {desc}")
+
+    def catalog_names(value, limit=500):
+        if isinstance(value, dict):
+            out=[]
+            for key,data in value.items():
+                if isinstance(data, dict):
+                    label=data.get("name") or data.get("title") or key
+                elif isinstance(data, (tuple,list)) and data:
+                    label=data[0]
+                else:
+                    label=key
+                out.append(str(label))
+            return out[:limit]
+        if isinstance(value, (list,tuple)):
+            out=[]
+            for row in value:
+                if isinstance(row, dict):
+                    out.append(str(row.get("name") or row.get("title") or row.get("key") or "Unknown"))
+                elif isinstance(row,(tuple,list)) and row:
+                    out.append(str(row[0]))
+                else:
+                    out.append(str(row))
+            return out[:limit]
+        return []
+
+    lines.append("ITEM CATALOG (names are authoritative; ask the player to use the item codex/shop for full live details):")
+    item_names=catalog_names(ITEMS)
+    for i in range(0,len(item_names),40):
+        lines.append("- "+", ".join(item_names[i:i+40]))
+    lines.append("RECIPES: "+", ".join(catalog_names(RECIPES)))
+    lines.append("ENCHANTMENTS: "+", ".join(catalog_names(ENCHANTMENTS)))
+    lines.append("ACHIEVEMENTS: "+", ".join(catalog_names(ACHIEVEMENTS)))
+    lines.append("WORLD AREAS: "+", ".join(catalog_names(AREAS)))
+    lines.append("GACHA: single pull cost="+str(GACHA_COST_SINGLE)+", ten-pull cost="+str(GACHA_COST_TEN)+", rates="+str(GACHA_RATES)+", Epic pity="+str(GACHA_EPIC_PITY)+", Mythic pity="+str(GACHA_MYTHIC_PITY)+".")
+    lines.append("ENCHANTMENT COMPATIBILITY: Use the live ENCHANTMENT_COMPATIBILITY/compatible_enchantments data; do not guess which item slot accepts an enchantment.")
+    lines.append("PVP MATCHUPS: race/class matchup multipliers are bounded around 0.82–1.18. Explain matchup mechanics from the live data rather than inventing counters.")
+    lines.append("ENEMY ABILITIES / AI COMBAT:")
+    for key,data in ENEMY_ABILITIES.items():
+        lines.append(f"- {key}: {data.get('name',key)}; type={data.get('type','?')}; multiplier={data.get('mult','?')}; cooldown={data.get('cooldown','?')}; {data.get('desc','')}")
+    lines.append("PET EGGS AND HATCHING:")
+    for egg_key,egg in PET_EGGS.items():
+        pool=PET_EGG_POOLS.get(egg_key,[])
+        if isinstance(egg,(tuple,list)) and len(egg)>=3:
+            egg_name,egg_rarity,egg_price=egg[0],egg[1],egg[2]
+        else:
+            egg_name,egg_rarity,egg_price=egg_key,egg.get('rarity','?'),egg.get('price','?')
+        lines.append(f"- {egg_key}: {egg_name}; rarity={egg_rarity}; price={egg_price}; exclusive hatch pool={', '.join(pool) or 'none'}")
+    lines.append("ITEM MECHANICS: Item records are authoritative. When a player asks about an item, use its actual fields such as slot, rarity, price, atk, defense, hp, mp, speed, crit, heal, mana, stamina, upgrade/enchant compatibility and special effects. Never infer an item's effect from its name alone.")
+    lines.append("EQUIPMENT: Equipment is persistent and slot-based. Upgrade levels, upgrade materials and gold costs come from the live RPG constants/methods. Enchantments are restricted by compatibility data. Explain the exact equipped slot and upgrade/enchant requirements when available.")
+    lines.append("PLAYER PROGRESSION: Level, XP, gold, HP/MP, ATK, DEF, SPD and CRIT are persistent. Race/class/subclass/subrace choices affect stats/traits. Skill unlocks and mastery are separate from the four-slot combat loadout.")
+    lines.append("QUEST PROGRESSION: Quest 2.0 is a unified board. Daily/weekly/monthly objectives have live progress, targets, period keys, stored rewards and claim state. Story/class/race/faction/secret/legendary categories may be informational or dynamically populated; do not claim a category has an active quest unless live data shows one.")
+    lines.append("SOCIAL/WORLD SYSTEMS: Parties, guilds, kingdoms, factions/reputation, exploration/discovered areas, dungeons/floors/bosses, arena/PvP, raids, bounties, achievements and titles are distinct systems. Explain their actual live data rather than merging them into generic quests.")
+    lines.append("DUNGEONS:")
+    for row in DUNGEONS:
+        lines.append(f"- {row[0]}: level {row[1]}+, {row[2]} floors; {row[5] if len(row)>5 else row[-1]}")
+
+    lines.append("FULL RPG ADVISOR SCOPE: Horizon RPG is not limited to combat. The AI is the in-server RPG guide and should help players understand character creation, stats, races, subraces, classes, subclasses, class evolutions, skills, skill mastery, four-slot loadouts, combo roles, combo traits, equipment, weapons, armor, offhands, rings, amulets, consumables, materials, item rarity, upgrades, enchantments, crafting, gathering, professions, inventory, shop rotations, item codex, pets, pet abilities, eggs and egg-exclusive hatch pools, gacha and pity, quests, quest rotations and claiming, factions and reputation, kingdoms, guilds, parties, exploration, areas, dungeons, dungeon floors, bosses, world bosses, PvP, duels, arena, raids, bounties, achievements, titles, secret classes, legendary challenges and endgame systems.")
+    lines.append("RPG ANSWER STANDARD: For a rules/mechanics question, answer from the live RPG data in this prompt first. Give exact numbers whenever the data exposes them: stat changes, percentages, multipliers, duration in turns, resource cost, cooldown, hit count, unlock level, mastery rank/scaling, status chance, status duration, reward amount, item quantity, rarity, reset time and other relevant values. If a value is not exposed, say it is not confirmed rather than guessing.")
+    lines.append("COMBO COACH: When a player asks for help making a combo, inspect their actual four equipped slots and unlocked skills from PLAYER RPG PROFILE. Explain the sequence step-by-step, including what each skill contributes, which buff/debuff/status it creates, why the next skill follows it, resource/cooldown concerns, and where the finisher should be used. Prefer starter -> setup -> linker -> finisher when the available skills support it, but do not force that pattern when the live data says otherwise.")
+    lines.append("BUILD COACH: When recommending a build, distinguish between IMPLEMENTED MECHANIC and STRATEGY SUGGESTION. Never turn a suggested combo, hypothetical synergy, or future idea into a claimed game rule. If a player asks 'what should I equip?', use their class, subclass, race, stats, available skills, mastery, equipment and stated goal.")
+    lines.append("CONFUSION MODE: If a player does not understand a command, skill, quest, stat or RPG system, explain it like an in-game guide: what it is -> what it does -> exact numbers -> how to use it -> a concrete example. If the player gives a skill number/slot, map it to the actual current loadout instead of assuming.")
+    lines.append("CURRENT GAME STATE: The RPG knowledge is generated from the imported live constants when Horizon starts. Player-specific information is appended separately at request time. Do not rely on memory for a player's current loadout, level, resources or faction; use PLAYER RPG PROFILE.")
+    lines.append("IMPORTANT COMMAND/SYSTEM GUIDANCE: The AI should explain mechanics in plain language, calculate combo sequences from the actual skills available to the player, compare builds without inventing hidden rules, and tell the player which exact skill/effect/cost/cooldown/unlock is relevant. If asked for a combo, prefer a practical sequence and explain why each step leads into the next.")
+    return "\n".join(lines)
+
+RPG_AI_KNOWLEDGE = build_rpg_ai_knowledge()
+
+
+async def build_rpg_ai_player_context(guild_id, user_id):
+    p = await bot.rpg.player(guild_id, user_id)
+    if not p:
+        return "PLAYER RPG PROFILE: No RPG character found. Give general RPG guidance and tell the player to create a hero for personalized advice."
+    lines = [
+        f"PLAYER RPG PROFILE: name={p.get('name','?')}; level={p.get('level',1)}; race={p.get('race','?')}; subclass={p.get('subclass') or 'none'}; class={p.get('class_name','?')}; XP={p.get('xp',0)}; gold={p.get('gold',0)}.",
+        f"CURRENT RESOURCES: HP={p.get('hp','?')}/{p.get('max_hp','?')}; MP={p.get('mp','?')}/{p.get('max_mp','?')}; ATK={p.get('atk','?')}; DEF={p.get('defense','?')}; SPD={p.get('speed','?')}; CRIT={p.get('crit','?')}.",
+    ]
+    try:
+        loadout = await bot.rpg.skill_loadout(guild_id, user_id)
+        masteries = await bot.rpg.skill_masteries(guild_id, user_id)
+        if loadout:
+            lines.append("EQUIPPED SKILL LOADOUT:")
+            for slot,skill in loadout:
+                if skill:
+                    lines.append(f"- Slot {slot}: {skill.get('name')} key={skill.get('key')}; unlock={skill.get('unlock')}; mastery={masteries.get(skill.get('key'),1)}/5; cost={skill.get('cost')}; cooldown={skill.get('cooldown')}; multiplier={skill.get('mult')}; effect={skill.get('effect')}; combo_role={skill.get('combo_role')}; desc={skill.get('desc')}; buff={skill.get('buff_text')}; debuff={skill.get('debuff_text')}; heal_pct={skill.get('heal_pct')}")
+        unlocked = await bot.rpg.unlocked_skills(guild_id, user_id)
+        lines.append("UNLOCKED SKILLS: "+", ".join(f"{s.get('name')}({s.get('combo_role')})" for s in unlocked))
+    except Exception:
+        log.exception("Could not build player RPG skill context")
+    try:
+        gear = await bot.rpg.equipment_details(guild_id, user_id)
+        if gear:
+            lines.append("EQUIPPED GEAR:")
+            for item in gear:
+                lines.append(f"- slot={item.get('slot','?')}; item={item.get('item_key','?')}; upgrade=+{item.get('upgrade_level',0)}")
+    except Exception:
+        pass
+    try:
+        inv = await bot.rpg.inventory(guild_id, user_id)
+        if inv:
+            lines.append("INVENTORY (current quantities): "+", ".join(f"{key} x{qty}" for key,qty in inv[:80]))
+    except Exception:
+        pass
+    try:
+        pet = await bot.rpg.pet_record(guild_id, user_id)
+        if pet:
+            lines.append(f"EQUIPPED PET: {pet.get('name','Pet')} / {pet.get('species','?')} / ability={pet.get('ability','?')}; level={pet.get('level',1)}; XP={pet.get('xp',0)}.")
+    except Exception:
+        pass
+    try:
+        faction = await bot.rpg.faction_status(guild_id, user_id)
+        if faction:
+            lines.append(f"FACTION: key={faction[0]}; reputation={faction[1]}; rank={faction[2]}.")
+    except Exception:
+        pass
+    return "\n".join(lines)
+
+
+def build_system(guild_name, user_name, memories, personality, profile, context, server_history="", prompt="", rpg_knowledge="", rpg_player=""):
+    tone_cue = _ai_tone_cue(prompt, context)
+    return f"""
+You are Horizon, the AI companion of the Discord server "{guild_name}".
+Your personality is calm, observant, friendly, practical, and naturally conversational.
+You can be playful when the conversation is playful, but you do not perform a
+constant character or force jokes into ordinary replies. Your goal is to understand
+what the person actually means and respond appropriately.
+
+RPG ADVISOR MODE:
+When a message is about Horizon RPG, treat the RPG knowledge below as authoritative.
+Use the player's live RPG profile/loadout when giving personalized advice. You can:
+- explain any RPG mechanic in simple terms;
+- explain exactly what a skill does, including cost, cooldown, multiplier, status,
+  buff/debuff, mastery and combo role;
+- build combo sequences from the player's actual equipped/unlocked skills;
+- suggest alternate loadouts and explain trade-offs without inventing mechanics;
+- explain races, subraces, classes, subclasses, pets, items, dungeons, quests,
+  factions, professions, crafting, gacha, enchantments, PvP, raids, bounties,
+  secret classes, legendary challenges and endgame systems;
+- distinguish confirmed mechanics from suggestions for future builds.
+Never claim a hypothetical combo or effect is an implemented game rule.
+
+{rpg_knowledge}
+
+{rpg_player}
+
+CORE CONVERSATIONAL BEHAVIOR:
+- Understand the user's intent before choosing a tone or response length.
+- Answer the actual message first. Do not wander into unrelated commentary.
+- Match the user's tone rather than imposing your own.
+- Keep normal casual replies to roughly 1-4 short paragraphs unless more detail is useful.
+
+MEMORY/CONTEXT:
+{context or "(none)"}
+
+SERVER MEMORY:
+{server_history or "(none relevant)"}
+
+CURRENT SPEAKER: {user_name}
+
+TONE CUE FOR THIS RESPONSE ONLY:
+{tone_cue}
+
+Respond as a sensible conversational companion. Be natural first, useful second,
+and entertaining only when the conversation calls for it.
+""".strip()
+
+def _relevant_ai_context(rows, prompt, recent_limit=30):
+    if not rows:
+        return ""
+    # Keep a useful rolling dialogue window so Horizon can follow multi-message
+    # conversations while keeping the prompt bounded.
+    rows = rows[-recent_limit:]
+    lines=[]
+    for _id,role,content,_created in rows:
+        lines.append(f"{'User' if role=='user' else 'Horizon'}: {content[:2000]}")
+    return "\n".join(lines)
+
+
+async def rpg_ai_fallback(guild_id, user_id, prompt):
+    """Deterministic RPG advisor used when Gemini is temporarily unavailable.
+    It reads the live RPG data, so basic RPG explanations and combo advice still work
+    during a Gemini quota window.
+    """
+    p = await bot.rpg.player(guild_id, user_id)
+    if not p:
+        return "I can help with Horizon RPG, but you do not have an RPG character yet. Create a character first, then I can build advice around your class and skills."
+
+    text = (prompt or "").strip().lower()
+    loadout = await bot.rpg.skill_loadout(guild_id, user_id)
+    masteries = await bot.rpg.skill_masteries(guild_id, user_id)
+    skills = [skill for _, skill in loadout if skill]
+    if not skills:
+        unlocked = await bot.rpg.unlocked_skills(guild_id, user_id)
+        skills = unlocked[:4]
+
+    def skill_line(skill, slot=None):
+        bits = []
+        if slot is not None:
+            bits.append(f"Slot {slot}")
+        bits.append(f"**{skill.get('name', skill.get('key','Unknown'))}**")
+        bits.append(f"cost {skill.get('cost','?')}")
+        bits.append(f"CD {skill.get('cooldown','?')}")
+        bits.append(f"multiplier {skill.get('mult','?')}")
+        if skill.get('combo_role'):
+            bits.append(f"role {skill['combo_role']}")
+        if skill.get('buff_text'):
+            bits.append(skill['buff_text'])
+        if skill.get('debuff_text'):
+            bits.append(skill['debuff_text'])
+        if skill.get('heal_pct') not in (None, "", "?"):
+            bits.append(f"heal {skill['heal_pct']}%")
+        if skill.get('lifesteal_pct') not in (None, "", "?"):
+            bits.append(f"lifesteal {skill['lifesteal_pct']}%")
+        if skill.get('duration') not in (None, "", "?"):
+            bits.append(f"duration {skill['duration']} turns")
+        return " • ".join(str(x) for x in bits)
+
+    asks_combo = any(word in text for word in ("combo", "combos", "rotation", "skill order", "skill sequence", "loadout"))
+    asks_skill = any(word in text for word in ("skill", "ability", "what does", "how does"))
+
+    if asks_combo and skills:
+        role_order = {"starter":0, "setup":1, "linker":2, "finisher":3}
+        ordered = sorted(
+            enumerate(skills, 1),
+            key=lambda pair: (role_order.get(str(pair[1].get("combo_role","")).lower(), 1), pair[0])
+        )
+        chain = [skill for _, skill in ordered]
+        lines = [
+            f"**⚔️ RPG Combo Advisor — {p.get('class_name','your class')}**",
+            f"Your current loadout has **{len(skills)}** usable skills. I’m using the live skill data rather than guessing from the names.",
+            "",
+        ]
+        for n, skill in enumerate(chain, 1):
+            role = str(skill.get("combo_role") or "linker").title()
+            lines.append(f"**{n}. {skill.get('name',skill.get('key','Skill'))}** — {role}")
+            lines.append(f"   {skill.get('desc') or skill.get('effect') or 'Use this as the next part of the chain.'}")
+        lines += [
+            "",
+            "**Why this order:** open with the starter/setup effect, use linkers to maintain pressure, then spend the accumulated combo on the finisher when available.",
+            "Use the exact costs and cooldowns shown on your skill panel; if a skill is on cooldown or you lack the resource, move to the next available linker instead of repeating one skill.",
+        ]
+        return "\n".join(lines)
+
+    if asks_skill and skills:
+        matches = [s for s in skills if str(s.get("name","")).lower() in text or str(s.get("key","")).lower() in text]
+        if not matches:
+            matches = skills[:4]
+        lines = ["**📖 Your Current Skills**"]
+        for slot, skill in loadout:
+            if skill and (not matches or skill in matches):
+                rank = masteries.get(skill.get("key"), 1)
+                lines.append(
+                    f"**Slot {slot} — {skill.get('name',skill.get('key','Skill'))}** "
+                    f"(Mastery {rank}/5)\n"
+                    f"{skill.get('desc') or skill.get('effect') or 'No description available.'}\n"
+                    f"Cost: **{skill.get('cost','?')}** • Cooldown: **{skill.get('cooldown','?')}** • "
+                    f"Multiplier: **{skill.get('mult','?')}** • Role: **{skill.get('combo_role','?')}**"
+                )
+                if skill.get("buff_text"):
+                    lines.append(f"Buff: **{skill['buff_text']}**")
+                if skill.get("debuff_text"):
+                    lines.append(f"Debuff: **{skill['debuff_text']}**")
+        return "\n".join(lines)
+
+    # Keep the offline advisor useful during Gemini quota windows too.
+    stats = (
+        f"HP {p.get('hp','?')}/{p.get('max_hp','?')} • MP {p.get('mp','?')}/{p.get('max_mp','?')} • "
+        f"ATK {p.get('atk','?')} • DEF {p.get('defense','?')} • SPD {p.get('speed','?')} • CRIT {p.get('crit','?')}"
+    )
+    if any(word in text for word in ("stat", "stats", "build", "character", "profile")):
+        return (
+            f"**📊 Your Horizon RPG Character**\n"
+            f"**{p.get('name','Hero')}** — Level {p.get('level',1)} {str(p.get('race','?')).title()} {str(p.get('class_name','?')).title()}\n"
+            f"Subclass: **{p.get('subclass') or 'None'}**\n{stats}\n"
+            f"Gold: **{p.get('gold',0)}** • XP: **{p.get('xp',0)}**\n\n"
+            "These are your current saved stats. Skills, equipment, race/subrace traits, "
+            "pets and mastery can modify how those stats perform in combat."
+        )
+    if any(word in text for word in ("item", "equipment", "gear", "weapon", "armor", "ring", "amulet", "codex", "shop")):
+        gear = await bot.rpg.equipment_details(guild_id, user_id)
+        inv = await bot.rpg.inventory(guild_id, user_id)
+        lines=["**🎒 Horizon RPG Equipment & Inventory**"]
+        if gear:
+            lines.append("**Equipped:**")
+            for item in gear:
+                lines.append(f"• {item.get('slot','?')}: `{item.get('item_key','?')}` +{item.get('upgrade_level',0)}")
+        else:
+            lines.append("**Equipped:** Nothing recorded.")
+        if inv:
+            lines.append("**Inventory:** "+", ".join(f"{k} ×{q}" for k,q in inv[:30]))
+        lines.append("For exact item stats/effects, use the live item codex/shop data; item names alone are not enough to infer mechanics.")
+        return "\n".join(lines)
+    if any(word in text for word in ("pet", "egg", "companion")):
+        pet=await bot.rpg.pet_record(guild_id,user_id)
+        pets=await bot.rpg.pet_inventory(guild_id,user_id)
+        if pet:
+            return (
+                f"**🐾 Companion Guide**\nEquipped: **{pet.get('name','Pet')}** "
+                f"({pet.get('species','?')}) • Level {pet.get('level',1)} • "
+                f"Ability: **{pet.get('ability','?')}**\n"
+                f"You own **{len(pets)}** pet(s). Egg pools are fixed by the live RPG data."
+            )
+        return "**🐾 Companion Guide**\nYou do not currently have an equipped pet. Eggs use their defined exclusive hatch pools."
+    if any(word in text for word in ("quest", "daily", "weekly", "monthly", "bounty")):
+        try:
+            q=await bot.rpg.quest2_categories(guild_id,user_id)
+            counts=", ".join(f"{k.title()}: {len(v)}" for k,v in q.items())
+            return (
+                f"**📜 Quest 2.0 Guide**\n{counts}\n\n"
+                "Daily quests reset at 17:30 IST, weekly quests reset Monday at 17:30 IST, "
+                "monthly quests reset on the 1st at 17:30 IST. Completed rotating objectives "
+                "can be claimed once for their stored rewards."
+            )
+        except Exception:
+            pass
+    return (
+        f"**Horizon RPG Advisor**\n"
+        f"You're playing **{p.get('class_name','?')}**, level **{p.get('level',1)}**, "
+        f"race **{p.get('race','?')}**, subclass **{p.get('subclass') or 'none'}**.\n"
+        f"I currently have your live RPG data available, including skills, loadout, mastery, "
+        f"stats, pets and faction information. Gemini is temporarily unavailable, so ask me "
+        f"for a skill explanation or a combo and I'll use the local RPG data."
+    )
+
+def _is_rpg_ai_request(text: str) -> bool:
+    lowered = (text or "").lower()
+    terms = (
+        "rpg", "skill", "combo", "loadout", "class", "subclass", "race", "subrace",
+        "quest", "pet", "egg", "dungeon", "boss", "arena", "pvp", "raid", "gacha",
+        "enchant", "craft", "item codex", "shop", "faction", "reputation", "stat",
+        "mastery", "equipment", "weapon", "armor", "amulet", "ring", "ability",
+        "battle", "damage", "heal", "lifesteal", "buff", "debuff"
+    )
+    return any(term in lowered for term in terms)
+
+
+async def ai_reply(guild_id, user_id, name, text, channel_id=None):
+    settings=await bot.db.settings(guild_id)
+    memories=await bot.db.memories(guild_id,30)
+    profile=await bot.db.profile(guild_id,user_id)
+    memory_text="\n".join(f"- {row[1]}" for row in memories)
+    profile_text=f"nickname={profile['nickname'] or 'none'}; preferences={profile['preferences'] or 'none'}"
+    scope_id = f"channel:{channel_id}" if channel_id else f"user:{user_id}"
+    # Keep enough recent dialogue for follow-ups such as "that one", "change skill 3",
+    # or "do the same thing" without requiring the player to repeat the whole context.
+    rows=await bot.db.ai_conversation(guild_id,scope_id,40)
+    context=_relevant_ai_context(rows,text,30)
+    server_history=await bot.ai_server_context(guild_id,channel_id,text) if channel_id else ""
+    guild=bot.get_guild(guild_id)
+    guild_name=guild.name if guild else 'Log Horizon'
+    rpg_player_context = await build_rpg_ai_player_context(guild_id, user_id)
+    system=build_system(
+        guild_name,name,memory_text,settings['personality'],profile_text,
+        context,server_history,text,RPG_AI_KNOWLEDGE,rpg_player_context
+    )
+    await bot.db.add_ai_message(guild_id,scope_id,'user',f"{name} (user_id={user_id}): {text}")
+    try:
+        answer=await bot.ai.generate(system,text)
+    except Exception as exc:
+        await bot.db.remove_last_ai_message(guild_id,scope_id,'user')
+        error_text=str(exc)
+        # Gemini being unavailable must never turn normal Horizon AI into an
+        # RPG-only bot. RPG requests get the deterministic live-data advisor;
+        # ordinary conversation gets a clear normal-AI offline response.
+        if _is_rpg_ai_request(text) and (
+            "429" in error_text or "quota" in error_text.lower()
+            or "rate limit" in error_text.lower()
+        ):
+            return await rpg_ai_fallback(guild_id, user_id, text)
+        if _is_rpg_ai_request(text) and not error_text:
+            return await rpg_ai_fallback(guild_id, user_id, text)
+        raise
+    await bot.db.add_ai_message(guild_id,scope_id,'model',answer)
+    return answer
+
+
+# -------------------- AI --------------------
+
+@bot.tree.command(name="ping", description="Check whether Horizon is online.")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(
+        f"Pong! `{round(bot.latency * 1000)} ms`"
+    )
+
+
+@bot.tree.command(name="ai_status", description="Check Horizon AI and Gemini model health.")
+async def ai_status(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    try:
+        data=await bot.ai.gemini.status_data()
+        statuses=data.get("model_statuses",[])
+        icons={"available":"🟢","rate_limited":"🟠","unavailable":"🔴","temporarily_unavailable":"🟠","auth_error":"🔐"}
+        lines=[]
+        for item in statuses[:40]:
+            status=item.get("status","unknown")
+            lines.append(f"{icons.get(status,'⚪')} `{item['model']}` — **{status.replace('_',' ').title()}**")
+        embed=discord.Embed(
+            title="🤖 Horizon AI — Gemini Health",
+            description=(
+                f"**Active:** `{data.get('active_model','unknown')}`\n"
+                f"**Configured:** `{data.get('configured_model','unknown')}`\n\n"
+                + ("\n".join(lines) if lines else "No Gemini models are currently available to this API key.")
+            )
+        )
+        if data.get("last_error"):
+            embed.set_footer(text=f"Last provider error: {data['last_error'][:180]}")
+        await interaction.followup.send(embed=embed)
+    except Exception as exc:
+        await interaction.followup.send(f"⚠️ Could not read Gemini health: `{str(exc)[:500]}`")
+
+
+@bot.tree.command(name="ai_models", description="Show Gemini models and their current health.")
+async def ai_models(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True)
+    try:
+        data=await bot.ai.gemini.status_data()
+        statuses=data.get("model_statuses",[])
+        icons={"available":"🟢","rate_limited":"🟠","unavailable":"🔴","temporarily_unavailable":"🟠","auth_error":"🔐"}
+        text="\n".join(
+            f"{icons.get(x['status'],'⚪')} `{x['model']}` — **{x['status'].replace('_',' ').title()}**"
+            for x in statuses[:50]
+        )
+        await interaction.followup.send(
+            "**Gemini model health:**\n"
+            + (text or "No Gemini models were returned.")
+            + "\n\n🟢 Available • 🟠 Rate limited/temporary issue • 🔴 Unavailable • 🔐 Access issue"
+        )
+    except Exception as exc:
+        await interaction.followup.send(f"Model check failed: `{str(exc)[:300]}`")
+
+@bot.tree.command(name="ask", description="Ask Horizon using Gemini.")
+@app_commands.describe(question="Your question")
+async def ask(interaction: discord.Interaction, question: str):
+    await interaction.response.defer(thinking=True)
+    try:
+        answer = await ai_reply(
+            interaction.guild_id,
+            interaction.user.id,
+            interaction.user.display_name,
+            question,
+            interaction.channel_id,
+        )
+        for chunk in split_text(answer, 3900):
+            await interaction.followup.send(chunk)
+    except Exception as exc:
+        log.exception("ask failed")
+        await interaction.followup.send(
+            f"I couldn't reach the AI right now. `{str(exc)[:300]}`"
+        )
+
+
+@bot.tree.command(name="set_personality", description="Set Horizon's server personality.")
+@app_commands.describe(personality="Describe how Horizon should behave in this server.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def set_personality(interaction: discord.Interaction, personality: str):
+    await bot.db.set_setting(interaction.guild_id, "personality", personality)
+    await interaction.response.send_message(
+        f"Horizon personality updated:\n> {personality}"
+    )
+
+
+@bot.tree.command(name="remember", description="Save a non-sensitive server fact.")
+@app_commands.describe(fact="A server fact, lore, rule or preference.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def remember(interaction: discord.Interaction, fact: str):
+    await bot.db.add_memory(interaction.guild_id, fact, interaction.user.id)
+    await interaction.response.send_message(f"Saved server knowledge: **{fact}**")
+
+
+@bot.tree.command(name="forget", description="Delete a saved server memory.")
+@app_commands.describe(memory_id="The memory ID shown by /memories.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def forget(interaction: discord.Interaction, memory_id: int):
+    removed = await bot.db.delete_memory(interaction.guild_id, memory_id)
+    await interaction.response.send_message(
+        "Memory removed." if removed else "Memory not found."
+    )
+
+
+@bot.tree.command(name="memories", description="Show saved server memories.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def memories(interaction: discord.Interaction):
+    rows = await bot.db.memories(interaction.guild_id, 50)
+    text = "\n".join(f"`{row[0]}` — {row[1]}" for row in rows) or "No memories saved."
+    await interaction.response.send_message(text[:4000])
+
+
+@bot.tree.command(name="ai_forget", description="Clear your private Horizon conversation memory.")
+async def ai_forget(interaction: discord.Interaction):
+    removed=await bot.db.clear_ai_conversation(interaction.guild_id,str(interaction.user.id))
+    await interaction.response.send_message(f"Cleared your private Horizon conversation memory ({removed} messages).",ephemeral=True)
+
+
+# -------------------- Profiles / economy --------------------
+
+@bot.tree.command(name="profile", description="Show or edit your Horizon profile.")
+@app_commands.describe(
+    nickname="Optional nickname or RPG character name.",
+    preferences="Optional non-sensitive preferences.",
+)
+async def profile(
+    interaction: discord.Interaction,
+    nickname: str | None = None,
+    preferences: str | None = None,
+):
+    if nickname is not None or preferences is not None:
+        await bot.db.set_profile(
+            interaction.guild_id,
+            interaction.user.id,
+            nickname,
+            preferences,
+        )
+
+    profile_data = await bot.db.profile(interaction.guild_id, interaction.user.id)
+    await interaction.response.send_message(
+        f"**{interaction.user.display_name}**\n"
+        f"Nickname: {profile_data['nickname'] or '—'}\n"
+        f"Preferences: {profile_data['preferences'] or '—'}\n"
+        f"Level: {level_for(profile_data['xp'])} | "
+        f"XP: {profile_data['xp']} | Coins: {profile_data['coins']}"
+    )
+
+
+@bot.tree.command(name="leaderboard", description="Show the server XP leaderboard.")
+async def leaderboard(interaction: discord.Interaction):
+    rows = await bot.db.leaderboard(interaction.guild_id)
+    lines = [
+        f"**{n}.** <@{uid}> — Lv {level_for(xp)} | {xp} XP | {coins} coins"
+        for n, (uid, xp, coins) in enumerate(rows, 1)
+    ]
+    await interaction.response.send_message(
+        "\n".join(lines) or "No XP has been earned yet."
+    )
+
+
+@bot.tree.command(name="inventory", description="Show your inventory.")
+async def inventory(interaction: discord.Interaction):
+    rows = await bot.db.inventory(interaction.guild_id, interaction.user.id)
+    await interaction.response.send_message(
+        "\n".join(f"• {item} × {qty}" for item, qty in rows)
+        or "Inventory is empty."
+    )
+
+
+@bot.tree.command(name="daily", description="Claim daily Horizon Coins and XP.")
+async def daily(interaction: discord.Interaction):
+    if await bot.db.is_cooldown(
+        interaction.guild_id,
+        interaction.user.id,
+        "daily",
+    ):
+        await interaction.response.send_message(
+            "You already claimed your daily reward."
+        )
+        return
+
+    await bot.db.cooldown(
+        interaction.guild_id,
+        interaction.user.id,
+        "daily",
+        86400,
+    )
+    profile_data = await bot.db.add_xp(
+        interaction.guild_id,
+        interaction.user.id,
+        50,
+        100,
+    )
+    await interaction.response.send_message(
+        f"You got **100 coins** and **50 XP**. "
+        f"You are now Level **{level_for(profile_data['xp'])}**!"
+    )
+
+
+# -------------------- Games / RPG --------------------
+
+@bot.tree.command(name="game", description="Show a random Horizon game and how to play it.")
+async def game(interaction: discord.Interaction):
+    key, name, description = bot.games.recommend()
+    await interaction.response.send_message(
+        f"🎮 **{name}**\n{description}\n\n"
+        f"Start it with `/game_start game:{key}`."
+    )
+
+
+@bot.tree.command(name="games", description="Show every Horizon game and what each one does.")
+async def games(interaction: discord.Interaction):
+    embed = discord.Embed(title="🎮 Horizon Game Hub", description="Pick a game, start it, and Horizon will tell you exactly what to do.")
+    for key, (name, description) in bot.games.games.items():
+        embed.add_field(name=f"{name} • `{key}`", value=description, inline=False)
+    embed.set_footer(text="Use /game_start game:<name> to launch a game.")
+    await interaction.response.send_message(embed=embed)
+
+
+def hangman_text(session):
+    word = session["word"]
+    guessed = session["guessed"]
+    display = " ".join(ch if ch in guessed else "_" for ch in word)
+    wrong = " ".join(sorted(session["wrong"])) or "—"
+    return f"**Hangman**\n`{display}`\n\nWrong: `{wrong}` ({len(session['wrong'])}/{session['max_wrong']})\n\nUse `!guess <letter>` to guess. Use `!stop` to end the game."
+
+
+@bot.tree.command(name="game_start", description="Start a Horizon game in this channel.")
+@app_commands.describe(game="werewolf, mafia, trivia, hangman, wyr, truth, rpg or rps")
+async def game_start(interaction: discord.Interaction, game: str):
+    key = game.lower().strip()
+    if key not in bot.games.games:
+        await interaction.response.send_message("Unknown game. Use `/games` to see the available games.")
+        return
+
+    existing = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if existing:
+        await interaction.response.send_message("A Horizon game is already active in this channel. Use `/game_stop` first.", ephemeral=True)
+        return
+
+    bot.games.start(interaction.guild_id, interaction.channel_id, key, interaction.user.id)
+
+    if key == "rps":
+        bot.games.stop(interaction.guild_id, interaction.channel_id)
+        await interaction.response.send_message("**Rock Paper Scissors started!**\nChoose with `/rps choice:<rock|paper|scissors>`. Your match is immediate.")
+        return
+
+    if key == "trivia":
+        question, options, view = make_trivia(bot.games, interaction.guild_id, interaction.channel_id)
+        await interaction.response.send_message(
+            "**Horizon Trivia started!**\n"
+            "Choose the correct answer with the buttons below. The first correct answer ends the round.\n\n"
+            f"{question}\n" + "\n".join(f"`{i + 1}` {option}" for i, option in enumerate(options)),
+            view=view,
+        )
+        return
+
+    if key == "hangman":
+        session = bot.games.get(interaction.guild_id, interaction.channel_id)
+        session.update(make_hangman())
+        await interaction.response.send_message("**Hangman started!**\nGuess letters with `/game_guess letter:<letter>`. Solve the word before 6 wrong guesses.\n\n" + hangman_text(session))
+        return
+
+    if key == "wyr":
+        left, right = random.choice(WYR_ROUNDS)
+        view = WyrView(bot.games, interaction.guild_id, interaction.channel_id, left, right)
+        await interaction.response.send_message(view.render(), view=view)
+        return
+
+    if key == "truth":
+        truth = random.choice(TRUTHS)
+        dare = random.choice(DARES)
+        await interaction.response.send_message("**Truth or Dare started!**\nChoose a button below. Horizon uses server-safe prompts.", view=TruthDareView(bot.games, interaction.guild_id, interaction.channel_id, truth, dare))
+        return
+
+    if key == "rpg":
+        await interaction.response.send_message(
+            "**Horizon RPG started!**\n"
+            "Your RPG systems are persistent. Use `/character`, `/rpg_roll`, `/quest_list` and `/inventory`.\n"
+            "Create your character first, then use quests and rolls as the adventure engine."
+        )
+        return
+
+    # Werewolf and Mafia get a real lobby immediately; their role/action engine is the next game-module expansion.
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    session["players"] = {interaction.user.id}
+    await interaction.response.send_message(
+        f"**{bot.games.games[key][0]} lobby opened!**\n"
+        f"{bot.games.games[key][1]}\n\n"
+        "Use `/game_join` to join. The host can use `/game_begin` once enough players have joined.\n"
+        "Use `/game_stop` to cancel the lobby."
+    )
+
+
+@bot.tree.command(name="game_join", description="Join the active Horizon game in this channel.")
+async def game_join(interaction: discord.Interaction):
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("There is no active game in this channel.", ephemeral=True)
+        return
+    players = session.setdefault("players", set())
+    players.add(interaction.user.id)
+    await interaction.response.send_message(f"{interaction.user.mention} joined **{bot.games.games[session['key']][0]}**. Players: **{len(players)}**")
+
+
+@bot.tree.command(name="game_begin", description="Begin a Werewolf or Mafia lobby after players join.")
+async def game_begin(interaction: discord.Interaction):
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if not session or session["key"] not in {"werewolf", "mafia"}:
+        await interaction.response.send_message("Use this only for an active Werewolf or Mafia lobby.", ephemeral=True)
+        return
+    if interaction.user.id != session["host_id"]:
+        await interaction.response.send_message("Only the game host can begin this lobby.", ephemeral=True)
+        return
+    players = session.get("players", set())
+    if len(players) < 4:
+        await interaction.response.send_message("You need at least **4 players** before starting the hidden-role game.", ephemeral=True)
+        return
+    session["started"] = True
+    await interaction.response.send_message(
+        f"**{bot.games.games[session['key']][0]} has begun!**\n\n"
+        f"Players: **{len(players)}**\n"
+        "This first playable lobby release establishes the player pool and host flow. Role assignment, night actions and voting will be expanded in the next game-engine pass."
+    )
+
+
+@bot.tree.command(name="game_guess", description="Guess a letter in the active Hangman game.")
+@app_commands.describe(letter="One letter")
+async def game_guess(interaction: discord.Interaction, letter: str):
+    session = bot.games.get(interaction.guild_id, interaction.channel_id)
+    if not session or session.get("key") != "hangman":
+        await interaction.response.send_message("There is no active Hangman game in this channel.", ephemeral=True)
+        return
+    letter = letter.lower().strip()
+    if len(letter) != 1 or not letter.isalpha():
+        await interaction.response.send_message("Enter exactly one letter.", ephemeral=True)
+        return
+    if letter in session["guessed"] or letter in session["wrong"]:
+        await interaction.response.send_message("That letter was already guessed.", ephemeral=True)
+        return
+    if letter in session["word"]:
+        session["guessed"].add(letter)
+        if all(ch in session["guessed"] for ch in session["word"]):
+            bot.games.stop(interaction.guild_id, interaction.channel_id)
+            await interaction.response.send_message(f"**Hangman solved!** {interaction.user.mention} found **{session['word']}**.\n\nRound complete.")
+            return
+    else:
+        session["wrong"].add(letter)
+        if len(session["wrong"]) >= session["max_wrong"]:
+            bot.games.stop(interaction.guild_id, interaction.channel_id)
+            await interaction.response.send_message(f"**Hangman over!** The word was **{session['word']}**.")
+            return
+    await interaction.response.send_message(hangman_text(session))
+
+
+@bot.tree.command(name="game_stop", description="Stop the active Horizon game in this channel.")
+async def game_stop(interaction: discord.Interaction):
+    session = bot.games.stop(interaction.guild_id, interaction.channel_id)
+    if not session:
+        await interaction.response.send_message("There is no active Horizon game in this channel.", ephemeral=True)
+        return
+    await interaction.response.send_message(f"**{bot.games.games[session['key']][0]} stopped.** The channel is ready for another game.")
+
+
+@bot.tree.command(name="rps", description="Play Rock Paper Scissors against Horizon.")
+@app_commands.describe(choice="rock, paper or scissors")
+async def rps(interaction: discord.Interaction, choice: str):
+    choice = choice.lower().strip()
+    if choice not in {"rock", "paper", "scissors"}:
+        await interaction.response.send_message("Choose `rock`, `paper`, or `scissors`.")
+        return
+    computer = random.choice(["rock", "paper", "scissors"])
+    if computer == choice:
+        outcome = "DRAW"
+    elif (choice, computer) in {("rock", "scissors"), ("paper", "rock"), ("scissors", "paper")}:
+        outcome = "WIN"
+    else:
+        outcome = "LOSE"
+    await interaction.response.send_message(f"**Rock Paper Scissors**\nYou chose **{choice}**. Horizon chose **{computer}**.\n\n**{outcome}!**")
+
+
+@bot.tree.command(name="rpg_roll", description="Roll a D20.")
+async def rpg_roll(interaction: discord.Interaction):
+    roll = random.randint(1, 20)
+    await interaction.response.send_message(
+        f"🎲 **{interaction.user.display_name}** rolled **{roll}/20**."
+    )
+
+
+@bot.tree.command(name="character", description="Create or show your RPG character.")
+@app_commands.describe(
+    name="Character name",
+    role="Class such as Warrior, Mage or Rogue",
+)
+async def character(
+    interaction: discord.Interaction,
+    name: str | None = None,
+    role: str | None = None,
+):
+    profile_data = await bot.db.profile(
+        interaction.guild_id,
+        interaction.user.id,
+    )
+
+    if name or role:
+        current_preferences = profile_data["preferences"] or ""
+        if role:
+            current_preferences = (
+                current_preferences.split(" | RPG class:")[0]
+                + f" | RPG class: {role}"
+            )
+        await bot.db.set_profile(
+            interaction.guild_id,
+            interaction.user.id,
+            name or profile_data["nickname"],
+            current_preferences,
+        )
+        profile_data = await bot.db.profile(
+            interaction.guild_id,
+            interaction.user.id,
+        )
+
+    await interaction.response.send_message(
+        f"**{profile_data['nickname'] or interaction.user.display_name}**\n"
+        f"Level {level_for(profile_data['xp'])} | XP {profile_data['xp']}\n"
+        f"{profile_data['preferences'] or 'No class chosen.'}"
+    )
+
+
+@bot.tree.command(name="quest_create", description="Create a server RPG quest.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def quest_create(
+    interaction: discord.Interaction,
+    title: str,
+    description: str,
+    reward_xp: int = 100,
+    reward_coins: int = 50,
+):
+    quest_id = await bot.db.create_quest(
+        interaction.guild_id,
+        title,
+        description,
+        max(0, reward_xp),
+        max(0, reward_coins),
+        interaction.user.id,
+    )
+    await interaction.response.send_message(
+        f"Quest **{title}** created as `#{quest_id}`."
+    )
+
+
+@bot.tree.command(name="quest_list", description="List server RPG quests.")
+async def quest_list(interaction: discord.Interaction):
+    rows = await bot.db.quests(interaction.guild_id)
+    text = "\n".join(
+        f"`#{qid}` **{title}** — {description} "
+        f"({xp} XP, {coins} coins)"
+        for qid, title, description, xp, coins in rows
+    )
+    await interaction.response.send_message(text or "No quests yet.")
+
+
+# -------------------- Events / announcements --------------------
+
+@bot.tree.command(name="event_create", description="Create an event.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def event_create(
+    interaction: discord.Interaction,
+    title: str,
+    starts: str,
+    description: str,
+):
+    event_id = await bot.db.create_event(
+        interaction.guild_id,
+        interaction.channel_id,
+        title,
+        description,
+        starts,
+        interaction.user.id,
+    )
+    embed = discord.Embed(title="📅 " + title, description=description)
+    embed.add_field(name="When", value=starts)
+    embed.set_footer(text=f"Event #{event_id} • /event_join {event_id}")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="event_list", description="List upcoming/server events.")
+async def event_list(interaction: discord.Interaction):
+    rows = await bot.db.events(interaction.guild_id)
+    text = "\n".join(
+        f"`#{event_id}` **{title}** — {starts}\n{description}"
+        for event_id, title, description, starts, channel_id, message_id in rows
+    )
+    await interaction.response.send_message(text or "No events yet.")
+
+
+@bot.tree.command(name="event_join", description="Join an event.")
+async def event_join(interaction: discord.Interaction, event_id: int):
+    await bot.db.signup(event_id, interaction.user.id)
+    await interaction.response.send_message(
+        f"{interaction.user.mention} joined event `#{event_id}`."
+    )
+
+
+# -------------------- Moderation --------------------
+
+@bot.tree.command(
+    name="mod_action",
+    description="Set severe-escalation response: log, warn or timeout.",
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def mod_action(interaction: discord.Interaction, action: str):
+    action = action.lower().strip()
+    if action not in {"log", "warn", "timeout"}:
+        await interaction.response.send_message(
+            "Choose `log`, `warn`, or `timeout`."
+        )
+        return
+
+    await bot.db.set_setting(
+        interaction.guild_id,
+        "mod_action",
+        {"log": 0, "warn": 1, "timeout": 2}[action],
+    )
+    await interaction.response.send_message(
+        f"Severe-escalation moderation action set to **{action}**."
+    )
+
+
+@bot.tree.command(name="mod_enable", description="Enable or disable contextual moderation.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def mod_enable(interaction: discord.Interaction, enabled: bool):
+    await bot.db.set_setting(
+        interaction.guild_id,
+        "mod_enabled",
+        1 if enabled else 0,
+    )
+    await interaction.response.send_message(
+        f"Moderation alerts are now **{'enabled' if enabled else 'disabled'}**."
+    )
+
+
+@bot.tree.command(name="warn", description="Warn a member.")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def warn(
+    interaction: discord.Interaction,
+    member: discord.Member,
+    reason: str = "No reason provided",
+):
+    profile_data = await bot.db.add_warning(
+        interaction.guild_id,
+        member.id,
+        interaction.user.id,
+        reason,
+    )
+    await interaction.response.send_message(
+        f"{member.mention} warned. Total warnings: **{profile_data['warnings']}**."
+    )
+
+
+@bot.tree.command(name="warnings", description="Show a member's warning history.")
+@app_commands.checks.has_permissions(manage_messages=True)
+async def warnings(interaction: discord.Interaction, member: discord.Member):
+    rows = await bot.db.warnings(interaction.guild_id, member.id)
+    text = "\n".join(
+        f"`#{warning_id}` <@{moderator_id}> — {reason} ({created_at})"
+        for warning_id, moderator_id, reason, created_at in rows
+    )
+    await interaction.response.send_message(text or "No warnings recorded.")
+
+
+@bot.tree.command(name="set_log_channel", description="Use this channel for moderation logs.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def set_log_channel(interaction: discord.Interaction):
+    await bot.db.set_setting(
+        interaction.guild_id,
+        "log_channel_id",
+        interaction.channel_id,
+    )
+    await interaction.response.send_message(
+        f"Moderation logs will be posted in <#{interaction.channel_id}>."
+    )
+
+
+# -------------------- Server tools --------------------
+
+@bot.tree.command(name="set_welcome_channel", description="Use this channel for welcome messages.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def set_welcome_channel(interaction: discord.Interaction):
+    await bot.db.set_setting(
+        interaction.guild_id,
+        "welcome_channel_id",
+        interaction.channel_id,
+    )
+    await interaction.response.send_message(
+        f"Welcome messages will be posted in <#{interaction.channel_id}>."
+    )
+
+
+ANNOUNCEMENT_TYPES = {
+    "general": ("📢", 0x5865F2),
+    "event": ("📅", 0x57F287),
+    "tournament": ("🏆", 0xFEE75C),
+    "game": ("🎮", 0x3498DB),
+    "community": ("🌌", 0x9B59B6),
+    "update": ("🔔", 0x2ECC71),
+    "important": ("🚨", 0xE74C3C),
+    "warning": ("⚠️", 0xE67E22),
+    "maintenance": ("🛠️", 0x95A5A6),
+    "giveaway": ("🎁", 0xE91E63),
+    "news": ("📰", 0x1ABC9C),
+}
+
+
+def announcement_embed(kind: str, title: str, message: str, author: str):
+    kind = kind.lower().strip()
+    icon, colour = ANNOUNCEMENT_TYPES.get(kind, ("📢", 0x5865F2))
+    pretty = kind.replace("_", " ").title()
+    embed = discord.Embed(
+        title=f"{icon} {title}",
+        description=message,
+        colour=discord.Colour(colour),
+    )
+    embed.add_field(name="Type", value=pretty, inline=True)
+    embed.set_footer(text=f"Log Horizon • Announced by {author}")
+    return embed
+
+
+def resolve_announcement_ping(guild: discord.Guild, token: str):
+    token = (token or "none").strip()
+    if token.lower() in {"none", "no", "silent"}:
+        return "", None
+    if token.lower() in {"everyone", "@everyone"}:
+        return "@everyone", "everyone"
+    if token.lower() in {"here", "@here"}:
+        return "@here", "here"
+    match = re.fullmatch(r"<@&(\d+)>", token)
+    if match:
+        role = guild.get_role(int(match.group(1)))
+        return (role.mention if role else None), role
+    match = re.fullmatch(r"<@!?(\d+)>", token)
+    if match:
+        member = guild.get_member(int(match.group(1)))
+        return (member.mention if member else None), member
+    lowered = token.lstrip("@").casefold()
+    for role in guild.roles:
+        if role.name.casefold() == lowered:
+            return role.mention, role
+    for member in guild.members:
+        if member.display_name.casefold() == lowered or member.name.casefold() == lowered:
+            return member.mention, member
+    return None, None
+
+
+@bot.tree.command(name="announce", description="Create a typed announcement with an optional ping and channel.")
+@app_commands.describe(
+    kind="general, event, tournament, game, update, important, warning, giveaway, news or maintenance",
+    title="Announcement title",
+    message="Announcement body",
+    ping="Optional @everyone, @here, role mention, member mention or none",
+    channel="Optional channel; defaults to this channel",
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def announce(
+    interaction: discord.Interaction,
+    kind: str,
+    title: str,
+    message: str,
+    ping: str = "none",
+    channel: discord.TextChannel | None = None,
+):
+    if not interaction.guild:
+        await interaction.response.send_message("This command can only be used in a server.")
+        return
+    kind = kind.lower().strip()
+    if kind not in ANNOUNCEMENT_TYPES:
+        await interaction.response.send_message("Unknown announcement type. Use `/help announcements` for the available types.")
+        return
+    target = channel or interaction.channel
+    mention, target_obj = resolve_announcement_ping(interaction.guild, ping)
+    if ping.lower().strip() in {"@everyone", "everyone", "@here", "here"} and not interaction.user.guild_permissions.mention_everyone:
+        await interaction.response.send_message("You need the **Mention @everyone, @here, and All Roles** permission to use that ping.", ephemeral=True)
+        return
+    if isinstance(target_obj, discord.Role) and not target_obj.is_default():
+        me = interaction.guild.me
+        if not target_obj.mentionable and not (me and me.guild_permissions.manage_roles):
+            await interaction.response.send_message("That role is not mentionable and Horizon does not have Manage Roles.", ephemeral=True)
+            return
+    if mention is None:
+        await interaction.response.send_message("I couldn't resolve that ping. Use `none`, `@here`, `@everyone`, a role mention, or a member mention.", ephemeral=True)
+        return
+    embed = announcement_embed(kind, title, message, interaction.user.display_name)
+    allowed = discord.AllowedMentions(everyone=True, roles=True, users=True, replied_user=False)
+    await target.send(content=mention or None, embed=embed, allowed_mentions=allowed)
+    await interaction.response.send_message(f"{embed.title} posted in {target.mention}.", ephemeral=True)
+
+
+@bot.tree.command(name="horizon_settings", description="Show Horizon server settings.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def horizon_settings(interaction: discord.Interaction):
+    settings = await bot.db.settings(interaction.guild_id)
+
+    def channel_text(key):
+        value = settings[key]
+        return f"<#{value}>" if value else "off"
+
+    await interaction.response.send_message(
+        "**Horizon settings**\n"
+        f"Log channel: {channel_text('log_channel_id')}\n"
+        f"Welcome channel: {channel_text('welcome_channel_id')}\n"
+        f"Moderation: {'enabled' if settings['mod_enabled'] else 'disabled'}\n"
+        f"Personality: {settings['personality'] or 'default'}"
+    )
+
+
+@bot.tree.command(name="server_stats", description="Show Horizon server statistics.")
+async def server_stats(interaction: discord.Interaction):
+    rows = await bot.db.leaderboard(interaction.guild_id, 10000)
+    total_xp = sum(row[1] for row in rows)
+    total_coins = sum(row[2] for row in rows)
+
+    await interaction.response.send_message(
+        f"**{interaction.guild.name}**\n"
+        f"Members: {interaction.guild.member_count}\n"
+        f"Tracked players: {len(rows)}\n"
+        f"Total XP: {total_xp}\n"
+        f"Total coins: {total_coins}\n"
+        f"Horizon latency: {round(bot.latency * 1000)} ms"
+    )
+
+
+@bot.tree.command(name="horizon_permissions", description="Check Horizon's Discord permissions in this server.")
+async def horizon_permissions(interaction: discord.Interaction):
+    if not interaction.guild or not isinstance(interaction.guild.me, discord.Member):
+        await interaction.response.send_message("I couldn't inspect my server permissions here.", ephemeral=True)
+        return
+    me = interaction.guild.me
+    perms = me.guild_permissions
+    important = {
+        "Administrator": perms.administrator,
+        "Manage Server": perms.manage_guild,
+        "Manage Messages": perms.manage_messages,
+        "Moderate Members": perms.moderate_members,
+        "Manage Roles": perms.manage_roles,
+        "Send Messages": perms.send_messages,
+        "Embed Links": perms.embed_links,
+        "Read Message History": perms.read_message_history,
+        "Use Application Commands": perms.use_application_commands,
+    }
+    lines = [f"{'✅' if value else '❌'} **{name}**" for name, value in important.items()]
+    if perms.administrator:
+        note = "\n\nHorizon currently has **Administrator** permission, so Discord grants it the full server permission set."
+    else:
+        note = "\n\nHorizon does not have Administrator. Some moderation/server-management features may require individual permissions."
+    await interaction.response.send_message("**Horizon Permission Check**\n\n" + "\n".join(lines) + note, ephemeral=True)
+
+
+@bot.tree.command(name="help", description="Show Horizon's command guide.")
+async def help_command(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🌌 Horizon Command Guide",
+        description="Horizon uses compact `!` prefix commands for everyday server use. Slash commands remain available where useful.",
+        colour=discord.Colour.blurple(),
+    )
+    embed.add_field(name="AI", value="`!ai <message>` `!ask <question>` `!aistatus` `!aimodels` `!personality` `!remember` `!forget` `!memories`", inline=False)
+    embed.add_field(name="Games", value="`!games` `!game <name>` `!guess <letter>` `!join` `!begin` `!vote @user` `!dayend` `!nightend` `!stop` `!rps <choice>`", inline=False)
+    embed.add_field(name="RPG / Community", value="`!rpg` `!rpg start` `!rpg profile` `!rpg adventure` `!rpg quests` `!rpg party` `!rpg guild` `!rpg dungeon` `!rpg shop` `!rpg craft` `!rpg market` `!rpg pet` `!rpg achievements` `!rpg leaderboard`", inline=False)
+    embed.add_field(name="Moderation", value="`!warn @user` `!warnings @user` `!mod on/off` `!modaction <log|warn|timeout>` `!clear <amount>` `!timeout @user <minutes>` `!kick @user` `!ban @user`", inline=False)
+    embed.add_field(name="Server / Announcements", value="`!announce <type> <ping> [#channel] | <title> | <message>` `!config show` `!config welcome #channel` `!config logs #channel` `!serverinfo` `!permissions`", inline=False)
+    embed.add_field(name="Help", value="/help for slash commands • /dashboard for server controls • /community giveaway ... and /community reactionrole ... for community tools • !help <category> for prefix commands", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+# -------------------- Prefix commands / compact game mode --------------------
+# Prefix commands stay visible in the channel. The helper is retained as a
+# compatibility no-op because older command handlers call it. This prevents
+# those handlers from deleting the user's command message.
+
+async def _quiet_delete(message: discord.Message):
+    return
+
+async def _edit_game_message(channel: discord.abc.Messageable, session, content=None, view=None):
+    message_id = session.get("message_id") if session else None
+    if not message_id:
+        return None
+    try:
+        message = await channel.fetch_message(message_id)
+        kwargs = {}
+        if content is not None:
+            kwargs["content"] = content
+        if view is not None:
+            kwargs["view"] = view
+        await message.edit(**kwargs)
+        return message
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return None
+
+async def _send_game_message(ctx, session, content, view=None):
+    message = await ctx.send(content, view=view)
+    session["message_id"] = message.id
+    return message
+
+async def _prefix_start_game(ctx, key):
+    key = key.lower().strip()
+    if key not in bot.games.games:
+        await ctx.send("Unknown game. Use `!games` to see the available games.", delete_after=6)
+        return
+    existing = bot.games.get(ctx.guild.id, ctx.channel.id)
+    if existing:
+        await ctx.send("A Horizon game is already active here. Use `!stop` first.", delete_after=6)
+        return
+
+    session = bot.games.start(ctx.guild.id, ctx.channel.id, key, ctx.author.id)
+    session["prefix_mode"] = True
+    await _quiet_delete(ctx.message)
+
+    if key == "hangman":
+        session.update(make_hangman())
+        await _send_game_message(ctx, session, "**Hangman started!**\nGuess letters with `!guess <letter>`.\n\n" + hangman_text(session))
+        return
+
+    if key == "trivia":
+        question, options, view = make_trivia(bot.games, ctx.guild.id, ctx.channel.id)
+        text = "**Horizon Trivia**\nChoose an answer below. The first correct answer wins the round.\n\n" + question + "\n" + "\n".join(f"`{i + 1}` {option}" for i, option in enumerate(options))
+        message = await _send_game_message(ctx, session, text, view=view)
+        view.message = message
+        return
+
+    if key == "wyr":
+        left, right = random.choice(WYR_ROUNDS)
+        view = WyrView(bot.games, ctx.guild.id, ctx.channel.id, left, right)
+        message = await _send_game_message(ctx, session, view.render(), view=view)
+        view.message = message
+        return
+
+    if key == "truth":
+        truth, dare = random.choice(TRUTHS), random.choice(DARES)
+        view = TruthDareView(bot.games, ctx.guild.id, ctx.channel.id, truth, dare)
+        await _send_game_message(ctx, session, "**Truth or Dare**\nChoose a button below.", view=view)
+        return
+
+    if key == "rps":
+        bot.games.stop(ctx.guild.id, ctx.channel.id)
+        await ctx.send("**Rock Paper Scissors**\nUse `!rps rock`, `!rps paper`, or `!rps scissors`.", delete_after=12)
+        return
+
+    if key == "rpg":
+        await _send_game_message(ctx, session, "**Horizon RPG**\nUse `!character`, `!rpgroll`, `!questlist`, and `!inventory` for the persistent RPG systems.")
+        return
+
+    session["players"] = {ctx.author.id}
+    await _send_game_message(
+        ctx,
+        session,
+        f"**{bot.games.games[key][0]} lobby opened!**\n{bot.games.games[key][1]}\n\n"
+        "Join with `!join`. The host uses `!begin` when everyone is ready.\n"
+        "Use `!stop` to cancel. Roles and private night actions are sent by DM."
+    )
+
+@bot.command(name="ai", aliases=["h", "horizon"])
+async def prefix_ai(ctx, *, prompt: str = ""):
+    await _quiet_delete(ctx.message)
+    if not prompt.strip():
+        await ctx.send("Use `!ai <message>` to talk to Horizon.", delete_after=6)
+        return
+    async with ctx.typing():
+        try:
+            answer = await ai_reply(ctx.guild.id, ctx.author.id, ctx.author.display_name, prompt.strip(), ctx.channel.id)
+            for chunk in split_text(answer):
+                await ctx.send(chunk)
+        except Exception as exc:
+            log.exception("Prefix AI failed")
+            await ctx.send(f"Horizon AI is temporarily unavailable. Check `!aistatus`.\n`{str(exc)[:220]}`", delete_after=12)
+
+@bot.command(name="games")
+async def prefix_games(ctx):
+    await _quiet_delete(ctx.message)
+    lines = ["**🎮 Horizon Game Hub**", ""]
+    for key, (name, description) in bot.games.games.items():
+        lines.append(f"**{name}** — `{key}`\n{description}")
+    lines.append("\nStart any game with `!game <name>`. Example: `!game hangman`.")
+    await ctx.send("\n".join(lines))
+
+@bot.command(name="game")
+async def prefix_game(ctx, game_name: str = ""):
+    if not game_name:
+        await _quiet_delete(ctx.message)
+        key, name, description = bot.games.recommend()
+        await ctx.send(f"**🎮 {name}**\n{description}\n\nStart it with `!game {key}`.")
+        return
+    await _prefix_start_game(ctx, game_name)
+
+@bot.command(name="guess")
+async def prefix_guess(ctx, letter: str = ""):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("key") != "hangman":
+        await ctx.send("There is no active Hangman game here.", delete_after=6)
+        return
+    letter = letter.lower().strip()
+    if len(letter) != 1 or not letter.isalpha():
+        await ctx.send("Enter exactly one letter, e.g. `!guess a`.", delete_after=6)
+        return
+    if letter in session["guessed"] or letter in session["wrong"]:
+        await ctx.send("That letter was already guessed.", delete_after=5)
+        return
+    if letter in session["word"]:
+        session["guessed"].add(letter)
+        if all(ch in session["guessed"] for ch in session["word"]):
+            word = session["word"]
+            bot.games.stop(ctx.guild.id, ctx.channel.id)
+            session["message_id"] = session.get("message_id")
+            await _edit_game_message(ctx.channel, session, f"**Hangman — SOLVED**\n`{' '.join(word)}`\n\n**{ctx.author.display_name}** solved it!", view=None)
+            return
+    else:
+        session["wrong"].add(letter)
+        if len(session["wrong"]) >= session["max_wrong"]:
+            word = session["word"]
+            bot.games.stop(ctx.guild.id, ctx.channel.id)
+            await _edit_game_message(ctx.channel, session, f"**Hangman — GAME OVER**\nThe word was **{word}**.")
+            return
+    await _edit_game_message(ctx.channel, session, hangman_text(session))
+
+@bot.command(name="join")
+async def prefix_join(ctx):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("key") not in {"werewolf", "mafia"}:
+        await ctx.send("There is no Werewolf/Mafia lobby here.", delete_after=6)
+        return
+    players = session.setdefault("players", set())
+    players.add(ctx.author.id)
+    await _edit_game_message(ctx.channel, session, f"**{bot.games.games[session['key']][0]} lobby**\nPlayers: **{len(players)}**\n\nJoin with `!join`. Host: `!begin`. Minimum 4 players.")
+
+@bot.command(name="begin")
+async def prefix_begin(ctx):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("key") not in {"werewolf", "mafia"}:
+        await ctx.send("Use `!begin` only for a Werewolf or Mafia lobby.", delete_after=6)
+        return
+    if ctx.author.id != session["host_id"]:
+        await ctx.send("Only the game host can begin the lobby.", delete_after=6)
+        return
+    players = list(session.get("players", set()))
+    if len(players) < 4:
+        await ctx.send("You need at least 4 players.", delete_after=6)
+        return
+    await start_hidden_role_game(ctx.channel, session, players)
+
+@bot.command(name="vote")
+async def prefix_vote(ctx, member: discord.Member = None):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("phase") != "day":
+        return
+    if ctx.author.id not in session.get("alive", set()):
+        return
+    if member is None or member.id not in session.get("alive", set()):
+        return
+    session.setdefault("votes", {})[ctx.author.id] = member.id
+    await _edit_game_message(ctx.channel, session, day_status(session))
+    if len(session["votes"]) >= len(session["alive"]):
+        await resolve_day(ctx.channel, session)
+
+@bot.command(name="dayend")
+async def prefix_day_end(ctx):
+    session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("phase") != "day" or ctx.author.id != session.get("host_id"):
+        return
+    await resolve_day(ctx.channel, session)
+
+@bot.command(name="kill")
+async def prefix_kill(ctx, member: discord.User = None):
+    await _hidden_action(ctx, "kill", member)
+
+@bot.command(name="protect")
+async def prefix_protect(ctx, member: discord.User = None):
+    await _hidden_action(ctx, "protect", member)
+
+@bot.command(name="inspect")
+async def prefix_inspect(ctx, member: discord.User = None):
+    await _hidden_action(ctx, "inspect", member)
+
+@bot.command(name="nightend")
+async def prefix_night_end(ctx):
+    session = None
+    if ctx.guild:
+        session = bot.games.get(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session or session.get("phase") != "night" or ctx.author.id != session.get("host_id"):
+        return
+    await resolve_night(ctx.channel, session)
+
+@bot.command(name="stop")
+async def prefix_stop(ctx):
+    session = bot.games.stop(ctx.guild.id, ctx.channel.id)
+    await _quiet_delete(ctx.message)
+    if not session:
+        await ctx.send("There is no active Horizon game here.", delete_after=5)
+        return
+    await ctx.send(f"**{bot.games.games[session['key']][0]} stopped.**", delete_after=7)
+
+@bot.command(name="rps")
+async def prefix_rps(ctx, choice: str = ""):
+    await _quiet_delete(ctx.message)
+    choice = choice.lower().strip()
+    if choice not in {"rock", "paper", "scissors"}:
+        await ctx.send("Use `!rps rock`, `!rps paper`, or `!rps scissors`.", delete_after=6)
+        return
+    computer = random.choice(["rock", "paper", "scissors"])
+    if computer == choice:
+        outcome = "DRAW"
+    elif (choice, computer) in {("rock", "scissors"), ("paper", "rock"), ("scissors", "paper")}:
+        outcome = "WIN"
+    else:
+        outcome = "LOSE"
+    await ctx.send(f"**Rock Paper Scissors**\nYou chose **{choice}**. Horizon chose **{computer}**.\n\n**{outcome}!**")
+
+
+# -------------------- General prefix command system --------------------
+
+def _prefix_help_text(category: str | None = None):
+    pages = {
+        "ai": "**🤖 AI**
+`!ai <message>` — chat with Horizon
+`!ask <question>` — ask Horizon
+`!aistatus` — provider status
+`!aimodels` — available models
+`!personality <text>` — server AI personality (staff)
+`!remember <fact>` / `!forget <id>` / `!memories` — server knowledge",
+        "rpg": "**⚔️ Horizon RPG**
+`!rpg` — RPG hub
+`!rpg profile` / `!rpg stats` — character sheet
+`!rpg skills` / `!rpg equip-skill` — skills and loadout
+`!rpg adventure` / `!rpg dungeon` — PvE
+`!rpg quests` — Quest 2.0 board
+`!rpg party` / `!rpg guild` — team systems
+`!rpg shop` / `!rpg craft` / `!rpg market` — economy
+`!rpg pet` / `!rpg achievements` / `!rpg leaderboard` — progression",
+        "games": "**🎮 Games**
+`!games` — game hub
+`!game <name>` — start a game
+`!guess <letter>` — Hangman
+`!join` / `!begin` — hidden-role lobby
+`!vote @user` / `!dayend` / `!nightend` — Mafia/Werewolf
+`!rps <rock|paper|scissors>` — RPS
+`!stop` — stop the current game",
+        "fun": "**🎲 Fun**
+`!rps <choice>` — rock, paper, scissors
+`!rpgroll` — RPG dice roll
+`!game <name>` — pick/start a game
+More lightweight fun commands are being expanded here.",
+        "social": "**💬 Social**
+`!userinfo @user` — member information
+`!avatar @user` — avatar
+`!profile` — server profile
+`!leaderboard` — server leaderboard
+`!ship @user @user` — relationship fun (when enabled)",
+        "actions": "**🤝 Actions**
+`!hug @user` `!pat @user` `!highfive @user` `!slap @user`
+Use these for lightweight server interactions.",
+        "emotes": "**🙂 Emotes**
+`!wave` `!dance` `!shrug` `!blush` `!cry` `!smug`
+Quick expression commands for normal chat.",
+        "meme": "**😂 Meme**
+`!meme` — generate a lightweight random meme response
+Meme tools are kept separate from moderation and RPG commands.",
+        "community": "**🌐 Community**
+`!announce` — typed announcements
+`/community giveaway create` — giveaways
+`/community reactionrole create` — reaction roles
+`/dashboard` — server control panel",
+        "moderation": "**🛡️ Moderation**
+`!warn @user [reason]`
+`!warnings @user`
+`!mod on|off`
+`!modaction log|warn|timeout`
+`!clear <1-100>`
+`!timeout @user <minutes> [reason]`
+`!kick @user [reason]`
+`!ban @user [reason]`",
+        "utility": "**🔧 Utility**
+`!help [category]` — command categories
+`!ping` — latency
+`!prefix <new>` — change this server's prefix (Manage Server)
+`!prefix reset` — restore `!`
+`!serverinfo` `!channelinfo` `!permissions`",
+        "server": "**🏰 Server**
+`!config show`
+`!config welcome #channel`
+`!config logs #channel`
+`!config personality <text>`
+`!serverinfo` `!permissions` `!userinfo @user` `!avatar @user` `!channelinfo`",
+    }
+    if category and category.lower() in pages:
+        return pages[category.lower()]
+    order = ["ai","rpg","games","fun","social","actions","emotes","meme","community","moderation","utility","server"]
+    return "**🌌 Horizon Command Categories**\n\n" + "\n\n".join(pages[k] for k in order) + "\n\nUse `!help <category>` for one section.\nUse `!prefix <new>` to set a custom server prefix."
+
+
+@bot.command(name="help", aliases=["commands"])
+, or `h!`.", delete_after=10)
+        return
+    await bot.db.set_setting(ctx.guild.id, "prefix", value)
+    bot.prefix_cache[ctx.guild.id] = value
+    await ctx.send(f"✅ Horizon's prefix for **{ctx.guild.name}** is now `{value}`." if value != "!" else f"✅ Horizon's prefix has been reset to `!`.")
 
 
 @bot.command(name="ping")
