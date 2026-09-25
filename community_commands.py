@@ -288,21 +288,42 @@ async def setup(bot):
     async def define(ctx, *, word=""):
         if not await _guard(ctx,"define"): return
         await _delete(ctx)
-        if not word.strip():
+        term=word.strip().split()[0] if word.strip() else ""
+        if not term:
             await ctx.send("Usage: !define <word>",delete_after=6); return
-        url="https://api.dictionaryapi.dev/api/v2/entries/en/"+urllib.parse.quote(word.split()[0])
-        result=None
+        definition=None
+        phonetic=None
         try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6)) as s:
+            url="https://api.dictionaryapi.dev/api/v2/entries/en/"+urllib.parse.quote(term)
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=7), headers=GIF_HEADERS) as s:
                 async with s.get(url) as r:
                     if r.status==200:
                         data=await r.json()
-                        defs=data[0].get("meanings",[])
-                        if defs and defs[0].get("definitions"):
-                            result=defs[0]["definitions"][0].get("definition")
+                        entry=(data or [None])[0] or {}
+                        phonetic=entry.get("phonetic")
+                        for meaning in entry.get("meanings",[]):
+                            defs=meaning.get("definitions",[])
+                            if defs:
+                                definition=defs[0].get("definition")
+                                if definition: break
         except Exception:
             pass
-        await ctx.send("📖 **{}**\n{}".format(word,result or "Definition lookup is unavailable right now."))
+        if not definition:
+            try:
+                url="https://api.datamuse.com/words?"+urllib.parse.urlencode({"sp":term,"md":"d","max":1})
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=7), headers=GIF_HEADERS) as s:
+                    async with s.get(url) as r:
+                        if r.status==200:
+                            data=await r.json()
+                            if data and data[0].get("defs"):
+                                definition=str(data[0]["defs"][0]).split("\t",1)[-1]
+            except Exception:
+                pass
+        if definition:
+            extra=("\n*{}*".format(phonetic)) if phonetic else ""
+            await ctx.send("📖 **{}**{}\n{}".format(term.title(),extra,definition[:1800]))
+        else:
+            await ctx.send("📖 I couldn't find a definition for **{}** right now.".format(term))
     await add("define",define,"Look up a dictionary definition.")
 
     async def gif(ctx, *, query=""):
@@ -370,67 +391,6 @@ async def setup(bot):
         if not await _guard(ctx,"bell"): return
         await _delete(ctx); await ctx.send("🔔 **Ding ding!** Horizon bell rung.")
     await add("bell",bell,"Ring the Horizon bell.")
-
-    async def slots(ctx):
-        if not await _guard(ctx,"slots"): return
-        await _delete(ctx)
-        s=[random.choice(["🍒","🍋","🔔","⭐","💎","7️⃣"]) for _ in range(3)]
-        await ctx.send("🎰 **SLOTS**\n{}\n**{}**".format(" | ".join(s),"JACKPOT! 🎉" if len(set(s))==1 else "No match — spin again."))
-    await add("slots",slots,"Play slots.")
-
-    async def coinflip(ctx, choice=""):
-        if not await _guard(ctx,"coinflip"): return
-        await _delete(ctx)
-        result=random.choice(["heads","tails"])
-        if choice.lower() in {"h","heads","t","tails"}:
-            won=(choice.lower().startswith("h") and result=="heads") or (choice.lower().startswith("t") and result=="tails")
-            await ctx.send("🪙 **{}!** You **{}** the guess.".format(result.title(),"won" if won else "lost"))
-        else: await ctx.send("🪙 **{}!**".format(result.title()))
-    await add("coinflip",coinflip,"Flip a coin.")
-
-    async def lottery(ctx):
-        if not await _guard(ctx,"lottery"): return
-        await _delete(ctx)
-        await ctx.send("🎟️ **Horizon Lottery**\nNumbers: **{}**\nLucky: **{}**".format(", ".join(map(str,sorted(random.sample(range(1,50),6)))),random.randint(1,49)))
-    await add("lottery",lottery,"Draw a lottery ticket.")
-
-    async def blackjack(ctx):
-        if not await _guard(ctx,"blackjack"): return
-        await _delete(ctx)
-        card=lambda:[random.randint(2,11),random.randint(2,11)]
-        score=lambda x:sum(x)
-        p=card(); d=card()
-        while score(p)<17:p.append(random.randint(2,11))
-        while score(d)<17:d.append(random.randint(2,11))
-        ps,ds=score(p),score(d)
-        outcome="You bust." if ps>21 else "Dealer busts — you win!" if ds>21 else "You win!" if ps>ds else "Draw." if ps==ds else "Dealer wins."
-        await ctx.send("🃏 **Blackjack**\nYou: {} = **{}**\nDealer: {} = **{}**\n**{}**".format(p,ps,d,ds,outcome))
-    await add("blackjack",blackjack,"Play a quick blackjack round.")
-
-    async def snailgarden(ctx):
-        if not await _guard(ctx,"snailgarden"): return
-        await _delete(ctx)
-        await ctx.send("🐌 **Snail Garden**\nMeet **{}**. It is currently **{}**.\n🐌...".format(random.choice(["Turbo","Shelly","Mochi","Noodle","Speedy"]),random.choice(["sleepy","hungry","zooming","vibing","plotting"])))
-    await add("snailgarden",snailgarden,"Visit the snail garden.")
-
-    async def mines(ctx, square=""):
-        if not await _guard(ctx,"mines"): return
-        await _delete(ctx)
-        safe=random.randint(0,8)
-        if square.isdigit() and 0<=int(square)<=8:
-            await ctx.send("💣 **Mines**\n0 1 2\n3 4 5\n6 7 8\n{}".format("💎 SAFE! You found the gem." if int(square)==safe else "💥 BOOM! You hit a mine."))
-        else: await ctx.send("💣 Pick a square from 0 to 8.")
-    await add("mines",mines,"Play a tiny 3x3 mines game.")
-
-    async def highlow(ctx, guess=""):
-        if not await _guard(ctx,"highlow"): return
-        await _delete(ctx)
-        a,b=random.randint(1,13),random.randint(1,13)
-        actual="same" if a==b else "high" if b>a else "low"
-        if guess.lower()[:1] not in {"h","l","s"}:
-            await ctx.send("⬆️⬇️ Current card: **{}**. Guess high, low, or same.".format(a),delete_after=7); return
-        await ctx.send("⬆️⬇️ **{} → {}** — **{}** ({})".format(a,b,"WIN" if guess.lower()[0]==actual[0] else "LOSE",actual))
-    await add("highlow",highlow,"Play high/low.")
 
     async def meme(ctx, *, raw=""):
         name=ctx.command.name
@@ -504,9 +464,11 @@ async def setup(bot):
     async def censor(ctx, *, text=""):
         if not await _guard(ctx,"censor"): return
         await _delete(ctx)
-        if not text.strip(): await ctx.send("Usage: !censor <text>",delete_after=6); return
-        await ctx.send("🫥 {}".format("".join("█" if c.isalpha() and i%3==1 else c for i,c in enumerate(text))[:1900]))
-    await add("censor",censor,"Censor part of a message.")
+        if not text.strip():
+            await ctx.send("Usage: !censor <text> — masks the vowels in the supplied text.",delete_after=7); return
+        masked=re.sub(r"[AEIOUaeiou]", "█", text)
+        await ctx.send("🫥 **Censored:** {}".format(masked[:1900]))
+    await add("censor",censor,"Mask vowels in text you provide.")
 
     async def patreon(ctx):
         if not await _guard(ctx,"patreon"): return
