@@ -1,0 +1,482 @@
+import ast
+import io
+import random
+import re
+import urllib.parse
+
+import aiosqlite
+import aiohttp
+import discord
+from discord.ext import commands
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except Exception:
+    Image = ImageDraw = ImageFont = None
+
+ACTION_LINES = {
+    "cuddle":"🫂 cuddles {target}.","hug":"🤗 gives {target} a big hug.","kiss":"💋 gives {target} a quick kiss.",
+    "lick":"😛 gives {target} a harmless cartoon lick.","nom":"😋 nom noms near {target}.","pat":"🫳 pats {target}.",
+    "poke":"👉 pokes {target}.","slap":"💥 playfully bonks {target} with a foam noodle.","stare":"👀 stares intensely at {target}.",
+    "highfive":"✋ high-fives {target}!","bite":"🦷 gives {target} a tiny cartoon chomp.","greet":"👋 greets {target}.",
+    "punch":"🥊 throws a cartoon pillow punch at {target}.","handholding":"🤝 holds hands with {target}.",
+    "tickle":"😂 tickles {target}.","hold":"🫂 holds {target} close.","pats":"🫳🫳 gives {target} several pats.",
+    "wave":"👋 waves at {target}.","boop":"👉👃 boops {target}.","snuggle":"🥰 snuggles with {target}.",
+    "bully":"💀 gives {target} a friendship-grade roast.","kill":"⚔️ challenges {target} to a fictional anime duel."
+}
+EMOTES = {
+    "blush":"😊 blushes.","cry":"😭 cries dramatically.","dance":"💃 starts dancing.","lewd":"😳 gets mischievous, then gets bonked by Horizon.",
+    "pout":"😤 pouts.","shrug":"🤷 shrugs.","sleepy":"🥱 is sleepy.","smile":"😊 smiles.","smug":"😏 looks smug.",
+    "thumbsup":"👍 gives a thumbs up.","wag":"🐾 wags happily.","thinking":"🤔 thinks deeply.","triggered":"💢 is triggered.",
+    "teehee":"✨ giggles.","deredere":"💕 gets adorably affectionate.","thonking":"🗿 enters maximum thonk mode.",
+    "scoff":"🙄 scoffs.","happy":"😄 is happy.","thumbs":"👍👍 gives two thumbs up.","grin":"😁 grins."
+}
+MEMES = ["spongebobchicken","slapcar","isthisa","drake","distractedbf","communismcat","eject","emergencymeeting","headpat","tradeoffer","waddle"]
+
+async def _guard(ctx, name):
+    if not ctx.guild:
+        return False
+    disabled = getattr(ctx.bot, "_community_disabled", {})
+    if ctx.guild.id not in disabled:
+        async with aiosqlite.connect(ctx.bot.db.path) as db:
+            await db.execute("CREATE TABLE IF NOT EXISTS community_settings (guild_id INTEGER PRIMARY KEY, disabled TEXT DEFAULT '')")
+            cur = await db.execute("SELECT disabled FROM community_settings WHERE guild_id=?", (ctx.guild.id,))
+            row = await cur.fetchone()
+        disabled[ctx.guild.id] = set(filter(None, (row[0] if row else "").split(",")))
+        ctx.bot._community_disabled = disabled
+    if "*" in disabled[ctx.guild.id] or name in disabled[ctx.guild.id]:
+        await ctx.send("🔕 !{} is disabled in this server.".format(name), delete_after=5)
+        return False
+    return True
+
+async def _delete(ctx):
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
+async def _set_disabled(bot, guild_id, values):
+    async with aiosqlite.connect(bot.db.path) as db:
+        await db.execute("CREATE TABLE IF NOT EXISTS community_settings (guild_id INTEGER PRIMARY KEY, disabled TEXT DEFAULT '')")
+        await db.execute(
+            "INSERT INTO community_settings(guild_id,disabled) VALUES(?,?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET disabled=excluded.disabled",
+            (guild_id, ",".join(sorted(values)))
+        )
+        await db.commit()
+    bot._community_disabled = getattr(bot, "_community_disabled", {})
+    bot._community_disabled[guild_id] = set(values)
+
+def _cmd(name, fn, help_text=""):
+    return commands.Command(fn, name=name, help=help_text, description=help_text)
+
+def _font(size, bold=False):
+    if ImageFont is None:
+        return None
+    p = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    try:
+        return ImageFont.truetype(p, size)
+    except Exception:
+        return ImageFont.load_default()
+
+def _meme(title, parts):
+    if Image is None:
+        return None
+    img = Image.new("RGB", (1200, 700), (32, 32, 42))
+    d = ImageDraw.Draw(img)
+    title_font = _font(48, True)
+    body_font = _font(44, True)
+    small = _font(22)
+    d.rounded_rectangle((25,25,1175,675), 25, outline=(120,120,150), width=4)
+    d.text((55,45), title.upper(), fill=(255,220,80), font=title_font)
+    box_h = max(90, 500 // max(1,len(parts)))
+    for i, part in enumerate(parts[:3]):
+        y = 125 + i*box_h
+        d.rounded_rectangle((55,y,1145,min(y+box_h-15,640)), 18, fill=(50,50,62), outline=(90,90,110), width=2)
+        text = str(part)[:120]
+        while len(text) > 4 and d.textbbox((0,0), text, font=body_font)[2] > 1020:
+            text = text[:-4] + "..."
+        w = d.textbbox((0,0), text, font=body_font)[2]
+        d.text(((1200-w)//2,y+35), text, fill=(245,245,245), font=body_font)
+    d.text((55,645), "HORIZON • Community Meme Generator", fill=(150,150,165), font=small)
+    out = io.BytesIO()
+    img.save(out, "PNG")
+    out.seek(0)
+    return out
+
+async def setup(bot):
+    async with aiosqlite.connect(bot.db.path) as db:
+        await db.execute("CREATE TABLE IF NOT EXISTS community_settings (guild_id INTEGER PRIMARY KEY, disabled TEXT DEFAULT '')")
+        await db.commit()
+
+    async def add(name, fn, help_text=""):
+        if not bot.get_command(name):
+            bot.add_command(_cmd(name, fn, help_text))
+
+    async def action(ctx, member: discord.Member=None):
+        name = ctx.command.name
+        if not await _guard(ctx, name): return
+        await _delete(ctx)
+        target = member.mention if member else ctx.author.mention
+        await ctx.send("**{}** {}".format(ctx.author.display_name, ACTION_LINES.get(name, "interacts with {target}.").format(target=target)))
+
+    async def emote(ctx):
+        name = ctx.command.name
+        if not await _guard(ctx, name): return
+        await _delete(ctx)
+        await ctx.send("**{}** {}".format(ctx.author.display_name, EMOTES.get(name, "emotes.")))
+
+    for name in ACTION_LINES:
+        if name != "kill":
+            await add(name, action, "Perform the {} action.".format(name))
+    for name in EMOTES:
+        await add(name, emote, "Use the {} emote.".format(name))
+
+    async def cookie(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"cookie"): return
+        await _delete(ctx)
+        target = member.mention if member else ctx.author.mention
+        await ctx.send("🍪 **{}** gives {} a fresh cookie.".format(ctx.author.display_name,target))
+    await add("cookie",cookie,"Give someone a cookie.")
+
+    async def ship(ctx, left: discord.Member=None, right: discord.Member=None):
+        if not await _guard(ctx,"ship"): return
+        await _delete(ctx)
+        a = left or ctx.author
+        candidates = [m for m in ctx.guild.members if not m.bot and m.id != a.id]
+        b = right or (random.choice(candidates) if candidates else ctx.author)
+        score = random.randint(0,100)
+        await ctx.send("💞 **Ship Check**\n{} × {}\n**{}%** ❤️".format(a.mention,b.mention,score))
+    await add("ship",ship,"Calculate a playful compatibility percentage.")
+
+    async def pray(ctx, *, reason=""):
+        if not await _guard(ctx,"pray"): return
+        await _delete(ctx)
+        await ctx.send("🙏 **{}** prays{}. May the RNG be kind.".format(ctx.author.display_name,(" for "+reason) if reason else ""))
+    await add("pray",pray,"Pray to the RNG gods.")
+
+    async def curse(ctx, member: discord.Member=None, *, reason=""):
+        if not await _guard(ctx,"curse"): return
+        await _delete(ctx)
+        target = member.mention if member else ctx.author.mention
+        await ctx.send("🔮 **{}** places a fictional curse on {}{}.".format(ctx.author.display_name,target,(" — "+reason) if reason else ""))
+    await add("curse",curse,"Playfully curse a member.")
+
+    async def marry(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"marry"): return
+        await _delete(ctx)
+        if not member or member.id == ctx.author.id:
+            await ctx.send("💍 Use !marry @member to send a playful proposal.",delete_after=6); return
+        await ctx.send("💍 **{}** proposes to {}! Do they accept? 💕".format(ctx.author.display_name,member.mention))
+    await add("marry",marry,"Send a playful marriage proposal.")
+
+    async def emoji(ctx, *, name=""):
+        if not await _guard(ctx,"emoji"): return
+        await _delete(ctx)
+        pool=["😀","😂","😭","😎","🤨","😳","🥹","😈","🤔","🗿","✨","🔥","💀","🫂","💖","🐉","⚔️","🌌"]
+        aliases={"happy":"😄","sad":"😢","love":"❤️","fire":"🔥","skull":"💀","think":"🤔","cool":"😎"}
+        await ctx.send(aliases.get(name.lower().strip()," ".join(random.sample(pool,8))) if name else " ".join(random.sample(pool,8)))
+    await add("emoji",emoji,"Show a random emoji.")
+
+    async def level(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"level"): return
+        await _delete(ctx)
+        target=member or ctx.author
+        p=await bot.db.profile(ctx.guild.id,target.id)
+        xp=int(p.get("xp",0)); lvl=xp//100+1
+        await ctx.send("✨ **{}** — Level **{}**\nXP: **{} / {}**".format(target.display_name,lvl,xp,lvl*100))
+    await add("level",level,"Show a member's Horizon level.")
+
+    async def wallpaper(ctx, *, query=""):
+        if not await _guard(ctx,"wallpaper"): return
+        await _delete(ctx)
+        q=urllib.parse.quote(query.strip() or "anime wallpaper")
+        await ctx.send("🖼️ Wallpaper search: https://unsplash.com/s/photos/{}".format(q))
+    await add("wallpaper",wallpaper,"Search for a wallpaper.")
+
+    async def owoify(ctx, *, text=""):
+        if not await _guard(ctx,"owoify"): return
+        await _delete(ctx)
+        if not text.strip():
+            await ctx.send("Usage: !owoify <text>",delete_after=6); return
+        out=re.sub(r"[rl]","w",text,flags=re.I)
+        out=re.sub(r"n([aeiou])",r"ny\1",out,flags=re.I)
+        await ctx.send("**OwO:** {}".format(out[:1900]))
+    await add("owoify",owoify,"OwOify text.")
+
+    async def eightball(ctx, *, question=""):
+        if not await _guard(ctx,"8b"): return
+        await _delete(ctx)
+        answers=["It is certain.","Without a doubt.","Most likely.","Ask again later.","Maybe.","Don't count on it.","Very unlikely.","The RNG says no."]
+        await ctx.send("🎱 **8-Ball:** {}".format(random.choice(answers)))
+    await add("8b",eightball,"Ask the magic 8-ball.")
+
+    async def define(ctx, *, word=""):
+        if not await _guard(ctx,"define"): return
+        await _delete(ctx)
+        if not word.strip():
+            await ctx.send("Usage: !define <word>",delete_after=6); return
+        url="https://api.dictionaryapi.dev/api/v2/entries/en/"+urllib.parse.quote(word.split()[0])
+        result=None
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6)) as s:
+                async with s.get(url) as r:
+                    if r.status==200:
+                        data=await r.json()
+                        defs=data[0].get("meanings",[])
+                        if defs and defs[0].get("definitions"):
+                            result=defs[0]["definitions"][0].get("definition")
+        except Exception:
+            pass
+        await ctx.send("📖 **{}**\n{}".format(word,result or "Definition lookup is unavailable right now."))
+    await add("define",define,"Look up a dictionary definition.")
+
+    async def gif(ctx, *, query=""):
+        if not await _guard(ctx,"gif"): return
+        await _delete(ctx)
+        await ctx.send("🎞️ GIF search: https://tenor.com/search/{}-gifs".format(urllib.parse.quote(query or "anime")))
+    await add("gif",gif,"Search for a GIF.")
+
+    async def pic(ctx, *, query=""):
+        if not await _guard(ctx,"pic"): return
+        await _delete(ctx)
+        await ctx.send("🖼️ Picture search: https://www.google.com/search?tbm=isch&q={}".format(urllib.parse.quote(query or "anime")))
+    await add("pic",pic,"Search for a picture.")
+
+    async def translate(ctx, target="en", *, text=""):
+        if not await _guard(ctx,"translate"): return
+        await _delete(ctx)
+        if not text.strip():
+            await ctx.send("Usage: !translate <language> <text>",delete_after=6); return
+        result=None
+        try:
+            url="https://api.mymemory.translated.net/get?"+urllib.parse.urlencode({"q":text,"langpair":"en|"+target})
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=7)) as s:
+                async with s.get(url) as r:
+                    if r.status==200:
+                        result=(await r.json()).get("responseData",{}).get("translatedText")
+        except Exception:
+            pass
+        await ctx.send("🌐 **{}** — {}".format(target.upper(),result or "Translation unavailable right now."))
+    await add("translate",translate,"Translate text.")
+
+    async def roll(ctx, sides=100):
+        if not await _guard(ctx,"roll"): return
+        await _delete(ctx)
+        try: sides=max(2,min(1000000,int(sides)))
+        except Exception: sides=100
+        await ctx.send("🎲 **{}** rolled **{} / {}**.".format(ctx.author.display_name,random.randint(1,sides),sides))
+    await add("roll",roll,"Roll a die. Default d100.")
+
+    async def choose(ctx, *, choices=""):
+        if not await _guard(ctx,"choose"): return
+        await _delete(ctx)
+        items=[x.strip() for x in re.split(r"\s*\|\s*|\s*,\s*",choices) if x.strip()]
+        if len(items)<2:
+            await ctx.send("Usage: !choose pizza | ramen | curry",delete_after=6); return
+        await ctx.send("🎯 I choose: **{}**".format(random.choice(items)))
+    await add("choose",choose,"Choose randomly between options.")
+
+    async def bell(ctx):
+        if not await _guard(ctx,"bell"): return
+        await _delete(ctx); await ctx.send("🔔 **Ding ding!** Horizon bell rung.")
+    await add("bell",bell,"Ring the Horizon bell.")
+
+    async def slots(ctx):
+        if not await _guard(ctx,"slots"): return
+        await _delete(ctx)
+        s=[random.choice(["🍒","🍋","🔔","⭐","💎","7️⃣"]) for _ in range(3)]
+        await ctx.send("🎰 **SLOTS**\n{}\n**{}**".format(" | ".join(s),"JACKPOT! 🎉" if len(set(s))==1 else "No match — spin again."))
+    await add("slots",slots,"Play slots.")
+
+    async def coinflip(ctx, choice=""):
+        if not await _guard(ctx,"coinflip"): return
+        await _delete(ctx)
+        result=random.choice(["heads","tails"])
+        if choice.lower() in {"h","heads","t","tails"}:
+            won=(choice.lower().startswith("h") and result=="heads") or (choice.lower().startswith("t") and result=="tails")
+            await ctx.send("🪙 **{}!** You **{}** the guess.".format(result.title(),"won" if won else "lost"))
+        else: await ctx.send("🪙 **{}!**".format(result.title()))
+    await add("coinflip",coinflip,"Flip a coin.")
+
+    async def lottery(ctx):
+        if not await _guard(ctx,"lottery"): return
+        await _delete(ctx)
+        await ctx.send("🎟️ **Horizon Lottery**\nNumbers: **{}**\nLucky: **{}**".format(", ".join(map(str,sorted(random.sample(range(1,50),6)))),random.randint(1,49)))
+    await add("lottery",lottery,"Draw a lottery ticket.")
+
+    async def blackjack(ctx):
+        if not await _guard(ctx,"blackjack"): return
+        await _delete(ctx)
+        card=lambda:[random.randint(2,11),random.randint(2,11)]
+        score=lambda x:sum(x)
+        p=card(); d=card()
+        while score(p)<17:p.append(random.randint(2,11))
+        while score(d)<17:d.append(random.randint(2,11))
+        ps,ds=score(p),score(d)
+        outcome="You bust." if ps>21 else "Dealer busts — you win!" if ds>21 else "You win!" if ps>ds else "Draw." if ps==ds else "Dealer wins."
+        await ctx.send("🃏 **Blackjack**\nYou: {} = **{}**\nDealer: {} = **{}**\n**{}**".format(p,ps,d,ds,outcome))
+    await add("blackjack",blackjack,"Play a quick blackjack round.")
+
+    async def snailgarden(ctx):
+        if not await _guard(ctx,"snailgarden"): return
+        await _delete(ctx)
+        await ctx.send("🐌 **Snail Garden**\nMeet **{}**. It is currently **{}**.\n🐌...".format(random.choice(["Turbo","Shelly","Mochi","Noodle","Speedy"]),random.choice(["sleepy","hungry","zooming","vibing","plotting"])))
+    await add("snailgarden",snailgarden,"Visit the snail garden.")
+
+    async def mines(ctx, square=""):
+        if not await _guard(ctx,"mines"): return
+        await _delete(ctx)
+        safe=random.randint(0,8)
+        if square.isdigit() and 0<=int(square)<=8:
+            await ctx.send("💣 **Mines**\n0 1 2\n3 4 5\n6 7 8\n{}".format("💎 SAFE! You found the gem." if int(square)==safe else "💥 BOOM! You hit a mine."))
+        else: await ctx.send("💣 Pick a square from 0 to 8.")
+    await add("mines",mines,"Play a tiny 3x3 mines game.")
+
+    async def highlow(ctx, guess=""):
+        if not await _guard(ctx,"highlow"): return
+        await _delete(ctx)
+        a,b=random.randint(1,13),random.randint(1,13)
+        actual="same" if a==b else "high" if b>a else "low"
+        if guess.lower()[:1] not in {"h","l","s"}:
+            await ctx.send("⬆️⬇️ Current card: **{}**. Guess high, low, or same.".format(a),delete_after=7); return
+        await ctx.send("⬆️⬇️ **{} → {}** — **{}** ({})".format(a,b,"WIN" if guess.lower()[0]==actual[0] else "LOSE",actual))
+    await add("highlow",highlow,"Play high/low.")
+
+    async def meme(ctx, *, raw=""):
+        name=ctx.command.name
+        if not await _guard(ctx,name): return
+        await _delete(ctx)
+        parts=[x.strip() for x in raw.split("|") if x.strip()]
+        if not parts:
+            await ctx.send("Usage: !{} top | bottom".format(name),delete_after=7); return
+        image=_meme(name.replace("distractedbf","distracted boyfriend"),parts[:3])
+        if image: await ctx.send(file=discord.File(image,filename="horizon_{}.png".format(name)))
+        else: await ctx.send("Meme generation is unavailable.",delete_after=7)
+    for name in MEMES:
+        await add(name,meme,"Generate a {} meme.".format(name))
+
+    async def stats(ctx, member: discord.Member=None):
+        if not await _guard(ctx,"stats"): return
+        await _delete(ctx)
+        target=member or ctx.author; p=await bot.db.profile(ctx.guild.id,target.id); xp=int(p["xp"])
+        await ctx.send("📊 **{}**\nXP: **{}**\nLevel: **{}**\nCoins: **{}**\nWarnings: **{}**".format(target.display_name,xp,xp//100+1,p["coins"],p["warnings"]))
+    await add("stats",stats,"Show profile stats.")
+
+    async def link(ctx):
+        if not await _guard(ctx,"link"): return
+        await _delete(ctx)
+        try: inv=await ctx.channel.create_invite(max_age=0,max_uses=0,unique=False,reason="Horizon link")
+        except discord.Forbidden: await ctx.send("🔗 I need Create Invite permission."); return
+        await ctx.send("🔗 **Server Invite:** {}".format(inv.url))
+    await add("link",link,"Create a permanent server invite.")
+
+    async def guildlink(ctx):
+        if not await _guard(ctx,"guildlink"): return
+        await _delete(ctx)
+        try: inv=await ctx.channel.create_invite(max_age=86400,max_uses=0,unique=False,reason="Horizon guild link")
+        except discord.Forbidden: await ctx.send("🌐 I need Create Invite permission."); return
+        await ctx.send("🌐 **Guild Link (24h):** {}".format(inv.url))
+    await add("guildlink",guildlink,"Create a 24-hour invite.")
+
+    async def disable(ctx, command=""):
+        if not ctx.guild or not ctx.author.guild_permissions.manage_guild:
+            await ctx.send("You need Manage Server to use this.",delete_after=6); return
+        await _delete(ctx)
+        name=command.lower().strip().lstrip("!")
+        if not name:
+            await ctx.send("Usage: !disable <command> or !disable all",delete_after=7); return
+        current=set(getattr(bot,"_community_disabled",{}).get(ctx.guild.id,set()))
+        if name=="all": current={"*"}
+        else: current.discard("*"); current.add(name)
+        await _set_disabled(bot,ctx.guild.id,current)
+        await ctx.send("🔕 Disabled **{}**.".format(name))
+    await add("disable",disable,"Disable a community command.")
+
+    async def enable(ctx, command=""):
+        if not ctx.guild or not ctx.author.guild_permissions.manage_guild:
+            await ctx.send("You need Manage Server to use this.",delete_after=6); return
+        await _delete(ctx)
+        name=command.lower().strip().lstrip("!")
+        current=set(getattr(bot,"_community_disabled",{}).get(ctx.guild.id,set()))
+        if name=="all": current.clear()
+        else: current.discard(name)
+        await _set_disabled(bot,ctx.guild.id,current)
+        await ctx.send("🔔 Enabled **{}**.".format(name or "community commands"))
+    await add("enable",enable,"Re-enable a community command.")
+
+    async def censor(ctx, *, text=""):
+        if not await _guard(ctx,"censor"): return
+        await _delete(ctx)
+        if not text.strip(): await ctx.send("Usage: !censor <text>",delete_after=6); return
+        await ctx.send("🫥 {}".format("".join("█" if c.isalpha() and i%3==1 else c for i,c in enumerate(text))[:1900]))
+    await add("censor",censor,"Censor part of a message.")
+
+    async def patreon(ctx):
+        if not await _guard(ctx,"patreon"): return
+        await _delete(ctx); await ctx.send("💜 No Patreon/support page is configured for Horizon yet.")
+    await add("patreon",patreon,"Show Patreon/support information.")
+
+    async def announcement(ctx, *, text=""):
+        if not await _guard(ctx,"announcement"): return
+        await _delete(ctx)
+        if not text.strip(): await ctx.send("Usage: !announcement <text>",delete_after=6); return
+        e=discord.Embed(title="📢 Horizon Announcement",description=text[:4000],colour=discord.Colour.blurple())
+        e.set_footer(text="Posted by {}".format(ctx.author.display_name)); await ctx.send(embed=e)
+    await add("announcement",announcement,"Post a simple announcement.")
+
+    async def rules(ctx):
+        if not await _guard(ctx,"rules"): return
+        await _delete(ctx)
+        await ctx.send("📜 **Horizon Rules**\n1. Respect members.\n2. No harassment or spam.\n3. Keep channels on-topic.\n4. Follow Discord and server rules.\n5. Have fun without ruining someone else's fun.")
+    await add("rules",rules,"Show community rules.")
+
+    async def suggest(ctx, *, text=""):
+        if not await _guard(ctx,"suggest"): return
+        await _delete(ctx)
+        if not text.strip(): await ctx.send("Usage: !suggest <idea>",delete_after=6); return
+        e=discord.Embed(title="💡 New Suggestion",description=text[:4000],colour=discord.Colour.gold())
+        e.set_author(name=ctx.author.display_name,icon_url=ctx.author.display_avatar.url)
+        m=await ctx.send(embed=e)
+        for x in ("👍","👎"):
+            try: await m.add_reaction(x)
+            except discord.HTTPException: pass
+    await add("suggest",suggest,"Post a suggestion.")
+
+    async def shards(ctx):
+        if not await _guard(ctx,"shards"): return
+        await _delete(ctx)
+        try:
+            p=await bot.rpg.player(ctx.guild.id,ctx.author.id)
+            if p: await ctx.send("💠 **Shards/Diamonds:** {:,}".format(int(p.get("gems",0)))); return
+        except Exception: pass
+        await ctx.send("💠 Start an RPG hero first with !rpg start.")
+    await add("shards",shards,"Show RPG shards/diamonds.")
+
+    async def math_cmd(ctx, *, expression=""):
+        if not await _guard(ctx,"math"): return
+        await _delete(ctx)
+        try:
+            tree=ast.parse(expression.replace("^","**"),mode="eval")
+            allowed=(ast.Expression,ast.BinOp,ast.UnaryOp,ast.Add,ast.Sub,ast.Mult,ast.Div,ast.FloorDiv,ast.Mod,ast.Pow,ast.USub,ast.UAdd,ast.Constant,ast.Load)
+            if not all(isinstance(n,allowed) for n in ast.walk(tree)): raise ValueError("Only basic arithmetic is allowed.")
+            result=eval(compile(tree,"<math>","eval"),{"__builtins__":{}},{})
+            await ctx.send("🧮 **{}**".format(result))
+        except Exception as exc: await ctx.send("🧮 Invalid expression: {}".format(exc),delete_after=7)
+    await add("math",math_cmd,"Calculate basic arithmetic.")
+
+    async def color(ctx, value="#5865F2"):
+        if not await _guard(ctx,"color"): return
+        await _delete(ctx)
+        raw=value.strip().lstrip("#")
+        if not re.fullmatch(r"[0-9a-fA-F]{6}",raw):
+            await ctx.send("Usage: !color #5865F2",delete_after=6); return
+        e=discord.Embed(title="#"+raw.upper(),description="Hex: #"+raw.upper(),colour=discord.Colour(int(raw,16)))
+        await ctx.send(embed=e)
+    await add("color",color,"Preview a hex color.")
+
+    async def prefix(ctx):
+        if not await _guard(ctx,"prefix"): return
+        await _delete(ctx)
+        await ctx.send("⌨️ **Horizon Prefix:** !")
+    await add("prefix",prefix,"Show the current prefix.")
