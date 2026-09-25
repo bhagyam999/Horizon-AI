@@ -3479,13 +3479,15 @@ async def rpg_lottery(ctx, bet: int = 100):
     if result.get("error"):
         await _rpg_action_panel(ctx, "🎟️ Horizon Lottery", result["error"], False)
         return
+    ticket_text = ", ".join(map(str, result["ticket"]))
+    draw_text = ", ".join(map(str, result["draw"]))
     body = (
-        f"🎟️ Ticket: **{", ".join(map(str, result["ticket"]))}**\n"
-        f"🎱 Draw: **{", ".join(map(str, result["draw"]))}**\n\n"
-        f"Matched: **{result["matches"]}/5**\n"
-        f"Payout: **{result["payout"]:,} Gold**\n"
-        f"Net: **{result["net"]:+,} Gold**\n"
-        f"Balance: **{result["balance"]:,} Gold**"
+        f"🎟️ Ticket: **{ticket_text}**\n"
+        f"🎱 Draw: **{draw_text}**\n\n"
+        f"Matched: **{result['matches']}/5**\n"
+        f"Payout: **{result['payout']:,} Gold**\n"
+        f"Net: **{result['net']:+,} Gold**\n"
+        f"Balance: **{result['balance']:,} Gold**"
     )
     await _rpg_action_panel(ctx, "🎟️ Horizon Lottery", body, result["payout"] > 0)
 
@@ -3499,12 +3501,14 @@ async def rpg_snailgarden(ctx, bet: int = 0, pick: str = ""):
     lines=[]
     for place, snail in enumerate(result["ranking"], 1):
         marker="🏆" if place == 1 else ("🥈" if place == 2 else ("🥉" if place == 3 else "🐌"))
-        lines.append(f"{marker} **{place}. {snail}** — {result["positions"][snail]}m")
+        distance = result["positions"][snail]
+        lines.append(f"{marker} **{place}. {snail}** — {distance}m")
+    pick_name = result["pick"]
     body=(
-        f"You picked **{result["pick"]}**\n\n" + "\n".join(lines) +
-        f"\n\nBet: **{result["bet"]:,} Gold** • Finish: **#{result["place"]}**\n"
-        f"Payout: **{result["payout"]:,} Gold** • Net: **{result["net"]:+,} Gold**\n"
-        f"Balance: **{result["balance"]:,} Gold**"
+        f"You picked **{pick_name}**\n\n" + "\n".join(lines) +
+        f"\n\nBet: **{result['bet']:,} Gold** • Finish: **#{result['place']}**\n"
+        f"Payout: **{result['payout']:,} Gold** • Net: **{result['net']:+,} Gold**\n"
+        f"Balance: **{result['balance']:,} Gold**"
     )
     await _rpg_action_panel(ctx, "🐌 Snail Garden", body, result["payout"] > 0)
 
@@ -3517,11 +3521,14 @@ async def rpg_blackjack(ctx, bet: int = 0):
         return
     if result.get("finished"):
         state=result["state"]
+        player_text = " • ".join(map(str, state["player"]))
+        dealer_text = " • ".join(map(str, state["dealer"]))
+        message_text = result.get("message", "Round complete")
         body=(
-            f"Your hand: **{" • ".join(map(str,state["player"]))}** = **{bot.rpg_gambling._hand_total(state["player"])}**\n"
-            f"Dealer: **{" • ".join(map(str,state["dealer"]))}** = **{bot.rpg_gambling._hand_total(state["dealer"])}**\n\n"
-            f"{result.get("message","Round complete")}\n"
-            f"Payout: **{result["payout"]:,} Gold** • Net: **{result["net"]:+,} Gold**"
+            f"Your hand: **{player_text}** = **{bot.rpg_gambling._hand_total(state['player'])}**\n"
+            f"Dealer: **{dealer_text}** = **{bot.rpg_gambling._hand_total(state['dealer'])}**\n\n"
+            f"{message_text}\n"
+            f"Payout: **{result['payout']:,} Gold** • Net: **{result['net']:+,} Gold**"
         )
         await _rpg_action_panel(ctx, "🃏 Blackjack", body, True)
         return
