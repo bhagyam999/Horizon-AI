@@ -134,6 +134,11 @@ class Database:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             ''')
+            # Existing persistent databases need the new prefix column too.
+            try:
+                await db.execute("ALTER TABLE settings ADD COLUMN prefix TEXT DEFAULT '!'")
+            except Exception:
+                pass
             await db.commit()
 
     async def _ensure_profile(self, db, guild_id, user_id):
