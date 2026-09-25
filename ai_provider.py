@@ -421,7 +421,11 @@ Interpret the message using the conversation as evidence. Do not punish a phrase
 
 
 class AIProvider:
-    """Failover: Gemini -> Grok -> Gemini recovery -> OpenRouter emergency."""
+    """Failover order: Gemini -> Grok -> OpenRouter.
+    
+    OpenRouter is intentionally the last resort because its token budget is limited.
+    Every normal request starts with Gemini, then Grok, before OpenRouter is tried.
+    """
     def __init__(self):
         self.gemini=GeminiProvider()
         self.grok=OpenAICompatibleProvider("Grok","XAI_API_KEY","https://api.x.ai/v1","GROK_MODEL","grok-4.7",aliases=("GROK_API_KEY","XAI_API_KEY"))
@@ -460,7 +464,10 @@ class AIProvider:
         return result
 
     async def generate(self, system: str, prompt: str) -> str:
+        """Try the primary providers on every request before spending OpenRouter tokens."""
         errors=[]
+
+        # Always give Gemini first chance when configured.
         if self.gemini.enabled:
             try:
                 result=await self._try(self.gemini,system,prompt)
@@ -469,6 +476,9 @@ class AIProvider:
             except Exception as exc:
                 errors.append(f"Gemini: {exc}")
                 self.gemini.last_error=str(exc)
+
+        # Always try Grok second when configured, even if the previous request
+        # succeeded with OpenRouter. We do not sticky-route to OpenRouter.
         if self.grok.enabled:
             try:
                 result=await self._try(self.grok,system,prompt)
@@ -477,14 +487,9 @@ class AIProvider:
             except Exception as exc:
                 errors.append(f"Grok: {exc}")
                 self.grok.last_error=str(exc)
-        if self.gemini.enabled:
-            try:
-                result=await self._try(self.gemini,system,prompt)
-                self.last_provider="Gemini"; self.last_error=""
-                return result
-            except Exception as exc:
-                errors.append(f"Gemini recovery: {exc}")
-                self.gemini.last_error=str(exc)
+
+        # OpenRouter is deliberately last. It is only touched when both primary
+        # providers are unavailable, rate-limited, errored, or not configured.
         if self.openrouter.enabled:
             try:
                 result=await self._try(self.openrouter,system,prompt)
@@ -493,6 +498,7 @@ class AIProvider:
             except Exception as exc:
                 errors.append(f"OpenRouter: {exc}")
                 self.openrouter.last_error=str(exc)
+
         self.last_error=" | ".join(errors) or "No AI provider API keys are configured."
         raise RuntimeError(f"All AI providers failed. {self.last_error}")
 
@@ -504,7 +510,7 @@ class AIProvider:
             remaining=await self.budget.remaining(name)
             lines.append(f"• {name} — {'configured' if provider.enabled else 'not configured'} — {model} — {remaining:,} tokens remaining today")
             if provider.last_error: lines.append(f"  Last error: {provider.last_error[:250]}")
-        return self.enabled, "Failover order: Gemini → Grok → Gemini recovery → OpenRouter emergency\nDaily token limit per provider: " + f"{self.budget.limit:,}\n" + "\n".join(lines)
+        return self.enabled, "Failover order: Gemini → Grok → OpenRouter\nDaily token limit per provider: " + f"{self.budget.limit:,}\n" + "\n".join(lines)
 
     async def usage_status(self):
         return await self.budget.status()
