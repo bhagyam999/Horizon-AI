@@ -50,10 +50,9 @@ async def _guard(ctx, name):
     return True
 
 async def _delete(ctx):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
+    # Keep the user's command message visible. Community commands should
+    # respond normally without deleting what the member typed.
+    return
 
 async def _set_disabled(bot, guild_id, values):
     async with aiosqlite.connect(bot.db.path) as db:
