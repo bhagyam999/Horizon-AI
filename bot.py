@@ -1808,7 +1808,7 @@ def _build_help_embeds(category: str = ""):
     if not fields:
         selected = list(HELP_PAGES.keys())
         fields = [HELP_PAGES[name] for name in selected]
-        category_note = "Unknown category {{}}. Showing the full guide.".format(category)
+        category_note = "Unknown category `{}`. Showing the full guide.".format(category)
     else:
         category_note = "Showing **{}** commands.".format(fields[0][0]) if category else "Everything in one guide — AI, games, RPG, server tools and the full community pack."
 
