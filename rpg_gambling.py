@@ -9,7 +9,7 @@ from typing import Any
 import aiosqlite
 
 MIN_BET = 10
-MAX_BET = 100_000
+MAX_BET = 2_500
 
 
 class RPGGamblingService:
@@ -173,9 +173,9 @@ class RPGGamblingService:
         max_count = max(counts.values())
         multiplier = 0.0
         if max_count == 3:
-            multiplier = {"🍒": 2.0, "🍋": 3.0, "🔔": 5.0, "💎": 10.0, "7️⃣": 25.0}[reels[0]]
+            multiplier = {"🍒": 2.0, "🍋": 3.0, "🔔": 5.0, "💎": 10.0, "7️⃣": 20.0}[reels[0]]
         elif max_count == 2:
-            multiplier = 0.5
+            multiplier = 1.25
         payout = int(bet * multiplier)
         if payout:
             _, balance = await self._credit(guild_id, user_id, payout, metadata={"game": "slots", "bet": bet, "payout": payout})
@@ -213,7 +213,7 @@ class RPGGamblingService:
             return {"error": error}
         number = random.randint(1, 13)
         actual = "seven" if number == 7 else ("high" if number >= 8 else "low")
-        payout = int(bet * (6.0 if actual == "seven" and guess == "seven" else 1.9 if actual == guess else 0))
+        payout = int(bet * (12.0 if actual == "seven" and guess == "seven" else 1.9 if actual == guess else 0))
         if payout:
             _, balance = await self._credit(guild_id, user_id, payout, metadata={"game": "highlow", "bet": bet, "payout": payout})
         else:
@@ -230,7 +230,7 @@ class RPGGamblingService:
         ticket = sorted(random.sample(range(1, 31), 5))
         draw = sorted(random.sample(range(1, 31), 5))
         matches = len(set(ticket) & set(draw))
-        multipliers = {5: 25.0, 4: 8.0, 3: 3.0, 2: 0.75}
+        multipliers = {5: 100.0, 4: 20.0, 3: 5.0, 2: 5.0}
         payout = int(bet * multipliers.get(matches, 0))
         if payout:
             _, balance = await self._credit(guild_id, user_id, payout, metadata={"game": "lottery", "bet": bet, "payout": payout, "matches": matches})
@@ -255,7 +255,7 @@ class RPGGamblingService:
                 positions[name] += random.randint(1, 5)
         ranking = sorted(snails, key=lambda x: positions[x], reverse=True)
         place = ranking.index(pick) + 1
-        multipliers = {1: 3.0, 2: 1.5, 3: 0.5, 4: 0.0}
+        multipliers = {1: 2.2, 2: 1.1, 3: 0.3, 4: 0.0}
         payout = int(bet * multipliers[place])
         if payout:
             _, balance = await self._credit(guild_id, user_id, payout, metadata={"game": "snailgarden", "bet": bet, "payout": payout, "place": place})
@@ -355,7 +355,13 @@ class RPGGamblingService:
             return {"finished": True, "state": state, "payout": 0, "net": -bet, "message": "BOOM! You hit a mine and lost the wager."}
         state["revealed"].append(cell)
         safe_count = len(state["revealed"])
-        state["multiplier"] = round(1.0 + safe_count * 0.24 + safe_count * safe_count * 0.018, 2)
+        # Use the exact probability of reaching this depth with a small house edge.
+        probability = 1.0
+        total_cells = state["size"] * state["size"]
+        for i in range(safe_count):
+            probability *= (total_cells - state["mine_count"] - i) / (total_cells - i)
+        fair_multiplier = 0.92 / max(probability, 1e-9)
+        state["multiplier"] = round(max(1.0, fair_multiplier), 2)
         state["cashout"] = int(bet * state["multiplier"])
         if safe_count >= state["size"] * state["size"] - state["mine_count"]:
             payout = state["cashout"]
