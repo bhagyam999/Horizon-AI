@@ -16,6 +16,7 @@ class Database:
                 log_channel_id INTEGER DEFAULT 0,
                 welcome_channel_id INTEGER DEFAULT 0,
                 announcement_channel_id INTEGER DEFAULT 0,
+                prefix TEXT DEFAULT '!',
                 mod_enabled INTEGER DEFAULT 1,
                 mod_action INTEGER DEFAULT 1,
                 personality TEXT DEFAULT ''
@@ -147,7 +148,7 @@ class Database:
             return dict(await cur.fetchone())
 
     async def set_setting(self, guild_id, key, value):
-        allowed = {'ai_channel_id','log_channel_id','welcome_channel_id','announcement_channel_id','mod_enabled','mod_action','personality'}
+        allowed = {'ai_channel_id','log_channel_id','welcome_channel_id','announcement_channel_id','prefix','mod_enabled','mod_action','personality'}
         if key not in allowed:
             raise ValueError(f'Unknown setting: {key}')
         async with aiosqlite.connect(self.path) as db:
