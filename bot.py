@@ -3391,6 +3391,152 @@ class RPGCombatView(discord.ui.View):
             except Exception: pass
 
 
+@rpg_root.command(name="gambling", aliases=["casino"])
+async def rpg_gambling(ctx, action: str = ""):
+    await _rpg_delete(ctx)
+    action = action.lower().strip()
+    if action == "recover":
+        ok, msg = await bot.rpg_gambling.recover(ctx.guild.id, ctx.author.id)
+        await _rpg_action_panel(ctx, "🎰 Gambling Recovery", msg, ok)
+        return
+    session = await bot.rpg_gambling.active_session(ctx.guild.id, ctx.author.id)
+    active = f"\n\n⚠️ Active game: **{session['game'].title()}** • Bet **{session['bet']:,} Gold**\nUse its buttons or !rpg gambling recover if the old panel is gone." if session else ""
+    body = (
+        f"**Horizon Casino**\n\n"
+        f"🎰 !rpg slots <bet> — 3-reel slots\n"
+        f"🃏 !rpg blackjack <bet> — Hit / Stand blackjack\n"
+        f"💣 !rpg mines <bet> — 4×4 mines with cash-out\n"
+        f"🎟️ !rpg lottery <bet> — instant 5-number draw\n"
+        f"🐌 !rpg snailgarden <bet> <snail> — pick a racer\n"
+        f"🪙 !rpg coinflip <bet> <heads|tails> — 1.9× win\n"
+        f"📈 !rpg highlow <bet> <high|low|seven> — guess the number band\n\n"
+        f"Minimum bet: **{MIN_BET:,} Gold** • Maximum: **{MAX_BET:,} Gold**"
+        f"{active}"
+    )
+    await _rpg_action_panel(ctx, "🎲 Horizon RPG Gambling", body, True)
+
+@rpg_root.command(name="slots")
+async def rpg_slots(ctx, bet: int = 0):
+    await _rpg_delete(ctx)
+    result = await bot.rpg_gambling.slots(ctx.guild.id, ctx.author.id, bet)
+    if result.get("error"):
+        await _rpg_action_panel(ctx, "🎰 Slots", result["error"], False)
+        return
+    reels = "  ".join(result["reels"])
+    payout, net = int(result["payout"]), int(result["net"])
+    if reels == "  ".join(["7️⃣"] * 3):
+        title = "💎 JACKPOT — 7️⃣ 7️⃣ 7️⃣"
+    elif len(set(result["reels"])) == 1:
+        title = "🎰 TRIPLE MATCH"
+    elif len(set(result["reels"])) == 2:
+        title = "🎰 TWO MATCH"
+    else:
+        title = "🎰 Slots"
+    body = (
+        f"## {reels}\n\n"
+        f"Bet: **{result['bet']:,} Gold**\n"
+        f"Payout: **{payout:,} Gold**\n"
+        f"Net: **{net:+,} Gold**\n"
+        f"Balance: **{result['balance']:,} Gold**"
+    )
+    await _rpg_action_panel(ctx, title, body, True)
+
+@rpg_root.command(name="coinflip")
+async def rpg_coinflip(ctx, bet: int = 0, choice: str = ""):
+    await _rpg_delete(ctx)
+    result = await bot.rpg_gambling.coinflip(ctx.guild.id, ctx.author.id, bet, choice)
+    if result.get("error"):
+        await _rpg_action_panel(ctx, "🪙 Coinflip", result["error"], False)
+        return
+    won = result["payout"] > 0
+    body = (
+        f"Your call: **{result['choice'].title()}**\n"
+        f"Result: **{result['flip'].title()}**\n\n"
+        f"Bet: **{result['bet']:,} Gold**\nPayout: **{result['payout']:,} Gold**\n"
+        f"Net: **{result['net']:+,} Gold**\nBalance: **{result['balance']:,} Gold**"
+    )
+    await _rpg_action_panel(ctx, "🪙 Coinflip", body, won)
+
+@rpg_root.command(name="highlow", aliases=["high-low"])
+async def rpg_highlow(ctx, bet: int = 0, guess: str = ""):
+    await _rpg_delete(ctx)
+    result = await bot.rpg_gambling.highlow(ctx.guild.id, ctx.author.id, bet, guess)
+    if result.get("error"):
+        await _rpg_action_panel(ctx, "📈 High / Low", result["error"], False)
+        return
+    body = (
+        f"Your guess: **{result['guess'].title()}**\n"
+        f"Number drawn: **{result['number']}** ({result['actual'].title()})\n\n"
+        f"Bet: **{result['bet']:,} Gold**\nPayout: **{result['payout']:,} Gold**\n"
+        f"Net: **{result['net']:+,} Gold**\nBalance: **{result['balance']:,} Gold**"
+    )
+    await _rpg_action_panel(ctx, "📈 High / Low", body, result["payout"] > 0)
+
+@rpg_root.command(name="lottery")
+async def rpg_lottery(ctx, bet: int = 100):
+    await _rpg_delete(ctx)
+    result = await bot.rpg_gambling.lottery(ctx.guild.id, ctx.author.id, bet)
+    if result.get("error"):
+        await _rpg_action_panel(ctx, "🎟️ Horizon Lottery", result["error"], False)
+        return
+    body = (
+        f"🎟️ Ticket: **{", ".join(map(str, result["ticket"]))}**\n"
+        f"🎱 Draw: **{", ".join(map(str, result["draw"]))}**\n\n"
+        f"Matched: **{result["matches"]}/5**\n"
+        f"Payout: **{result["payout"]:,} Gold**\n"
+        f"Net: **{result["net"]:+,} Gold**\n"
+        f"Balance: **{result["balance"]:,} Gold**"
+    )
+    await _rpg_action_panel(ctx, "🎟️ Horizon Lottery", body, result["payout"] > 0)
+
+@rpg_root.command(name="snailgarden", aliases=["snail", "snails"])
+async def rpg_snailgarden(ctx, bet: int = 0, pick: str = ""):
+    await _rpg_delete(ctx)
+    result = await bot.rpg_gambling.snailgarden(ctx.guild.id, ctx.author.id, bet, pick)
+    if result.get("error"):
+        await _rpg_action_panel(ctx, "🐌 Snail Garden", result["error"], False)
+        return
+    lines=[]
+    for place, snail in enumerate(result["ranking"], 1):
+        marker="🏆" if place == 1 else ("🥈" if place == 2 else ("🥉" if place == 3 else "🐌"))
+        lines.append(f"{marker} **{place}. {snail}** — {result["positions"][snail]}m")
+    body=(
+        f"You picked **{result["pick"]}**\n\n" + "\n".join(lines) +
+        f"\n\nBet: **{result["bet"]:,} Gold** • Finish: **#{result["place"]}**\n"
+        f"Payout: **{result["payout"]:,} Gold** • Net: **{result["net"]:+,} Gold**\n"
+        f"Balance: **{result["balance"]:,} Gold**"
+    )
+    await _rpg_action_panel(ctx, "🐌 Snail Garden", body, result["payout"] > 0)
+
+@rpg_root.command(name="blackjack", aliases=["bj"])
+async def rpg_blackjack(ctx, bet: int = 0):
+    await _rpg_delete(ctx)
+    result = await bot.rpg_gambling.start_blackjack(ctx.guild.id, ctx.author.id, bet)
+    if result.get("error"):
+        await _rpg_action_panel(ctx, "🃏 Blackjack", result["error"], False)
+        return
+    if result.get("finished"):
+        state=result["state"]
+        body=(
+            f"Your hand: **{" • ".join(map(str,state["player"]))}** = **{bot.rpg_gambling._hand_total(state["player"])}**\n"
+            f"Dealer: **{" • ".join(map(str,state["dealer"]))}** = **{bot.rpg_gambling._hand_total(state["dealer"])}**\n\n"
+            f"{result.get("message","Round complete")}\n"
+            f"Payout: **{result["payout"]:,} Gold** • Net: **{result["net"]:+,} Gold**"
+        )
+        await _rpg_action_panel(ctx, "🃏 Blackjack", body, True)
+        return
+    view=RPGBlackjackView(ctx,result["session_id"],result["state"],int(bet))
+    view.message=await ctx.send(embed=view.render(),view=view)
+
+@rpg_root.command(name="mines")
+async def rpg_mines(ctx, bet: int = 0):
+    await _rpg_delete(ctx)
+    result = await bot.rpg_gambling.start_mines(ctx.guild.id, ctx.author.id, bet)
+    if result.get("error"):
+        await _rpg_action_panel(ctx, "💣 Mines", result["error"], False)
+        return
+    view=RPGMinesView(ctx,result["session_id"],result["state"],int(bet))
+    view.message=await ctx.send(embed=view.render(),view=view)
 @bot.group(name="rpg", invoke_without_command=True)
 async def rpg_root(ctx):
     await _rpg_delete(ctx)
@@ -3481,6 +3627,14 @@ async def rpg_help(ctx):
         "rpg rename": "Rename your equipped pet.",
         "rpg release": "Release your currently equipped pet.",
         "rpg shop": "View the standard RPG shop and its available goods.",
+        "rpg gambling": "Open the Horizon RPG casino and see all gambling games.",
+        "rpg slots": "Spin the RPG slot machine for Gold.",
+        "rpg blackjack": "Play interactive Hit/Stand blackjack for Gold.",
+        "rpg mines": "Play interactive 4x4 Mines with a rising cash-out multiplier.",
+        "rpg lottery": "Buy an instant five-number lottery draw.",
+        "rpg snailgarden": "Bet on a snail race.",
+        "rpg coinflip": "Bet on heads or tails.",
+        "rpg highlow": "Guess whether a number is high, low or exactly seven.",
         "rpg buy": "Buy an item from the standard RPG shop.",
         "rpg sell": "Sell an item to the standard RPG shop.",
         "rpg recipes": "Browse available crafting recipes.",
