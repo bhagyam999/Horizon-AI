@@ -5837,3 +5837,56 @@ class RPGService:
             await db.execute("UPDATE rpg_players SET renown=renown+500,fame=fame+250 WHERE guild_id=? AND user_id=?", (guild_id, user_id))
             await db.commit()
         return True, f"**Ascension {new_level}** achieved. You gained **+500 Renown** and **+250 Fame**."
+
+# ---------------------------------------------------------------------------
+# Horizon RPG item pricing rebalance
+# ---------------------------------------------------------------------------
+def _rebalance_item_prices():
+    """Normalize shop/codex values so rarity, level and actual power all matter.
+
+    Older hand-written/generated prices varied wildly.  This runs after the
+    complete item catalogue is built, so late-game gear cannot accidentally
+    retain a cheap starter-item price.
+    """
+    rarity_mult = {
+        "common": 1.0,
+        "uncommon": 2.5,
+        "rare": 6.0,
+        "epic": 15.0,
+        "legendary": 40.0,
+        "mythic": 100.0,
+    }
+    slot_base = {
+        "weapon": 120, "armor": 140, "offhand": 130,
+        "accessory": 180, "ring": 190, "amulet": 220,
+        "relic": 350, "consumable": 60, "food": 35,
+        "material": 20, "egg": 180, "chest": 500,
+    }
+    for key, item in ITEMS.items():
+        rarity = str(item.get("rarity", "common")).lower()
+        rarity_factor = rarity_mult.get(rarity, 1.0)
+        base = slot_base.get(str(item.get("slot", "item")).lower(), 75)
+        level_req = max(1, int(item.get("level_req", 1) or 1))
+
+        # Stats contribute to value so two items of the same rarity are not
+        # priced identically when one is substantially stronger.
+        stat_score = (
+            int(item.get("atk", 0) or 0) * 12
+            + int(item.get("def", 0) or 0) * 10
+            + int(item.get("hp", 0) or 0) * 2
+            + int(item.get("mp", 0) or 0) * 2
+            + int(item.get("spd", 0) or 0) * 18
+            + int(item.get("crit", 0) or 0) * 45
+            + int(item.get("heal", 0) or 0) * 1
+            + int(item.get("mana", 0) or 0) * 1
+            + int(item.get("stamina", 0) or 0) * 1
+        )
+        enchant_value = max(0, int(item.get("enchant_slots", 0) or 0) - 1) * 120
+        level_factor = 1.0 + min(2.0, (level_req - 1) * 0.025)
+
+        # Rarity is the main driver; level and real stats provide the secondary
+        # scaling. This keeps starter goods affordable and endgame gear valuable.
+        value = int((base * rarity_factor + stat_score + enchant_value) * level_factor)
+        item["price"] = max(10, value)
+
+_rebalance_item_prices()
