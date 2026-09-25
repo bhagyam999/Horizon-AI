@@ -92,9 +92,9 @@ ACTION_GIFS = {
     "cuddle":"cuddle","hug":"hug","kiss":"kiss","lick":"blush","nom":"nom","pat":"pat",
     "poke":"poke","slap":"slap","stare":"stare","highfive":"highfive","bite":"bite",
     "greet":"wave","punch":"punch","handholding":"handhold","tickle":"tickle","hold":"cuddle",
-    "pats":"pat","wave":"wave","boop":"boop","snuggle":"cuddle","bully":"bonk","kill":"bonk",
+    "pats":"pat","wave":"wave","boop":"pat","snuggle":"cuddle","bully":"bonk","kill":"bonk",
     "feed":"feed","carry":"carry","bonk":"bonk","comfort":"cuddle","cheer":"happy",
-    "protect":"shield","shield":"shield","fistbump":"handshake","salute":"salute","bow":"bow",
+    "protect":"handshake","shield":"handshake","fistbump":"handshake","salute":"salute","bow":"salute",
     "laughwith":"laugh","crywith":"cry","dancewith":"dance",
 }
 EMOTE_GIFS = {
@@ -246,7 +246,8 @@ async def setup(bot):
         await _delete(ctx)
         pool=["😀","😂","😭","😎","🤨","😳","🥹","😈","🤔","🗿","✨","🔥","💀","🫂","💖","🐉","⚔️","🌌"]
         aliases={"happy":"😄","sad":"😢","love":"❤️","fire":"🔥","skull":"💀","think":"🤔","cool":"😎"}
-        await ctx.send(aliases.get(name.lower().strip()," ".join(random.sample(pool,8))) if name else " ".join(random.sample(pool,8)))
+        gif=await _get_gif(SOCIAL_GIFS["emoji"])
+        await ctx.send(embed=_gif_embed("😀 Emoji Drop", aliases.get(name.lower().strip()," ".join(random.sample(pool,8))) if name else " ".join(random.sample(pool,8)), gif))
     await add("emoji",emoji,"Show a random emoji.")
 
     async def level(ctx, member: discord.Member=None):
@@ -255,14 +256,17 @@ async def setup(bot):
         target=member or ctx.author
         p=await bot.db.profile(ctx.guild.id,target.id)
         xp=int(p.get("xp",0)); lvl=xp//100+1
-        await ctx.send("✨ **{}** — Level **{}**\nXP: **{} / {}**".format(target.display_name,lvl,xp,lvl*100))
+        gif=await _get_gif(SOCIAL_GIFS["level"])
+        await ctx.send(embed=_gif_embed("✨ Level Check", "**{}** — Level **{}**\nXP: **{} / {}**".format(target.display_name,lvl,xp,lvl*100), gif))
     await add("level",level,"Show a member's Horizon level.")
 
     async def wallpaper(ctx, *, query=""):
         if not await _guard(ctx,"wallpaper"): return
         await _delete(ctx)
         q=urllib.parse.quote(query.strip() or "anime wallpaper")
-        await ctx.send("🖼️ Wallpaper search: https://unsplash.com/s/photos/{}".format(q))
+        gif=await _get_gif(SOCIAL_GIFS["wallpaper"])
+        e=_gif_embed("🖼️ Wallpaper Search", "https://unsplash.com/s/photos/{}".format(q), gif)
+        await ctx.send(embed=e)
     await add("wallpaper",wallpaper,"Search for a wallpaper.")
 
     async def owoify(ctx, *, text=""):
@@ -272,7 +276,8 @@ async def setup(bot):
             await ctx.send("Usage: !owoify <text>",delete_after=6); return
         out=re.sub(r"[rl]","w",text,flags=re.I)
         out=re.sub(r"n([aeiou])",r"ny\1",out,flags=re.I)
-        await ctx.send("**OwO:** {}".format(out[:1900]))
+        gif=await _get_gif(SOCIAL_GIFS["owoify"])
+        await ctx.send(embed=_gif_embed("✨ OwOify", "**OwO:** {}".format(out[:1800]), gif))
     await add("owoify",owoify,"OwOify text.")
 
     async def eightball(ctx, *, question=""):
@@ -305,8 +310,23 @@ async def setup(bot):
     async def gif(ctx, *, query=""):
         if not await _guard(ctx,"gif"): return
         await _delete(ctx)
-        await ctx.send("🎞️ GIF search: https://tenor.com/search/{}-gifs".format(urllib.parse.quote(query or "anime")))
-    await add("gif",gif,"Search for a GIF.")
+        key=query.lower().strip()
+        aliases={
+            "happy":"happy","hug":"hug","cuddle":"cuddle","kiss":"kiss","pat":"pat","slap":"slap",
+            "dance":"dance","cry":"cry","laugh":"laugh","blush":"blush","smug":"smug","wave":"wave",
+            "highfive":"highfive","high five":"highfive","handhold":"handhold","handshake":"handshake",
+            "poke":"poke","nom":"nom","bonk":"bonk","punch":"punch","bite":"bite","feed":"feed",
+            "carry":"carry","salute":"salute","shrug":"shrug","sleep":"sleep","smile":"smile",
+            "stare":"stare","think":"think","thumbsup":"thumbsup","tickle":"tickle","wag":"wag",
+            "wink":"wink","yeet":"yeet","facepalm":"facepalm","angry":"angry","confused":"confused",
+            "shocked":"shocked","bored":"bored","nod":"nod","spin":"spin","tableflip":"tableflip",
+        }
+        gif=await _get_gif(aliases.get(key, key if key in set(ACTION_GIFS.values()) else ""))
+        if gif:
+            await ctx.send(embed=_gif_embed("🎞️ Horizon GIF • {}".format(query.title() or "Random"), "Animated GIF for **{}**".format(query or "anime"), gif))
+        else:
+            await ctx.send("🎞️ **GIF Search:** https://tenor.com/search/{}-gifs".format(urllib.parse.quote(query or "anime")))
+    await add("gif",gif,"Show an animated GIF or search for one.")
 
     async def pic(ctx, *, query=""):
         if not await _guard(ctx,"pic"): return
