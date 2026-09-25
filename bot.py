@@ -3394,6 +3394,20 @@ class RPGCombatView(discord.ui.View):
             except Exception: pass
 
 
+@bot.group(name="rpg", invoke_without_command=True)
+async def rpg_root(ctx):
+    await _rpg_delete(ctx)
+    if ctx.invoked_subcommand is not None:
+        return
+    e=_rpg_embed("🌌 HORIZON RPG", "A persistent multiplayer RPG inside Log Horizon.")
+    e.add_field(name="⚔️ Adventure", value="`!rpg adventure` — live battle\n`!rpg dungeon` — floor-by-floor dungeon", inline=False)
+    e.add_field(name="🧬 Hero", value="`!rpg profile` • `!rpg change` • `!rpg evolve`", inline=True)
+    e.add_field(name="🏰 Society", value="`!rpg party` • `!rpg guild` • `!rpg kingdom`", inline=True)
+    e.add_field(name="👑 Endgame", value="`!rpg arena` • `!rpg raid` • `!rpg secretclasses` • `!rpg legendary`", inline=False)
+    e.add_field(name="🎒 Collection", value="`!rpg inventory` • `!rpg items` • `!rpg eggs` • `!rpg pet`", inline=False)
+    e.set_footer(text="Every RPG panel can be paged • use 🗑️ to remove it")
+    await _rpg_panel(ctx,[e])
+
 @rpg_root.command(name="gambling", aliases=["casino"])
 async def rpg_gambling(ctx, action: str = ""):
     await _rpg_delete(ctx)
@@ -3547,20 +3561,6 @@ async def rpg_mines(ctx, bet: int = 0):
         return
     view=RPGMinesView(ctx,result["session_id"],result["state"],int(bet))
     view.message=await ctx.send(embed=view.render(),view=view)
-@bot.group(name="rpg", invoke_without_command=True)
-async def rpg_root(ctx):
-    await _rpg_delete(ctx)
-    if ctx.invoked_subcommand is not None:
-        return
-    e=_rpg_embed("🌌 HORIZON RPG", "A persistent multiplayer RPG inside Log Horizon.")
-    e.add_field(name="⚔️ Adventure", value="`!rpg adventure` — live battle\n`!rpg dungeon` — floor-by-floor dungeon", inline=False)
-    e.add_field(name="🧬 Hero", value="`!rpg profile` • `!rpg change` • `!rpg evolve`", inline=True)
-    e.add_field(name="🏰 Society", value="`!rpg party` • `!rpg guild` • `!rpg kingdom`", inline=True)
-    e.add_field(name="👑 Endgame", value="`!rpg arena` • `!rpg raid` • `!rpg secretclasses` • `!rpg legendary`", inline=False)
-    e.add_field(name="🎒 Collection", value="`!rpg inventory` • `!rpg items` • `!rpg eggs` • `!rpg pet`", inline=False)
-    e.set_footer(text="Every RPG panel can be paged • use 🗑️ to remove it")
-    await _rpg_panel(ctx,[e])
-
 @rpg_root.command(name="help")
 async def rpg_help(ctx):
     """Show every registered RPG command, including nested commands and aliases."""
