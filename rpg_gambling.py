@@ -317,7 +317,7 @@ class RPGGamblingService:
         await self._close_session(sid)
         return {"finished": True, "state": state, "payout": payout, "net": payout-bet, "message": message}
 
-    async def start_mines(self, guild_id, user_id, bet, size=5, mine_count=5):
+    async def start_mines(self, guild_id, user_id, bet, size=4, mine_count=5):
         valid, bet, error = self._clamp_bet(bet)
         if not valid:
             return {"error": error}
