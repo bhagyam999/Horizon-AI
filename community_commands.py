@@ -79,6 +79,69 @@ def _font(size, bold=False):
     except Exception:
         return ImageFont.load_default()
 
+
+
+# SFW anime GIF layer used by social, action, emote and meme commands.
+# NEKOSBEST provides keyless SFW GIF categories such as hug, cuddle, pat,
+# dance, blush, cry, happy, highfive, kiss, laugh, nom, poke, punch, shrug,
+# sleep, smile, smug, stare, tickle, wag, wave, wink, etc.
+GIF_API = "https://nekos.best/api/v2/{}"
+GIF_HEADERS = {"User-Agent": "Horizon Discord Bot (https://github.com/bhagyam999/Horizon-AI)"}
+
+ACTION_GIFS = {
+    "cuddle":"cuddle","hug":"hug","kiss":"kiss","lick":"blush","nom":"nom","pat":"pat",
+    "poke":"poke","slap":"slap","stare":"stare","highfive":"highfive","bite":"bite",
+    "greet":"wave","punch":"punch","handholding":"handhold","tickle":"tickle","hold":"cuddle",
+    "pats":"pat","wave":"wave","boop":"boop","snuggle":"cuddle","bully":"bonk","kill":"bonk",
+    "feed":"feed","carry":"carry","bonk":"bonk","comfort":"cuddle","cheer":"happy",
+    "protect":"shield","shield":"shield","fistbump":"handshake","salute":"salute","bow":"bow",
+    "laughwith":"laugh","crywith":"cry","dancewith":"dance",
+}
+EMOTE_GIFS = {
+    "blush":"blush","cry":"cry","dance":"dance","lewd":"blush","pout":"pout","shrug":"shrug",
+    "sleepy":"sleep","smile":"smile","smug":"smug","thumbsup":"thumbsup","wag":"wag",
+    "thinking":"think","triggered":"angry","teehee":"teehee","deredere":"happy",
+    "thonking":"think","scoff":"shrug","happy":"happy","thumbs":"thumbsup","grin":"smile",
+}
+SOCIAL_GIFS = {
+    "cookie":"feed","ship":"happy","pray":"nod","curse":"angry","marry":"handshake",
+    "emoji":"happy","level":"happy","wallpaper":"smile","owoify":"wink",
+    "friendship":"handshake","compatibility":"happy","couple":"handshake","duo":"highfive",
+    "crush":"blush","bestie":"hug","rival":"stare","adopt":"happy","breakup":"cry","divorce":"cry",
+}
+MEME_GIFS = {
+    "spongebobchicken":"baka","slapcar":"slap","isthisa":"confused","drake":"smug",
+    "distractedbf":"stare","communismcat":"smug","eject":"yeet","emergencymeeting":"shocked",
+    "headpat":"pat","tradeoffer":"handshake","waddle":"dance",
+}
+
+async def _get_gif(category):
+    category = str(category or "").lower().strip()
+    if not category:
+        return None
+    try:
+        async with aiohttp.ClientSession(headers=GIF_HEADERS, timeout=aiohttp.ClientTimeout(total=6)) as session:
+            async with session.get(GIF_API.format(category)) as response:
+                if response.status != 200:
+                    return None
+                data = await response.json()
+                result = (data.get("results") or [None])[0]
+                if not result:
+                    return None
+                return {
+                    "url": result.get("url"),
+                    "anime": result.get("anime_name") or "Horizon GIF",
+                }
+    except Exception:
+        return None
+
+def _gif_embed(title, text, gif):
+    e = discord.Embed(title=title, description=text, colour=discord.Colour.blurple())
+    if gif and gif.get("url"):
+        e.set_image(url=gif["url"])
+        e.set_footer(text="Horizon GIF • {}".format(gif.get("anime","NEKOSBEST")))
+    return e
+
 def _meme(title, parts):
     if Image is None:
         return None
@@ -118,13 +181,16 @@ async def setup(bot):
         if not await _guard(ctx, name): return
         await _delete(ctx)
         target = member.mention if member else ctx.author.mention
-        await ctx.send("**{}** {}".format(ctx.author.display_name, ACTION_LINES.get(name, "interacts with {target}.").format(target=target)))
+        text = ACTION_LINES.get(name, "interacts with {target}.").format(target=target)
+        gif = await _get_gif(ACTION_GIFS.get(name))
+        await ctx.send(embed=_gif_embed("✨ Horizon • {}".format(name.title()), "**{}** {}".format(ctx.author.display_name, text), gif))
 
     async def emote(ctx):
         name = ctx.command.name
         if not await _guard(ctx, name): return
         await _delete(ctx)
-        await ctx.send("**{}** {}".format(ctx.author.display_name, EMOTES.get(name, "emotes.")))
+        gif = await _get_gif(EMOTE_GIFS.get(name))
+        await ctx.send(embed=_gif_embed("🙂 Horizon • {}".format(name.title()), "**{}** {}".format(ctx.author.display_name, EMOTES.get(name, "emotes.")), gif))
 
     for name in ACTION_LINES:
         if name != "kill":
@@ -136,7 +202,8 @@ async def setup(bot):
         if not await _guard(ctx,"cookie"): return
         await _delete(ctx)
         target = member.mention if member else ctx.author.mention
-        await ctx.send("🍪 **{}** gives {} a fresh cookie.".format(ctx.author.display_name,target))
+        gif=await _get_gif(SOCIAL_GIFS["cookie"])
+        await ctx.send(embed=_gif_embed("🍪 Cookie", "**{}** gives {} a fresh cookie.".format(ctx.author.display_name,target), gif))
     await add("cookie",cookie,"Give someone a cookie.")
 
     async def ship(ctx, left: discord.Member=None, right: discord.Member=None):
@@ -146,20 +213,23 @@ async def setup(bot):
         candidates = [m for m in ctx.guild.members if not m.bot and m.id != a.id]
         b = right or (random.choice(candidates) if candidates else ctx.author)
         score = random.randint(0,100)
-        await ctx.send("💞 **Ship Check**\n{} × {}\n**{}%** ❤️".format(a.mention,b.mention,score))
+        gif=await _get_gif(SOCIAL_GIFS["ship"])
+        await ctx.send(embed=_gif_embed("💞 Ship Check", "{} × {}\n**{}%** ❤️".format(a.mention,b.mention,score), gif))
     await add("ship",ship,"Calculate a playful compatibility percentage.")
 
     async def pray(ctx, *, reason=""):
         if not await _guard(ctx,"pray"): return
         await _delete(ctx)
-        await ctx.send("🙏 **{}** prays{}. May the RNG be kind.".format(ctx.author.display_name,(" for "+reason) if reason else ""))
+        gif=await _get_gif(SOCIAL_GIFS["pray"])
+        await ctx.send(embed=_gif_embed("🙏 Prayer", "**{}** prays{}. May the RNG be kind.".format(ctx.author.display_name,(" for "+reason) if reason else ""), gif))
     await add("pray",pray,"Pray to the RNG gods.")
 
     async def curse(ctx, member: discord.Member=None, *, reason=""):
         if not await _guard(ctx,"curse"): return
         await _delete(ctx)
         target = member.mention if member else ctx.author.mention
-        await ctx.send("🔮 **{}** places a fictional curse on {}{}.".format(ctx.author.display_name,target,(" — "+reason) if reason else ""))
+        gif=await _get_gif(SOCIAL_GIFS["curse"])
+        await ctx.send(embed=_gif_embed("🔮 Curse", "**{}** places a fictional curse on {}{}.".format(ctx.author.display_name,target,(" — "+reason) if reason else ""), gif))
     await add("curse",curse,"Playfully curse a member.")
 
     async def marry(ctx, member: discord.Member=None):
@@ -167,7 +237,8 @@ async def setup(bot):
         await _delete(ctx)
         if not member or member.id == ctx.author.id:
             await ctx.send("💍 Use !marry @member to send a playful proposal.",delete_after=6); return
-        await ctx.send("💍 **{}** proposes to {}! Do they accept? 💕".format(ctx.author.display_name,member.mention))
+        gif=await _get_gif(SOCIAL_GIFS["marry"])
+        await ctx.send(embed=_gif_embed("💍 Proposal", "**{}** proposes to {}! Do they accept? 💕".format(ctx.author.display_name,member.mention), gif))
     await add("marry",marry,"Send a playful marriage proposal.")
 
     async def emoji(ctx, *, name=""):
@@ -351,8 +422,15 @@ async def setup(bot):
         if not parts:
             await ctx.send("Usage: !{} top | bottom".format(name),delete_after=7); return
         image=_meme(name.replace("distractedbf","distracted boyfriend"),parts[:3])
-        if image: await ctx.send(file=discord.File(image,filename="horizon_{}.png".format(name)))
-        else: await ctx.send("Meme generation is unavailable.",delete_after=7)
+        gif=await _get_gif(MEME_GIFS.get(name, "laugh"))
+        if image:
+            embed=_gif_embed("😂 Horizon • {}".format(name.title()), "Reaction GIF • {}" .format(gif.get("anime","Horizon") if gif else "Horizon"), gif)
+            await ctx.send(file=discord.File(image,filename="horizon_{}.png".format(name)), embed=embed)
+        else:
+            if gif:
+                await ctx.send(embed=embed)
+            else:
+                await ctx.send("Meme generation is unavailable.",delete_after=7)
     for name in MEMES:
         await add(name,meme,"Generate a {} meme.".format(name))
 
@@ -517,7 +595,8 @@ async def setup(bot):
             "duo": ("⚔️ Duo Check", "duo synergy"),
         }
         title, label = labels.get(name, ("💫 Relationship Check", "connection"))
-        await ctx.send("{}\n{} × {}\n**{}% {}**".format(title, a.mention, b.mention, score, label))
+        gif=await _get_gif(SOCIAL_GIFS.get(name, "happy"))
+        await ctx.send(embed=_gif_embed(title, "{} × {}\n**{}% {}**".format(a.mention, b.mention, score, label), gif))
 
     for name in ("friendship", "compatibility", "couple", "duo"):
         await add(name, relationship, "Generate a playful {} result.".format(name))
@@ -529,7 +608,8 @@ async def setup(bot):
         if not target:
             candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
             target=random.choice(candidates) if candidates else ctx.author
-        await ctx.send("💘 **Crush Detector**\n{} has a fictional server crush on **{}**. 💕".format(ctx.author.mention,target.display_name))
+        gif=await _get_gif(SOCIAL_GIFS["crush"])
+        await ctx.send(embed=_gif_embed("💘 Crush Detector", "{} has a fictional server crush on **{}**. 💕".format(ctx.author.mention,target.display_name), gif))
     await add("crush",crush,"Reveal a playful fictional crush.")
 
     async def bestie(ctx, member: discord.Member=None):
@@ -539,7 +619,8 @@ async def setup(bot):
         if not target:
             candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
             target=random.choice(candidates) if candidates else ctx.author
-        await ctx.send("👯 **Bestie Check:** {} and {} are now certified besties. 🤝".format(ctx.author.mention,target.mention))
+        gif=await _get_gif(SOCIAL_GIFS["bestie"])
+        await ctx.send(embed=_gif_embed("👯 Bestie Check", "{} and {} are now certified besties. 🤝".format(ctx.author.mention,target.mention), gif))
     await add("bestie",bestie,"Declare a playful best-friend pairing.")
 
     async def rival(ctx, member: discord.Member=None):
@@ -549,7 +630,8 @@ async def setup(bot):
         if not target:
             candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
             target=random.choice(candidates) if candidates else ctx.author
-        await ctx.send("⚔️ **Rivalry Detected:** {} vs {} — the anime arc begins.".format(ctx.author.mention,target.mention))
+        gif=await _get_gif(SOCIAL_GIFS["rival"])
+        await ctx.send(embed=_gif_embed("⚔️ Rivalry Detected", "{} vs {} — the anime arc begins.".format(ctx.author.mention,target.mention), gif))
     await add("rival",rival,"Create a playful rivalry.")
 
     async def adopt(ctx, member: discord.Member=None):
@@ -559,21 +641,24 @@ async def setup(bot):
         if not target:
             candidates=[m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id]
             target=random.choice(candidates) if candidates else ctx.author
-        await ctx.send("🧸 **Adoption Papers:** {} has been adopted by {}. Family unlocked. 💖".format(target.mention,ctx.author.mention))
+        gif=await _get_gif(SOCIAL_GIFS["adopt"])
+        await ctx.send(embed=_gif_embed("🧸 Adoption Papers", "{} has been adopted by {}. Family unlocked. 💖".format(target.mention,ctx.author.mention), gif))
     await add("adopt",adopt,"Create a playful adoption pairing.")
 
     async def breakup(ctx, member: discord.Member=None):
         if not await _guard(ctx,"breakup"): return
         await _delete(ctx)
         target=member or ctx.author
-        await ctx.send("💔 **Breakup Arc:** {} and {} have entered the dramatic anime separation episode.".format(ctx.author.mention,target.mention))
+        gif=await _get_gif(SOCIAL_GIFS["breakup"])
+        await ctx.send(embed=_gif_embed("💔 Breakup Arc", "{} and {} have entered the dramatic anime separation episode.".format(ctx.author.mention,target.mention), gif))
     await add("breakup",breakup,"Start a fictional breakup scene.")
 
     async def divorce(ctx, member: discord.Member=None):
         if not await _guard(ctx,"divorce"): return
         await _delete(ctx)
         target=member or ctx.author
-        await ctx.send("📜 **Divorce Papers:** {} and {} are officially divorced in the fictional Horizon universe.".format(ctx.author.mention,target.mention))
+        gif=await _get_gif(SOCIAL_GIFS["divorce"])
+        await ctx.send(embed=_gif_embed("📜 Divorce Papers", "{} and {} are officially divorced in the fictional Horizon universe.".format(ctx.author.mention,target.mention), gif))
     await add("divorce",divorce,"End a fictional marriage.")
 
     async def truth(ctx):
