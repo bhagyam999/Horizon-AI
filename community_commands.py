@@ -393,22 +393,43 @@ async def setup(bot):
     await add("bell",bell,"Ring the Horizon bell.")
 
     async def meme(ctx, *, raw=""):
-        name=ctx.command.name
-        if not await _guard(ctx,name): return
+        name = ctx.command.name
+        if not await _guard(ctx, name):
+            return
         await _delete(ctx)
-        parts=[x.strip() for x in raw.split("|") if x.strip()]
+
+        parts = [x.strip() for x in raw.split("|") if x.strip()]
         if not parts:
-            await ctx.send("Usage: !{} top | bottom".format(name),delete_after=7); return
-        image=_meme(name.replace("distractedbf","distracted boyfriend"),parts[:3])
-        gif=await _get_gif(MEME_GIFS.get(name, "laugh"))
-        if image:
-            embed=_gif_embed("😂 Horizon • {}".format(name.title()), "Reaction GIF • {}" .format(gif.get("anime","Horizon") if gif else "Horizon"), gif)
-            await ctx.send(file=discord.File(image,filename="horizon_{}.png".format(name)), embed=embed)
-        else:
-            if gif:
-                await ctx.send(embed=embed)
-            else:
-                await ctx.send("Meme generation is unavailable.",delete_after=7)
+            await ctx.send(
+                "Usage: !{} top | bottom".format(name),
+                delete_after=7
+            )
+            return
+
+        image = _meme(
+            name.replace("distractedbf", "distracted boyfriend"),
+            parts[:3]
+        )
+        if not image:
+            await ctx.send("Meme generation is unavailable.", delete_after=7)
+            return
+
+        # Meme commands are meme generators, not GIF/reaction commands.
+        # Send only the generated meme image so a random reaction GIF/emoji
+        # cannot replace or accompany the actual meme.
+        filename = "horizon_{}.png".format(name)
+        embed = discord.Embed(
+            title="😂 Horizon • {}".format(name.title()),
+            colour=discord.Colour.blurple()
+        )
+        embed.set_image(url="attachment://{}".format(filename))
+        embed.set_footer(text="Horizon • Meme Generator")
+
+        await ctx.send(
+            file=discord.File(image, filename=filename),
+            embed=embed
+        )
+
     for name in MEMES:
         await add(name,meme,"Generate a {} meme.".format(name))
 
