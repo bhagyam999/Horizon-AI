@@ -333,6 +333,21 @@ class Horizon(commands.Bot):
             len(self.guilds),
             self.ai.model,
         )
+
+        # Keep every currently connected test server up to date immediately.
+        # Global commands can take a while to propagate through Discord, so
+        # guild-scoped copies make testing responsive without affecting the
+        # eventual global command set.
+        if not getattr(self, "_guild_test_sync_done", False):
+            self._guild_test_sync_done = True
+            for guild in list(self.guilds):
+                try:
+                    self.tree.copy_global_to(guild=guild)
+                    await self.tree.sync(guild=guild)
+                    log.info("Test-server commands synced to %s (%s).", guild.name, guild.id)
+                except Exception:
+                    log.exception("Could not sync test-server commands to %s (%s).", guild.name, guild.id)
+
         if not self._ai_history_backfilled and (not self._ai_history_backfill_task or self._ai_history_backfill_task.done()):
             self._ai_history_backfill_task = asyncio.create_task(self._backfill_ai_history())
 
