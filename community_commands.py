@@ -141,30 +141,70 @@ def _gif_embed(title, text, gif):
         e.set_footer(text="Horizon GIF • {}".format(gif.get("anime","NEKOSBEST")))
     return e
 
-def _meme(title, parts):
-    if Image is None:
+MEME_TEMPLATE_MAP = {
+    # Existing Horizon command -> real, recognizable meme template.
+    "spongebobchicken": "fine",
+    "slapcar": "drake",
+    "isthisa": "pigeon",
+    "drake": "drake",
+    "distractedbf": "db",
+    "communismcat": "buzz",
+    "eject": "eject",
+    "emergencymeeting": "drake",
+    "headpat": "success",
+    "tradeoffer": "drake",
+    "waddle": "success",
+}
+
+MEME_TEMPLATE_LINES = {
+    "drake": 2,
+    "db": 3,
+    "pigeon": 3,
+    "buzz": 2,
+    "eject": 2,
+    "fine": 2,
+    "success": 2,
+}
+
+def _memegen_escape(value):
+    # memegen.link's URL-as-state encoding.
+    value = str(value or "").strip()
+    if not value:
+        return "_"
+    value = value.replace("~", "~~")
+    value = value.replace("_", "__").replace("-", "--")
+    value = value.replace("?", "~q").replace("&", "~a").replace("%", "~p")
+    value = value.replace("#", "~h").replace("/", "~s").replace("\\", "~b")
+    value = value.replace("<", "~l").replace(">", "~g")
+    value = value.replace('"', "''")
+    value = value.replace(" ", "_")
+    return urllib.parse.quote(value, safe="~_'")
+
+async def _meme(title, parts):
+    # Use an actual meme-template renderer instead of drawing text into a
+    # blank Horizon card. memegen.link is stateless and needs no API key.
+    command = str(title or "").lower().strip()
+    template = MEME_TEMPLATE_MAP.get(command, command)
+    expected = MEME_TEMPLATE_LINES.get(template, 2)
+
+    # If a requested alias is not a real template, use a recognizable fallback
+    # rather than returning a meaningless blank image.
+    known_fallbacks = ["drake", "fine", "success", "buzz"]
+    if template not in MEME_TEMPLATE_LINES:
+        template = "drake"
+
+    clean = [str(x).strip() for x in parts if str(x).strip()][:expected]
+    if not clean:
         return None
-    img = Image.new("RGB", (1200, 700), (32, 32, 42))
-    d = ImageDraw.Draw(img)
-    title_font = _font(48, True)
-    body_font = _font(44, True)
-    small = _font(22)
-    d.rounded_rectangle((25,25,1175,675), 25, outline=(120,120,150), width=4)
-    d.text((55,45), title.upper(), fill=(255,220,80), font=title_font)
-    box_h = max(90, 500 // max(1,len(parts)))
-    for i, part in enumerate(parts[:3]):
-        y = 125 + i*box_h
-        d.rounded_rectangle((55,y,1145,min(y+box_h-15,640)), 18, fill=(50,50,62), outline=(90,90,110), width=2)
-        text = str(part)[:120]
-        while len(text) > 4 and d.textbbox((0,0), text, font=body_font)[2] > 1020:
-            text = text[:-4] + "..."
-        w = d.textbbox((0,0), text, font=body_font)[2]
-        d.text(((1200-w)//2,y+35), text, fill=(245,245,245), font=body_font)
-    d.text((55,645), "HORIZON • Community Meme Generator", fill=(150,150,165), font=small)
-    out = io.BytesIO()
-    img.save(out, "PNG")
-    out.seek(0)
-    return out
+
+    # Fill missing slots with blank lines. This lets !eject text still produce
+    # a proper meme instead of a blank custom image.
+    while len(clean) < expected:
+        clean.append("_")
+
+    path = "/".join(_memegen_escape(x) for x in clean)
+    return "https://api.memegen.link/images/{}/{}.png".format(template, path)
+
 
 async def setup(bot):
     async with aiosqlite.connect(bot.db.path) as db:
@@ -401,34 +441,25 @@ async def setup(bot):
         parts = [x.strip() for x in raw.split("|") if x.strip()]
         if not parts:
             await ctx.send(
-                "Usage: !{} top | bottom".format(name),
-                delete_after=7
+                "Usage: !{} top text | bottom text".format(name),
+                delete_after=8
             )
             return
 
-        image = _meme(
-            name.replace("distractedbf", "distracted boyfriend"),
-            parts[:3]
-        )
-        if not image:
-            await ctx.send("Meme generation is unavailable.", delete_after=7)
+        image_url = await _meme(name, parts)
+        if not image_url:
+            await ctx.send("Usage: !{} top text | bottom text".format(name), delete_after=8)
             return
 
-        # Meme commands are meme generators, not GIF/reaction commands.
-        # Send only the generated meme image so a random reaction GIF/emoji
-        # cannot replace or accompany the actual meme.
-        filename = "horizon_{}.png".format(name)
+        template_name = MEME_TEMPLATE_MAP.get(name, name)
         embed = discord.Embed(
             title="😂 Horizon • {}".format(name.title()),
             colour=discord.Colour.blurple()
         )
-        embed.set_image(url="attachment://{}".format(filename))
-        embed.set_footer(text="Horizon • Meme Generator")
+        embed.set_image(url=image_url)
+        embed.set_footer(text="Horizon • Real Meme Template • {}".format(template_name))
 
-        await ctx.send(
-            file=discord.File(image, filename=filename),
-            embed=embed
-        )
+        await ctx.send(embed=embed)
 
     for name in MEMES:
         await add(name,meme,"Generate a {} meme.".format(name))
