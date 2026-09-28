@@ -142,12 +142,19 @@ class Horizon(commands.Bot):
             # take the Discord bot offline.
             log.exception("Dashboard failed to start; continuing without dashboard.")
 
-        # IMPORTANT: do not sync application commands during startup. Discord can
-        # rate-limit command registration, and a startup sync should never be able
-        # to hold the entire bot before READY. Existing slash commands already
-        # registered in Discord continue to work. New/changed commands can be
-        # registered deliberately with the owner-only !sync command.
-        log.info("Startup slash-command sync skipped; bot will continue to READY.")
+        # Register application commands globally so Horizon can be installed in
+        # multiple test servers. This is one sync request per startup and is
+        # intentionally opt-out rather than tied to a single development guild.
+        sync_global = os.getenv("SYNC_GLOBAL_COMMANDS", "1").strip().lower() not in {"0", "false", "off", "no"}
+        if sync_global:
+            try:
+                await self.tree.sync()
+                log.info("Global Horizon application commands synced.")
+            except Exception:
+                # A sync failure must never take the whole bot offline.
+                log.exception("Global application-command sync failed; prefix commands remain available.")
+        else:
+            log.info("Global application-command sync disabled by SYNC_GLOBAL_COMMANDS.")
 
     async def _sync_commands_safely(self, *, global_sync: bool = False):
         """Manually register slash commands with exactly one Discord sync request."""
