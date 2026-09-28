@@ -193,6 +193,52 @@ def _memegen_escape(value):
     value = value.replace(" ", "_")
     return urllib.parse.quote(value, safe="~_'")
 
+async def _eject_gif(member_name, is_impostor):
+    """Create a small animated Among Us-style ejection GIF."""
+    if Image is None or ImageDraw is None:
+        return None
+    try:
+        frames = []
+        width, height = 500, 280
+        name = str(member_name or "Player").strip()[:28]
+        result = "was the Impostor." if is_impostor else "was not the Impostor."
+
+        for step in range(12):
+            frame = Image.new("RGB", (width, height), (8, 10, 20))
+            draw = ImageDraw.Draw(frame)
+
+            random.seed(9000 + step)
+            for _ in range(45):
+                x = random.randrange(width)
+                y = random.randrange(185)
+                r = random.choice((1, 1, 2))
+                draw.ellipse((x-r, y-r, x+r, y+r), fill=(190, 200, 220))
+
+            # Ejected crewmate flying toward the right.
+            cx = 115 + step * 25
+            cy = 115 - step * 3
+            body = (220, 55, 65) if is_impostor else (65, 150, 230)
+            draw.ellipse((cx-34, cy-28, cx+34, cy+42), fill=body, outline=(20, 20, 25), width=4)
+            draw.rectangle((cx-31, cy+5, cx+31, cy+32), fill=body)
+            draw.ellipse((cx-10, cy-18, cx+32, cy+8), fill=(170, 225, 245), outline=(20, 30, 40), width=3)
+            draw.polygon([(cx-34, cy+5), (cx-54, cy+22), (cx-32, cy+27)], fill=body)
+            draw.polygon([(cx+30, cy+5), (cx+52, cy+22), (cx+31, cy+27)], fill=body)
+
+            font1 = _font(28, bold=True)
+            font2 = _font(24, bold=True)
+            line1 = "{} was Ejected.".format(name)
+            box1 = draw.textbbox((0, 0), line1, font=font1)
+            box2 = draw.textbbox((0, 0), result, font=font2)
+            draw.text(((width-(box1[2]-box1[0]))//2, 198), line1, font=font1, fill="white", stroke_width=2, stroke_fill="black")
+            draw.text(((width-(box2[2]-box2[0]))//2, 232), result, font=font2, fill="white", stroke_width=2, stroke_fill="black")
+            frames.append(frame)
+
+        output = io.BytesIO()
+        frames[0].save(output, format="GIF", save_all=True, append_images=frames[1:], duration=90, loop=0)
+        return output.getvalue()
+    except Exception:
+        return None
+
 async def _meme(title, parts):
     # Use an actual meme-template renderer instead of drawing text into a
     # blank Horizon card. memegen.link is stateless and needs no API key.
@@ -457,6 +503,26 @@ async def setup(bot):
         if not await _guard(ctx, name):
             return
         await _delete(ctx)
+
+        # Eject is an animated Among Us-style result instead of a static meme.
+        if name == "eject":
+            target = ctx.message.mentions[0] if ctx.message.mentions else ctx.author
+            is_impostor = random.choice((True, False))
+            gif_bytes = await _eject_gif(target.display_name, is_impostor)
+            if gif_bytes:
+                result_text = "was the Impostor." if is_impostor else "was not the Impostor."
+                file = discord.File(io.BytesIO(gif_bytes), filename="horizon-eject.gif")
+                embed = discord.Embed(
+                    title="😂 Horizon • Eject",
+                    description="**{}** was ejected — {}".format(target.mention, result_text),
+                    colour=discord.Colour.red() if is_impostor else discord.Colour.green()
+                )
+                embed.set_image(url="attachment://horizon-eject.gif")
+                embed.set_footer(text="Horizon • Among Us Ejection")
+                await ctx.send(embed=embed, file=file)
+            else:
+                await ctx.send("I couldn't render the ejection GIF right now. Try again.", delete_after=8)
+            return
 
         parts = [x.strip() for x in raw.split("|") if x.strip()]
         if not parts:
