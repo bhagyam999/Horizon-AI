@@ -142,18 +142,20 @@ def _gif_embed(title, text, gif):
     return e
 
 MEME_TEMPLATE_MAP = {
-    # Existing Horizon command -> real, recognizable meme template.
+    # Horizon command -> a real, renderable meme template.
+    # The commands that do not have a matching Memegen ID use the
+    # custom-background renderer below with a real blank template image.
     "spongebobchicken": "fine",
     "slapcar": "drake",
     "isthisa": "pigeon",
     "drake": "drake",
     "distractedbf": "db",
-    "communismcat": "buzz",
-    "eject": "eject",
-    "emergencymeeting": "drake",
-    "headpat": "success",
-    "tradeoffer": "drake",
-    "waddle": "success",
+    "communismcat": "custom",
+    "eject": "custom",
+    "emergencymeeting": "custom",
+    "headpat": "custom",
+    "tradeoffer": "custom",
+    "waddle": "custom",
 }
 
 MEME_TEMPLATE_LINES = {
@@ -161,9 +163,20 @@ MEME_TEMPLATE_LINES = {
     "db": 3,
     "pigeon": 3,
     "buzz": 2,
-    "eject": 2,
     "fine": 2,
     "success": 2,
+    "custom": 2,
+}
+
+# Real blank meme-template images used when Memegen does not have the
+# requested format. These are public template images, not generated cards.
+MEME_CUSTOM_BACKGROUNDS = {
+    "communismcat": "https://i.imgflip.com/2k1v78.jpg",
+    "eject": "https://i.imgflip.com/4hyywp.jpg",
+    "emergencymeeting": "https://i.imgflip.com/6s1c4g.jpg",
+    "headpat": "https://images.meme-arsenal.com/c2f6da69fe1ede8e323d6fc2f17d50f9.jpg",
+    "tradeoffer": "https://i.imgflip.com/54hjww.jpg",
+    "waddle": "https://i.imgflip.com/7egjgz.png",
 }
 
 def _memegen_escape(value):
@@ -187,22 +200,29 @@ async def _meme(title, parts):
     template = MEME_TEMPLATE_MAP.get(command, command)
     expected = MEME_TEMPLATE_LINES.get(template, 2)
 
-    # If a requested alias is not a real template, use a recognizable fallback
-    # rather than returning a meaningless blank image.
-    known_fallbacks = ["drake", "fine", "success", "buzz"]
+    # Unknown commands still fall back to a known working Memegen template.
     if template not in MEME_TEMPLATE_LINES:
         template = "drake"
+        expected = 2
 
     clean = [str(x).strip() for x in parts if str(x).strip()][:expected]
     if not clean:
         return None
 
-    # Fill missing slots with blank lines. This lets !eject text still produce
-    # a proper meme instead of a blank custom image.
     while len(clean) < expected:
         clean.append("_")
 
     path = "/".join(_memegen_escape(x) for x in clean)
+
+    # Some Horizon meme names are not Memegen IDs. Render those against a
+    # real blank template image instead of returning a broken/empty URL.
+    background = MEME_CUSTOM_BACKGROUNDS.get(command)
+    if template == "custom" and background:
+        return "https://api.memegen.link/images/custom/{}.png?background={}".format(
+            path,
+            urllib.parse.quote(background, safe="")
+        )
+
     return "https://api.memegen.link/images/{}/{}.png".format(template, path)
 
 
