@@ -207,6 +207,17 @@ class Horizon(commands.Bot):
 
     async def on_guild_join(self, guild: discord.Guild):
         await self.db.settings(guild.id)
+
+        # Global slash commands can take time to propagate to a newly added
+        # server. For testing, immediately copy the current command definitions
+        # into the new guild and sync them there.
+        try:
+            self.tree.copy_global_to(guild=guild)
+            await self.tree.sync(guild=guild)
+            log.info("Guild commands synced immediately after joining %s (%s).", guild.name, guild.id)
+        except Exception:
+            log.exception("Could not sync commands for newly joined guild %s (%s). Prefix commands remain available.", guild.name, guild.id)
+
         log.info("Horizon joined guild %s (%s)", guild.name, guild.id)
 
     async def _automated_moderation(self, message: discord.Message):
