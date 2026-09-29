@@ -2085,14 +2085,23 @@ async def prefix_day_end(ctx):
 
 @bot.command(name="kill")
 async def prefix_kill(ctx, member: discord.User = None):
-    # Keep Mafia/Werewolf kill private in DMs; outside a game it is a playful action.
+    # Mafia/Werewolf keeps !kill private in DMs. Outside a hidden-role game,
+    # use the same animated action behavior as the community action command.
     if ctx.guild and not isinstance(ctx.channel, discord.DMChannel):
         try:
             await ctx.message.delete()
         except discord.HTTPException:
             pass
         target = member.mention if member else ctx.author.mention
-        await ctx.send(f"**{ctx.author.display_name}** ⚔️ challenges {target} to a fictional anime duel.")
+        gif = await _get_gif("shoot")
+        embed = _gif_embed(
+            "⚔️ Horizon • Kill",
+            "**{}** takes out {} in a fictional anime battle.".format(
+                ctx.author.display_name, target
+            ),
+            gif,
+        )
+        await ctx.send(embed=embed)
         return
     await _hidden_action(ctx, "kill", member)
 
