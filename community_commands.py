@@ -22,7 +22,7 @@ ACTION_LINES = {
     "punch":"🥊 throws a cartoon pillow punch at {target}.","handholding":"🤝 holds hands with {target}.",
     "tickle":"😂 tickles {target}.","hold":"🫂 holds {target} close.","pats":"🫳🫳 gives {target} several pats.",
     "wave":"👋 waves at {target}.","boop":"👉👃 boops {target}.","snuggle":"🥰 snuggles with {target}.",
-    "bully":"💀 gives {target} a friendship-grade roast.","kill":"⚔️ challenges {target} to a fictional anime duel."
+    "bully":"💀 gives {target} a friendship-grade roast.","kill":"⚔️ takes out {target} in a fictional anime battle."
 }
 EMOTES = {
     "blush":"😊 blushes.","cry":"😭 cries dramatically.","dance":"💃 starts dancing.","lewd":"😳 gets mischievous, then gets bonked by Horizon.",
@@ -91,7 +91,7 @@ ACTION_GIFS = {
     "cuddle":"cuddle","hug":"hug","kiss":"kiss","lick":"blush","nom":"nom","pat":"pat",
     "poke":"poke","slap":"slap","stare":"stare","highfive":"highfive","bite":"bite",
     "greet":"wave","punch":"punch","handholding":"handhold","tickle":"tickle","hold":"cuddle",
-    "pats":"pat","wave":"wave","boop":"pat","snuggle":"cuddle","bully":"bonk","kill":"bonk",
+    "pats":"pat","wave":"wave","boop":"pat","snuggle":"cuddle","bully":"bonk","kill":"shoot",
     "feed":"feed","carry":"carry","bonk":"bonk","comfort":"cuddle","cheer":"happy",
     "protect":"handshake","shield":"handshake","fistbump":"handshake","salute":"salute","bow":"salute",
     "laughwith":"laugh","crywith":"cry","dancewith":"dance",
