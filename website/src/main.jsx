@@ -343,6 +343,8 @@ function AnimePage() {
   const [loading, setLoading] = useState(true);
   const [scene] = useState(() => randomScene('anime'));
   const [notice, setNotice] = useState('');
+  const [session, setSession] = useState(null);
+  const [menu, setMenu] = useState(false);
   const [animeData, setAnimeData] = useState(fallbackAnimeData);
   const [animeLoading, setAnimeLoading] = useState(true);
   const [animeSource, setAnimeSource] = useState('community fallback');
@@ -355,6 +357,12 @@ function AnimePage() {
   });
 
   useEffect(() => { const t = setTimeout(() => setLoading(false), 850); return () => clearTimeout(t); }, []);
+  useEffect(() => {
+    fetch('/api/site/auth-me', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setSession(data?.user || null))
+      .catch(() => {});
+  }, []);
   useEffect(() => { localStorage.setItem('lh-anime-watchlist', JSON.stringify(watchlist)); }, [watchlist]);
   useEffect(() => {
     let cancelled = false;
@@ -407,10 +415,22 @@ function AnimePage() {
     <div className="ambient ambient-cyan" /><div className="ambient ambient-violet" /><div className="grid" />
     <header className="header">
       <a className="brand" href="/" aria-label="Go to Log Horizon home"><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></a>
-      <nav className="nav open" aria-label="Main navigation">
-        <a href="/">Home</a><a href="/#community">Community</a><a className="active" href="/anime">Anime</a><a href="/#events">Events</a><a href="/#games">Games</a><a href="/#horizon-ai">Horizon AI</a>
+      <nav className={menu ? 'nav open' : 'nav'} aria-label="Main navigation">
+        <a href="/" onClick={() => setMenu(false)}>Home</a>
+        <a href="/#community" onClick={() => setMenu(false)}>Community</a>
+        <a className="active" href="/anime" onClick={() => setMenu(false)}>Anime</a>
+        <a href="/#events" onClick={() => setMenu(false)}>Events</a>
+        <a href="/#games" onClick={() => setMenu(false)}>Games</a>
+        <a href="/#horizon-ai" onClick={() => setMenu(false)}>Horizon AI</a>
       </nav>
-      <a className="discord-login" href="/api/site/auth-login"><MessageCircle size={17} /> Continue with Discord</a>
+      <div className="header-actions">
+        <a className="discord-login" href="/api/site/auth-login" aria-label={session ? 'Discord account' : 'Continue with Discord'}>
+          <MessageCircle size={17} /><span>{session ? session.username : 'Continue with Discord'}</span>
+        </a>
+        <button className="menu-btn" onClick={() => setMenu(v => !v)} aria-label={menu ? 'Close menu' : 'Open menu'} aria-expanded={menu}>
+          {menu ? <X /> : <Menu />}
+        </button>
+      </div>
     </header>
     <main>
       <section className="section anime-section anime-page-section" id="anime">
