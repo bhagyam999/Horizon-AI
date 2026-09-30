@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
+from functools import wraps
 import json
 import random
 import time
@@ -1659,6 +1661,87 @@ class RPGService:
     active_duels: dict[tuple[int, int, int], dict[str, Any]] = field(default_factory=dict, init=False, repr=False)
     combat_locks: dict[tuple[int, int], asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
     duel_locks: dict[tuple[int, int, int], asyncio.Lock] = field(default_factory=dict, init=False, repr=False)
+    _global_profile_wrappers: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
+
+    def __getattribute__(self, name):
+        # RPG character/progression is global to a Discord user, not tied to
+        # whichever server happens to invoke the command. The underlying
+        # tables remain guild-keyed for compatibility; this wrapper resolves
+        # the user's canonical RPG guild before calling player-facing methods.
+        if name.startswith("_"):
+            return object.__getattribute__(self, name)
+        attr = object.__getattribute__(self, name)
+        if not callable(attr) or not inspect.iscoroutinefunction(attr):
+            return attr
+        try:
+            sig = inspect.signature(attr)
+        except (TypeError, ValueError):
+            return attr
+        if "guild_id" not in sig.parameters or "user_id" not in sig.parameters:
+            return attr
+        cache = object.__getattribute__(self, "_global_profile_wrappers")
+        if name in cache:
+            return cache[name]
+
+        @wraps(attr)
+        async def global_profile_wrapper(*args, **kwargs):
+            bound = sig.bind_partial(*args, **kwargs)
+            if "guild_id" in bound.arguments and "user_id" in bound.arguments:
+                requested_guild = bound.arguments["guild_id"]
+                user_id = bound.arguments["user_id"]
+                bound.arguments["guild_id"] = await self._resolve_global_rpg_guild(
+                    int(user_id), int(requested_guild)
+                )
+                return await attr(*bound.args, **bound.kwargs)
+            return await attr(*args, **kwargs)
+
+        cache[name] = global_profile_wrapper
+        return global_profile_wrapper
+
+    async def _resolve_global_rpg_guild(self, user_id: int, requested_guild: int) -> int:
+        # One persistent mapping makes the same RPG character follow the user
+        # across every server where Horizon is installed.
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                "CREATE TABLE IF NOT EXISTS rpg_global_profiles ("
+                "user_id INTEGER PRIMARY KEY, home_guild_id INTEGER NOT NULL, "
+                "updated_at REAL NOT NULL DEFAULT 0)"
+            )
+            cur = await db.execute(
+                "SELECT home_guild_id FROM rpg_global_profiles WHERE user_id=?",
+                (user_id,),
+            )
+            row = await cur.fetchone()
+            if row:
+                home = int(row[0])
+                check = await db.execute(
+                    "SELECT 1 FROM rpg_players WHERE guild_id=? AND user_id=? LIMIT 1",
+                    (home, user_id),
+                )
+                if await check.fetchone():
+                    return home
+                await db.execute(
+                    "DELETE FROM rpg_global_profiles WHERE user_id=?", (user_id,)
+                )
+
+            # Existing characters are adopted automatically. Prefer the most
+            # progressed profile so an accidental test-server character cannot
+            # replace the established character in the main server.
+            cur = await db.execute(
+                "SELECT guild_id FROM rpg_players WHERE user_id=? "
+                "ORDER BY level DESC, xp DESC, gold DESC, gems DESC, guild_id ASC LIMIT 1",
+                (user_id,),
+            )
+            row = await cur.fetchone()
+            home = int(row[0]) if row else int(requested_guild)
+            await db.execute(
+                "INSERT INTO rpg_global_profiles(user_id,home_guild_id,updated_at) "
+                "VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET "
+                "home_guild_id=excluded.home_guild_id, updated_at=excluded.updated_at",
+                (user_id, home, time.time()),
+            )
+            await db.commit()
+            return home
 
     async def setup(self):
         async with aiosqlite.connect(self.path) as db:
