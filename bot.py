@@ -572,33 +572,37 @@ class Horizon(commands.Bot):
         if member.bot or not member.guild:
             return
         settings = await self.db.settings(member.guild.id)
+        multi = await self.db.multi_settings(member.guild.id)
+        join_roles = multi.get("join_role_ids", [])
+        me = member.guild.me
 
-        join_role_id = int(settings.get("join_role_id") or 0)
-        if join_role_id:
+        if me and me.guild_permissions.manage_roles:
+            for join_role_id in join_roles:
                 role = member.guild.get_role(int(join_role_id))
-                if role and not role.is_default() and not role.managed and me and role < me.top_role:
+                if role and not role.is_default() and not role.managed and role < me.top_role:
                     try:
                         await member.add_roles(role, reason="Horizon automatic join role")
                     except (discord.Forbidden, discord.HTTPException):
                         log.exception("Could not assign join role %s in guild %s", join_role_id, member.guild.id)
 
-        if int(settings.get("welcome_enabled", 1) or 0) and int(settings.get("welcome_channel_id") or 0):
-            channel = member.guild.get_channel(int(settings["welcome_channel_id"]))
-            if channel:
-                template = str(settings.get("welcome_message") or "Welcome to **{server}**, {mention}!")
-                try:
-                    content = template.format(
-                        server=member.guild.name,
-                        mention=member.mention,
-                        username=member.display_name,
-                        member_count=member.guild.member_count or 0,
-                    )
-                except Exception:
-                    content = f"Welcome to **{member.guild.name}**, {member.mention}!"
-                try:
-                    await channel.send(content[:2000])
-                except discord.HTTPException:
-                    pass
+        if int(settings.get("welcome_enabled", 1) or 0):
+            template = str(settings.get("welcome_message") or "Welcome to **{server}**, {mention}!")
+            try:
+                content = template.format(
+                    server=member.guild.name,
+                    mention=member.mention,
+                    username=member.display_name,
+                    member_count=member.guild.member_count or 0,
+                )
+            except Exception:
+                content = f"Welcome to **{member.guild.name}**, {member.mention}!"
+            for channel_id in multi.get("welcome_channel_ids", []):
+                channel = member.guild.get_channel(int(channel_id))
+                if channel:
+                    try:
+                        await channel.send(content[:2000])
+                    except discord.HTTPException:
+                        pass
 
     async def apply_level_rewards(self, member: discord.Member, level: int):
         """Give every configured level reward the member has earned."""
