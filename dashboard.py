@@ -950,6 +950,12 @@ class Dashboard:
             {"id":"forge","title":"Character Forge","category":["CREATIVE"],"status":"COMING SOON","text":"Build your own fictional character and share it with the community.","action":"Coming Soon"},
             {"id":"arena","title":"Horizon Arena","category":["COMPETITIVE"],"status":"COMING SOON","text":"A small competitive arena built for Log Horizon members.","action":"Coming Soon"},
             {"id":"browser","title":"Browser Game Hub","category":["CASUAL","COMMUNITY"],"status":"COMING SOON","text":"A rotating collection of lightweight games for community nights.","action":"Coming Soon"}
+        ],
+        "leaderboard": [
+            {"id":"community-leaderboard","name":"Community leaderboard","score":"—","status":"AWAITING DATA"},
+            {"id":"competitive-records","name":"Competitive records","score":"—","status":"AWAITING DATA"},
+            {"id":"event-achievements","name":"Event achievements","score":"—","status":"AWAITING DATA"},
+            {"id":"game-scores","name":"Game scores","score":"—","status":"AWAITING DATA"}
         ]
     }
 
