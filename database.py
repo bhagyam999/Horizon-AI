@@ -16,6 +16,13 @@ class Database:
                 log_channel_id INTEGER DEFAULT 0,
                 welcome_channel_id INTEGER DEFAULT 0,
                 announcement_channel_id INTEGER DEFAULT 0,
+                join_role_id INTEGER DEFAULT 0,
+                welcome_enabled INTEGER DEFAULT 1,
+                welcome_message TEXT DEFAULT 'Welcome to **{server}**, {mention}! You are member #{member_count}.',
+                leveling_enabled INTEGER DEFAULT 1,
+                leveling_xp_min INTEGER DEFAULT 10,
+                leveling_xp_max INTEGER DEFAULT 15,
+                leveling_cooldown INTEGER DEFAULT 60,
                 prefix TEXT DEFAULT '!',
                 mod_enabled INTEGER DEFAULT 1,
                 mod_action INTEGER DEFAULT 1,
@@ -144,11 +151,21 @@ class Database:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
             ''')
-            # Existing persistent databases need the new prefix column too.
-            try:
-                await db.execute("ALTER TABLE settings ADD COLUMN prefix TEXT DEFAULT '!'")
-            except Exception:
-                pass
+            # Existing persistent databases need the dashboard-configurable settings too.
+            for column, definition in [
+                ("join_role_id", "INTEGER DEFAULT 0"),
+                ("welcome_enabled", "INTEGER DEFAULT 1"),
+                ("welcome_message", "TEXT DEFAULT 'Welcome to **{server}**, {mention}! You are member #{member_count}.'"),
+                ("leveling_enabled", "INTEGER DEFAULT 1"),
+                ("leveling_xp_min", "INTEGER DEFAULT 10"),
+                ("leveling_xp_max", "INTEGER DEFAULT 15"),
+                ("leveling_cooldown", "INTEGER DEFAULT 60"),
+                ("prefix", "TEXT DEFAULT '!'")
+            ]:
+                try:
+                    await db.execute(f"ALTER TABLE settings ADD COLUMN {column} {definition}")
+                except Exception:
+                    pass
 
             # One-time migration from the old 100-XP-per-level curve to the
             # new slow Arcane-style cumulative curve. This preserves each
@@ -199,7 +216,7 @@ class Database:
             return dict(await cur.fetchone())
 
     async def set_setting(self, guild_id, key, value):
-        allowed = {'ai_channel_id','log_channel_id','welcome_channel_id','announcement_channel_id','prefix','mod_enabled','mod_action','personality'}
+        allowed = {'ai_channel_id','log_channel_id','welcome_channel_id','announcement_channel_id','join_role_id','welcome_enabled','welcome_message','leveling_enabled','leveling_xp_min','leveling_xp_max','leveling_cooldown','prefix','mod_enabled','mod_action','personality'}
         if key not in allowed:
             raise ValueError(f'Unknown setting: {key}')
         async with aiosqlite.connect(self.path) as db:
