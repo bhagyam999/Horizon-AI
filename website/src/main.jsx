@@ -65,13 +65,17 @@ function LoadingScreen({scene,onDone}){
 function App(){
   const [loading,setLoading]=useState(true), [scene,setScene]=useState(()=>randomScene()), [view,setView]=useState('home');
   const [menu,setMenu]=useState(false), [modal,setModal]=useState(null), [notice,setNotice]=useState(''), [session,setSession]=useState(null);
+  const [content,setContent]=useState({events:eventData,games:gameData,hall:champions});
   const [eventFilter,setEventFilter]=useState('ALL'), [gameFilter,setGameFilter]=useState('ALL'), [query,setQuery]=useState(''); const [aiOpen,setAiOpen]=useState(false);
 
   const notify=useCallback((msg)=>{setNotice(msg);setTimeout(()=>setNotice(''),2200)},[]);
   const navigate=useCallback((next,preferred)=>{setMenu(false);setView(next);setScene(randomScene(preferred));setLoading(true);window.history.replaceState({},'',next==='home'?'/':`/#${next}`)},[]);
 
   useEffect(()=>{
-    fetch('/api/site/auth-me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user || null)).catch(()=>{});
+    fetch('/api/site/auth-me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user ? {...data.user, admin:Boolean(data.admin)} : null)).catch(()=>{});
+    fetch('/api/site/content', {credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():null).then(data=>{
+      if(data) setContent({events:Array.isArray(data.events)&&data.events.length?data.events:eventData,games:Array.isArray(data.games)&&data.games.length?data.games:gameData,hall:Array.isArray(data.hall)&&data.hall.length?data.hall:champions});
+    }).catch(()=>{});
     const params=new URLSearchParams(window.location.search);
     const authResult=params.get('discord');
     if(authResult==='success') notify('Discord connected successfully.');
@@ -84,16 +88,16 @@ function App(){
 
   const eventFilters=['ALL','GAMING','TOURNAMENTS','ANIME','CREATIVE','SOCIAL','COMMUNITY'];
   const gameFilters=['ALL','COMPETITIVE','CASUAL','ANIME','CARD','QUIZ','CREATIVE'];
-  const visibleEvents=useMemo(()=>eventData.filter(e=>eventFilter==='ALL'||e.category===eventFilter||e.sub.toUpperCase()===eventFilter),[eventFilter]);
-  const visibleGames=useMemo(()=>gameData.filter(g=>gameFilter==='ALL'||g.category.includes(gameFilter)),[gameFilter]);
-  const searchEvents=useMemo(()=>eventData.filter(e=>(e.title+' '+e.category+' '+e.sub).toLowerCase().includes(query.toLowerCase())),[query]);
+  const visibleEvents=useMemo(()=>content.events.filter(e=>eventFilter==='ALL'||e.category===eventFilter||e.sub.toUpperCase()===eventFilter),[eventFilter]);
+  const visibleGames=useMemo(()=>content.games.filter(g=>gameFilter==='ALL'||g.category.includes(gameFilter)),[gameFilter]);
+  const searchEvents=useMemo(()=>content.events.filter(e=>(e.title+' '+e.category+' '+e.sub).toLowerCase().includes(query.toLowerCase())),[query]);
 
   if(loading) return <LoadingScreen scene={scene} onDone={()=>setLoading(false)}/>;
 
   return <div className="app"><div className="ambient ambient-cyan"/><div className="ambient ambient-violet"/><div className="grid"/>
     <header className="header">
       <button className="brand" onClick={()=>navigate('home')}><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></button>
-      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}</nav>
+      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}{session?.admin&&<a className="admin-nav" href="/admin">Admin</a>}</nav>
       <div className="header-actions">
         <button className="horizon-ai-trigger" onClick={()=>setAiOpen(true)} aria-label="Open Horizon AI"><Bot size={15}/><span>HORIZON AI</span></button>
         {session ? <button className="profile-chip" onClick={()=>notify(`Connected as ${session.username}`)}><span className="profile-dot"/>{session.username}</button> : <button className="discord-login" onClick={()=>window.location.href='/api/site/auth-login'}><MessageCircle size={16}/> Continue with Discord</button>}
@@ -106,7 +110,7 @@ function App(){
       {view==='community' && <Community navigate={navigate} session={session}/>} 
       {view==='events' && <Events filters={eventFilters} filter={eventFilter} setFilter={setEventFilter} events={visibleEvents} search={query} setSearch={setQuery} searchResults={searchEvents} openModal={setModal} navigate={navigate}/>} 
       {view==='games' && <Games filters={gameFilters} filter={gameFilter} setFilter={setGameFilter} games={visibleGames} openModal={setModal}/>} 
-      {view==='hall' && <HallOfFame openModal={setModal} navigate={navigate}/>} 
+      {view==='hall' && <HallOfFame champions={content.hall} openModal={setModal} navigate={navigate}/>} 
     </main>
 
     <button className="floating-ai" onClick={()=>setAiOpen(true)} aria-label="Open Horizon AI"><span className="floating-ai-pulse"/><Bot size={17}/><span>ASK HORIZON</span></button>
@@ -244,7 +248,7 @@ function Games({filters,filter,setFilter,games,openModal}){return <section class
   <section className="section leaderboard"><div className="section-heading"><div><span className="eyebrow">COMMUNITY LEADERBOARD</span><h2>Names worth remembering.</h2></div><span className="status-pill">SYSTEM COMING SOON</span></div><div className="leader-table"><div className="leader-head"><span>PLAYER</span><span>SCORE</span><span>STATUS</span></div>{['Community leaderboard','Competitive records','Event achievements','Game scores'].map((x,i)=><div className="leader-row" key={x}><span><span className="rank-box">0{i+1}</span>{x}</span><span>—</span><span>AWAITING DATA</span></div>)}</div></section>
 </section>}
 
-function HallOfFame({openModal,navigate}){return <section className="page-shell"><PageHero eyebrow="HORIZON ARCHIVE" title={<>HALL OF<br/><em>FAME.</em></>} text="Those who made their mark on Log Horizon. Tournament records, champions and achievements preserved for the community." actions={<button className="btn primary" onClick={()=>document.getElementById('archive')?.scrollIntoView({behavior:'smooth'})}>Open the archive <ArrowRight/></button>}/>
+function HallOfFame({openModal,navigate,champions}){return <section className="page-shell"><PageHero eyebrow="HORIZON ARCHIVE" title={<>HALL OF<br/><em>FAME.</em></>} text="Those who made their mark on Log Horizon. Tournament records, champions and achievements preserved for the community." actions={<button className="btn primary" onClick={()=>document.getElementById('archive')?.scrollIntoView({behavior:'smooth'})}>Open the archive <ArrowRight/></button>}/>
   <section className="champion-feature"><div className="crown-stage"><div className="archive-ring"/><Crown size={56}/><span>1ST PLACE</span></div><div><span className="eyebrow">CURRENT CHAMPION RECORD</span><h2>Champion to be recorded.</h2><p>The Hall of Fame is live, but names are intentionally left blank until official tournament results are entered.</p><div className="achievement-row"><span><Crown/> TOURNAMENT WINNER</span><span><Medal/> HALL OF FAME MEMBER</span></div></div></section>
   <section className="section inner-section" id="archive"><div className="section-heading"><div><span className="eyebrow">TOURNAMENT ARCHIVE</span><h2>Champions remembered.</h2></div><button className="text-link" onClick={()=>navigate('events')}>View events <ArrowRight/></button></div><div className="hof-table"><div className="hof-head"><span>TOURNAMENT</span><span>WINNER</span><span>PLACE</span><span>DATE</span></div>{champions.map(c=><div className="hof-row" key={c.tournament}><span>{c.tournament}</span><span>{c.winner}</span><span className="place"><Crown size={15}/>{c.place}</span><span>{c.date}</span></div>)}</div></section>
   <section className="section achievements"><div className="section-heading"><div><span className="eyebrow">ACHIEVEMENTS</span><h2>Earned, not assigned.</h2></div></div><div className="achievement-grid"><InfoCard icon={<Crown/>} title="First Champion" text="Awarded to the first official tournament winner."/><InfoCard icon={<Trophy/>} title="Tournament Winner" text="A permanent achievement for an official win."/><InfoCard icon={<Medal/>} title="2× Champion" text="Unlocked after two recorded tournament victories."/><InfoCard icon={<Sparkles/>} title="Event Legend" text="A future community achievement for standout participation."/></div></section>
@@ -463,6 +467,75 @@ function AnimeModal({ anime, saved, onSave, onClose }) {
 }
 
 
+
+function AdminPage(){
+  const [loading,setLoading]=useState(true);
+  const [auth,setAuth]=useState(null);
+  const [section,setSection]=useState('events');
+  const [items,setItems]=useState([]);
+  const [notice,setNotice]=useState('');
+  const [busy,setBusy]=useState(false);
+  const notify=useCallback(msg=>{setNotice(msg);setTimeout(()=>setNotice(''),2500)},[]);
+  const load=useCallback(async()=>{
+    setLoading(true);
+    try{
+      const me=await fetch('/api/site/auth-me',{credentials:'include',cache:'no-store'}).then(r=>r.json());
+      setAuth(me);
+      if(!me.user||!me.admin){setLoading(false);return;}
+      const data=await fetch('/api/site/admin/content',{credentials:'include',cache:'no-store'}).then(async r=>{const x=await r.json();if(!r.ok)throw new Error(x.error||'Admin access denied');return x;});
+      setItems(data.content?.[section]||[]);
+    }catch(e){notify(e.message||'Could not load admin data.')}
+    finally{setLoading(false)}
+  },[section,notify]);
+  useEffect(()=>{load()},[load]);
+  const updateItem=(index,key,value)=>setItems(current=>current.map((item,i)=>i===index?{...item,[key]:value}:item));
+  const addItem=()=>{
+    const base=section==='events'
+      ? {id:'event-'+Date.now(),title:'New Event',category:'COMMUNITY',sub:'Event',date:'Date to be announced',status:'UPCOMING',description:'Add the event description here.',participants:'OPEN',rules:['Add event rules here.']}
+      : section==='hall'
+      ? {id:'hall-'+Date.now(),tournament:'Tournament name',winner:'Winner name',place:'1ST',date:'Date'}
+      : {id:'game-'+Date.now(),title:'New Game',category:['COMMUNITY'],status:'COMING SOON',text:'Describe the game here.',action:'Coming Soon'};
+    setItems(current=>[...current,base]);
+  };
+  const removeItem=index=>setItems(current=>current.filter((_,i)=>i!==index));
+  const save=async()=>{
+    setBusy(true);
+    try{
+      const r=await fetch('/api/site/admin/content/'+section,{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})});
+      const data=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(data.error||'Save failed');
+      setItems(data.items||items);notify(section.toUpperCase()+' saved.');
+    }catch(e){notify(e.message||'Save failed.')}finally{setBusy(false)}
+  };
+  if(loading)return <div className="admin-gate"><div><span className="eyebrow">HORIZON ADMIN</span><h1>Opening control center…</h1><p>Checking your Discord permissions.</p></div></div>;
+  if(!auth?.user)return <div className="admin-gate"><div><span className="eyebrow">HORIZON ADMIN</span><h1>Discord login required.</h1><p>Only Log Horizon administrators can manage the website.</p><a className="btn primary" href="/api/site/auth-login">Continue with Discord <ArrowRight/></a><a className="text-link" href="/">Return to website</a></div></div>;
+  if(!auth.admin)return <div className="admin-gate"><div><span className="eyebrow">ACCESS DENIED</span><h1>Administrator permission required.</h1><p>Your Discord account is connected, but this control center is restricted to Discord server administrators.</p><a className="btn secondary" href="/">Return to Log Horizon <ArrowRight/></a></div></div>;
+  return <div className="admin-app">
+    <header className="admin-header"><a className="brand" href="/"><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></a><div><span className="admin-badge">ADMIN CONTROL CENTER</span><a className="text-link" href="/">View website <ExternalLink size={14}/></a></div></header>
+    <main className="admin-main">
+      <section className="admin-hero"><div><span className="eyebrow">HORIZON / WEBSITE ADMIN</span><h1>Control the world.</h1><p>Manage the content shown on the Log Horizon website without editing code.</p></div><div className="admin-user"><span className="live-dot"/> Signed in as <b>{auth.user.global_name||auth.user.username}</b></div></section>
+      <div className="admin-tabs">{[['events','Events'],['hall','Hall of Fame'],['games','Games']].map(([id,label])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}>{label}</button>)}</div>
+      <section className="admin-editor">
+        <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} entries</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add entry</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
+        <div className="admin-list">{items.map((item,index)=><AdminEditorItem key={item.id||index} section={section} item={item} index={index} update={updateItem} remove={()=>removeItem(index)}/>)}</div>
+      </section>
+    </main>
+    {notice&&<div className="toast">{notice}</div>}
+  </div>;
+}
+
+function AdminEditorItem({section,item,index,update,remove}){
+  const field=(key,label,type='text')=><label className="admin-field"><span>{label}</span>{type==='textarea'?<textarea value={item[key]??''} onChange={e=>update(index,key,e.target.value)} rows="3"/>:<input value={Array.isArray(item[key])?item[key].join(', '):(item[key]??'')} onChange={e=>update(index,key,type==='array'?e.target.value.split(',').map(x=>x.trim()).filter(Boolean):e.target.value)}/>}</label>;
+  return <article className="admin-item"><div className="admin-item-top"><span className="admin-index">#{String(index+1).padStart(2,'0')}</span><button className="admin-delete" onClick={remove}>Remove</button></div><div className="admin-fields">
+    {field('id','ID')}
+    {section==='hall'
+      ? <>{field('tournament','Tournament')}{field('winner','Winner / Member name')}{field('place','Place')}{field('date','Date')}</>
+      : section==='events'
+      ? <>{field('title','Event title')}{field('category','Category')}{field('sub','Type / subtitle')}{field('date','Date / time')}{field('status','Status')}{field('participants','Registration status')}{field('description','Description','textarea')}{field('rules','Rules (comma separated)','array')}</>
+      : <>{field('title','Game title')}{field('category','Categories (comma separated)','array')}{field('status','Status')}{field('text','Description','textarea')}{field('action','Button text')}</>}
+  </div></article>;
+}
+
 function PageHero({eyebrow,title,text,actions}){return <section className="page-hero"><div className="page-hero-art"><div className="hero-orbit"/><div className="hero-orbit second"/></div><div className="page-hero-copy"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p>{actions&&<div className="hero-actions">{actions}</div>}</div></section>}
 function Stat({n,t}){return <div><strong>{n}</strong><span>{t}</span></div>}
 function Feature({icon,tag,title,text,special,onClick}){return <button className={`feature ${special?'special':''}`} onClick={onClick}><div className="feature-icon">{icon}</div><span className="eyebrow">{tag}</span><h3>{title}</h3><p>{text}</p><ArrowRight className="feature-arrow" size={19}/></button>}
@@ -473,4 +546,7 @@ function Empty({text}){return <div className="empty"><Filter size={18}/>{text}</
 function Modal({item,close,notify,session}){return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button><span className="eyebrow">{item.category||'LOG HORIZON'}</span><h2>{item.title}</h2><p>{item.description||item.text}</p>{item.date&&<div className="modal-meta"><span><CalendarDays/>{item.date}</span><span><Users/>{item.participants}</span></div>}<h3>Details</h3><ul>{(item.rules||['This feature is ready for the next integration step.']).map((r,i)=><li key={i}>{r}</li>)}</ul><div className="modal-actions">{item.status!=='PAST'&&<button className="btn primary" onClick={()=>notify(session?'Registration flow ready for backend.':'Connect Discord to register for member events.')}>{session?'Register interest':'Continue with Discord'} <ArrowRight/></button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div>}
 
 
-createRoot(document.getElementById('root')).render(window.location.pathname.replace(/\/$/, '') === '/anime' ? <AnimePage /> : <App />);
+createRoot(document.getElementById('root')).render(
+  window.location.pathname.replace(/\/$/, '') === '/anime' ? <AnimePage /> :
+  window.location.pathname.replace(/\/$/, '') === '/admin' ? <AdminPage /> : <App />
+);
