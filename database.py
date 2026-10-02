@@ -155,6 +155,14 @@ class Database:
                 reason TEXT NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS site_content (
+                guild_id INTEGER NOT NULL,
+                section TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '[]',
+                updated_by INTEGER DEFAULT 0,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (guild_id, section)
+            );
             ''')
             # Existing persistent databases need the dashboard-configurable settings too.
             for column, definition in [
@@ -518,6 +526,31 @@ class Database:
         async with aiosqlite.connect(self.path) as db:
             cur = await db.execute('SELECT id,title,description,reward_xp,reward_coins FROM quests WHERE guild_id=? ORDER BY id DESC', (guild_id,))
             return await cur.fetchall()
+
+    async def site_content(self, guild_id, section, default=None):
+        import json
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute('SELECT content FROM site_content WHERE guild_id=? AND section=?', (int(guild_id), str(section)))
+            row = await cur.fetchone()
+        if not row:
+            return default if default is not None else []
+        try:
+            return json.loads(row[0])
+        except Exception:
+            return default if default is not None else []
+
+    async def set_site_content(self, guild_id, section, content, updated_by=0):
+        import json
+        payload = json.dumps(content, ensure_ascii=False)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                '''INSERT INTO site_content(guild_id,section,content,updated_by,updated_at)
+                   VALUES(?,?,?,?,CURRENT_TIMESTAMP)
+                   ON CONFLICT(guild_id,section) DO UPDATE SET
+                     content=excluded.content, updated_by=excluded.updated_by, updated_at=CURRENT_TIMESTAMP''',
+                (int(guild_id), str(section), payload, int(updated_by or 0))
+            )
+            await db.commit()
 
     async def create_event(self, guild_id, channel_id, title, description, starts, created_by):
         async with aiosqlite.connect(self.path) as db:
