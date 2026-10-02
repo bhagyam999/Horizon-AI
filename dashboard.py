@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import aiohttp
+import discord
 from aiohttp import web
 
 log = logging.getLogger("horizon.dashboard")
