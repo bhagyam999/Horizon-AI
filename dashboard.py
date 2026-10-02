@@ -858,7 +858,22 @@ class Dashboard:
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.post("https://discord.com/api/v10/oauth2/token",data=data) as token_response:
                     token=await token_response.json(content_type=None)
-                    if token_response.status>=400: raise RuntimeError("Discord OAuth token exchange failed")
+                    if token_response.status>=400:
+                        # Keep the browser message generic, but record Discord's
+                        # non-secret error details so OAuth misconfiguration can
+                        # be diagnosed from Railway without exposing credentials.
+                        error_code = token.get("error") if isinstance(token, dict) else None
+                        error_description = token.get("error_description") if isinstance(token, dict) else None
+                        log.error(
+                            "Discord OAuth token exchange rejected: status=%s error=%s description=%s redirect_uri=%s client_id_present=%s client_secret_present=%s",
+                            token_response.status,
+                            error_code,
+                            error_description,
+                            self._redirect_uri(request),
+                            bool(os.getenv("DISCORD_CLIENT_ID", "").strip()),
+                            bool(os.getenv("DISCORD_CLIENT_SECRET", "").strip()),
+                        )
+                        raise RuntimeError("Discord OAuth token exchange failed")
                 headers={"Authorization":f"Bearer {token['access_token']}"}
                 async with session.get("https://discord.com/api/v10/users/@me",headers=headers) as user_response:
                     user=await user_response.json(content_type=None)
