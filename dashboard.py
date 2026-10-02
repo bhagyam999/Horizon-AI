@@ -246,11 +246,12 @@ class Dashboard:
     async def dashboard_leveling(self, request):
         guild, member = await self._dashboard_member(request)
         rows = await self.bot.db.level_rewards(guild.id)
+        settings = await self.bot.db.settings(guild.id)
         return web.json_response({
-            "enabled": True,
-            "xp_min": 10,
-            "xp_max": 15,
-            "cooldown": 60,
+            "enabled": bool(int(settings.get("leveling_enabled", 1) or 0)),
+            "xp_min": int(settings.get("leveling_xp_min", 10) or 10),
+            "xp_max": int(settings.get("leveling_xp_max", 15) or 15),
+            "cooldown": int(settings.get("leveling_cooldown", 60) or 60),
             "max_level": 200,
             "rewards": [{"level": int(r[0]), "role_id": str(r[1]), "role_name": guild.get_role(int(r[1])).name if guild.get_role(int(r[1])) else "Deleted role"} for r in rows],
         })
