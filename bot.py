@@ -365,6 +365,18 @@ class Horizon(commands.Bot):
                 await self.xp_message(message)
             except Exception:
                 log.exception("Normal leveling failed")
+            try:
+                multi = await self.db.multi_settings(message.guild.id)
+                ai_channels = {int(x) for x in multi.get("ai_channel_ids", [])}
+                settings_now = await self.db.settings(message.guild.id)
+                prefix = str(settings_now.get("prefix") or "!")
+                if message.channel.id in ai_channels and message.content.strip() and not message.content.lstrip().startswith(prefix):
+                    async with message.channel.typing():
+                        answer = await ai_reply(message.guild.id, message.author.id, message.author.display_name, message.content.strip(), message.channel.id)
+                    for chunk in split_text(answer):
+                        await message.channel.send(chunk)
+            except Exception:
+                log.exception("Automatic AI channel response failed")
         await self.process_commands(message)
 
     async def on_ready(self):
