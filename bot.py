@@ -257,7 +257,7 @@ class Horizon(commands.Bot):
         if not message.guild or message.author.bot:
             return
         settings=await self.db.settings(message.guild.id)
-        if str(settings.get("moderation_enabled","1")).lower() in {"0","false","off","no"}:
+        if not int(settings.get("mod_enabled", 1) or 0):
             return
         member=message.author if isinstance(message.author,discord.Member) else message.guild.get_member(message.author.id)
         if member and (member.guild_permissions.administrator or member.guild_permissions.manage_guild or member.guild_permissions.manage_messages):
@@ -300,20 +300,31 @@ class Horizon(commands.Bot):
         category_counts=Counter(str(v.get("category","other")) for v in strong if str(v.get("category","other"))!="none")
         ai_action=action_counts.most_common(1)[0][0] if action_counts and action_counts.most_common(1)[0][1]>=2 else "allow"
         ai_category=category_counts.most_common(1)[0][0] if category_counts else (decision.category or "other")
-        should_delete=ai_action=="delete" or (decision.score>=7 and decision.target)
-        should_timeout=ai_action=="timeout" or (decision.score>=8 and decision.target)
+        configured_action=int(settings.get("mod_action",1) or 1)
+        # Dashboard/command setting controls the maximum automatic response:
+        # 0 = log only, 1 = warning, 2 = timeout. Message deletion remains
+        # limited to strong AI/local detections.
+        should_flag = ai_action=="flag"
+        should_delete = ai_action=="delete" or (decision.score>=7 and decision.target)
+        should_timeout = (ai_action=="timeout" or (decision.score>=8 and decision.target)) and configured_action >= 2
+        should_warn = (should_flag or should_delete or should_timeout) and configured_action >= 1
 
-        if not should_delete and not should_timeout:
-            if ai_action=="flag":
-                await self.db.add_warning(
-                    message.guild.id,message.author.id,self.user.id,
-                    f"AI moderation flag: {ai_category}"
-                )
+        if configured_action == 0:
+            should_delete = False
+            should_timeout = False
+            should_warn = False
+
+        if not should_delete and not should_timeout and not should_warn:
             return
 
         try:
             if should_delete:
                 await message.delete(reason=f"Horizon AI moderation: {ai_category}")
+            if should_warn:
+                await self.db.add_warning(
+                    message.guild.id,message.author.id,self.user.id,
+                    f"Automatic moderation: {ai_category}"
+                )
             if should_timeout and member:
                 try:
                     await member.timeout(
@@ -322,10 +333,6 @@ class Horizon(commands.Bot):
                     )
                 except (discord.Forbidden,discord.HTTPException):
                     pass
-            await self.db.add_warning(
-                message.guild.id,message.author.id,self.user.id,
-                f"Automatic moderation: {ai_category}"
-            )
         except (discord.NotFound,discord.Forbidden,discord.HTTPException):
             pass
 
@@ -334,7 +341,11 @@ class Horizon(commands.Bot):
             channel=self.get_channel(log_channel_id)
             if channel:
                 try:
-                    action="timeout + delete" if should_timeout else "delete"
+                    actions=[]
+                    if should_delete: actions.append("delete")
+                    if should_warn: actions.append("warn")
+                    if should_timeout: actions.append("timeout")
+                    action=" + ".join(actions) or "log"
                     await channel.send(
                         f"🛡️ **Horizon Auto-Mod** | {message.author.mention} in {message.channel.mention}\n"
                         f"Action: **{action}** • Category: **{ai_category}**\n"
