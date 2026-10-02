@@ -997,7 +997,7 @@ class Dashboard:
                 continue
             cleaned.append({str(k): v for k, v in item.items() if str(k) in {
                 "id","title","category","sub","date","status","description","participants","rules",
-                "tournament","winner","place","text","action"
+                "tournament","winner","place","text","action","name","score"
             }})
         await self.bot.db.set_site_content(guild.id, section, cleaned, member.id)
         return web.json_response({"ok":True,"section":section,"items":cleaned})
