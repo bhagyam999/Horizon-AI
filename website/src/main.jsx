@@ -65,7 +65,7 @@ function LoadingScreen({scene,onDone}){
 function App(){
   const [loading,setLoading]=useState(true), [scene,setScene]=useState(()=>randomScene()), [view,setView]=useState('home');
   const [menu,setMenu]=useState(false), [modal,setModal]=useState(null), [notice,setNotice]=useState(''), [session,setSession]=useState(null);
-  const [content,setContent]=useState({events:eventData,games:gameData,hall:champions});
+  const [content,setContent]=useState({events:eventData,games:gameData,hall:champions,leaderboard:[{id:'community-leaderboard',name:'Community leaderboard',score:'—',status:'AWAITING DATA'},{id:'competitive-records',name:'Competitive records',score:'—',status:'AWAITING DATA'},{id:'event-achievements',name:'Event achievements',score:'—',status:'AWAITING DATA'},{id:'game-scores',name:'Game scores',score:'—',status:'AWAITING DATA'}]});
   const [eventFilter,setEventFilter]=useState('ALL'), [gameFilter,setGameFilter]=useState('ALL'), [query,setQuery]=useState(''); const [aiOpen,setAiOpen]=useState(false);
 
   const notify=useCallback((msg)=>{setNotice(msg);setTimeout(()=>setNotice(''),2200)},[]);
@@ -74,7 +74,7 @@ function App(){
   useEffect(()=>{
     fetch('/api/site/auth-me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user ? {...data.user, admin:Boolean(data.admin)} : null)).catch(()=>{});
     fetch('/api/site/content', {credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():null).then(data=>{
-      if(data) setContent({events:Array.isArray(data.events)&&data.events.length?data.events:eventData,games:Array.isArray(data.games)&&data.games.length?data.games:gameData,hall:Array.isArray(data.hall)&&data.hall.length?data.hall:champions});
+      if(data) setContent({events:Array.isArray(data.events)&&data.events.length?data.events:eventData,games:Array.isArray(data.games)&&data.games.length?data.games:gameData,hall:Array.isArray(data.hall)&&data.hall.length?data.hall:champions,leaderboard:Array.isArray(data.leaderboard)&&data.leaderboard.length?data.leaderboard:[]});
     }).catch(()=>{});
     const params=new URLSearchParams(window.location.search);
     const authResult=params.get('discord');
@@ -88,9 +88,9 @@ function App(){
 
   const eventFilters=['ALL','GAMING','TOURNAMENTS','ANIME','CREATIVE','SOCIAL','COMMUNITY'];
   const gameFilters=['ALL','COMPETITIVE','CASUAL','ANIME','CARD','QUIZ','CREATIVE'];
-  const visibleEvents=useMemo(()=>content.events.filter(e=>eventFilter==='ALL'||e.category===eventFilter||e.sub.toUpperCase()===eventFilter),[eventFilter]);
-  const visibleGames=useMemo(()=>content.games.filter(g=>gameFilter==='ALL'||g.category.includes(gameFilter)),[gameFilter]);
-  const searchEvents=useMemo(()=>content.events.filter(e=>(e.title+' '+e.category+' '+e.sub).toLowerCase().includes(query.toLowerCase())),[query]);
+  const visibleEvents=useMemo(()=>content.events.filter(e=>eventFilter==='ALL'||e.category===eventFilter||String(e.sub||'').toUpperCase()===eventFilter),[eventFilter,content.events]);
+  const visibleGames=useMemo(()=>content.games.filter(g=>gameFilter==='ALL'||(Array.isArray(g.category)?g.category:[]).includes(gameFilter)),[gameFilter,content.games]);
+  const searchEvents=useMemo(()=>content.events.filter(e=>(e.title+' '+e.category+' '+e.sub).toLowerCase().includes(query.toLowerCase())),[query,content.events]);
 
   if(loading) return <LoadingScreen scene={scene} onDone={()=>setLoading(false)}/>;
 
@@ -109,7 +109,7 @@ function App(){
       {view==='home' && <Home navigate={navigate} openModal={setModal} openAI={()=>setAiOpen(true)}/>} 
       {view==='community' && <Community navigate={navigate} session={session}/>} 
       {view==='events' && <Events filters={eventFilters} filter={eventFilter} setFilter={setEventFilter} events={visibleEvents} allEvents={content.events} search={query} setSearch={setQuery} searchResults={searchEvents} openModal={setModal} navigate={navigate}/>} 
-      {view==='games' && <Games filters={gameFilters} filter={gameFilter} setFilter={setGameFilter} games={visibleGames} openModal={setModal}/>} 
+      {view==='games' && <Games filters={gameFilters} filter={gameFilter} setFilter={setGameFilter} games={visibleGames} leaderboard={content.leaderboard} openModal={setModal}/>} 
       {view==='hall' && <HallOfFame champions={content.hall} openModal={setModal} navigate={navigate}/>} 
     </main>
 
@@ -242,10 +242,10 @@ function Events({filters,filter,setFilter,events,allEvents,search,setSearch,sear
   <section className="host-panel"><Plus/><div><span className="eyebrow">HAVE AN IDEA?</span><h3>Host or submit an event</h3><p>Phase 1 provides the interface. Registration and staff workflows can be connected to Discord in the next backend pass.</p></div><button className="btn secondary" onClick={()=>openModal({title:'Event submission',category:'COMMUNITY',description:'Tell the staff what you want to host. The full submission form will be connected after Discord authentication is live.',rules:['Event name','Proposed date/time','Game or activity','Rules and participant requirements']})}>Submit an idea</button></section>
 </section>}
 
-function Games({filters,filter,setFilter,games,openModal}){return <section className="page-shell"><PageHero eyebrow="GAMES" title={<>ENTER THE<br/><em>PLAYGROUND.</em></>} text="From competitive battles to casual games with friends, Log Horizon is expanding beyond a single world." actions={<button className="btn primary" onClick={()=>setFilter('ALL')}>Explore games <ArrowRight/></button>}/>
+function Games({filters,filter,setFilter,games,leaderboard,openModal}){return <section className="page-shell"><PageHero eyebrow="GAMES" title={<>ENTER THE<br/><em>PLAYGROUND.</em></>} text="From competitive battles to casual games with friends, Log Horizon is expanding beyond a single world." actions={<button className="btn primary" onClick={()=>setFilter('ALL')}>Explore games <ArrowRight/></button>}/>
   <section className="featured-game"><div><span className="eyebrow">FEATURED • COMMUNITY GAME</span><h2>Horizon Arena</h2><p>A small competitive arena built for Log Horizon members. It is a placeholder for the community's future game systems.</p><span className="status-pill">COMING SOON</span></div><div className="arena-visual"><div className="arena-ring"/><span>LH://ARENA</span></div></section>
   <section className="section inner-section"><div className="section-heading"><div><span className="eyebrow">COMMUNITY GAMES</span><h2>Pick a world.</h2></div></div><div className="filters">{filters.map(f=><button key={f} className={filter===f?'selected':''} onClick={()=>setFilter(f)}>{f}</button>)}</div><div className="game-grid">{games.map(g=><GameCard key={g.id} game={g} onClick={()=>openModal(g)}/>)}</div></section>
-  <section className="section leaderboard"><div className="section-heading"><div><span className="eyebrow">COMMUNITY LEADERBOARD</span><h2>Names worth remembering.</h2></div><span className="status-pill">SYSTEM COMING SOON</span></div><div className="leader-table"><div className="leader-head"><span>PLAYER</span><span>SCORE</span><span>STATUS</span></div>{['Community leaderboard','Competitive records','Event achievements','Game scores'].map((x,i)=><div className="leader-row" key={x}><span><span className="rank-box">0{i+1}</span>{x}</span><span>—</span><span>AWAITING DATA</span></div>)}</div></section>
+  <section className="section leaderboard"><div className="section-heading"><div><span className="eyebrow">COMMUNITY LEADERBOARD</span><h2>Names worth remembering.</h2></div><span className="status-pill">SYSTEM COMING SOON</span></div><div className="leader-table"><div className="leader-head"><span>PLAYER</span><span>SCORE</span><span>STATUS</span></div>{leaderboard.map((x,i)=><div className="leader-row" key={x.id||x.name||i}><span><span className="rank-box">{String(i+1).padStart(2,'0')}</span>{x.name}</span><span>{x.score}</span><span>{x.status}</span></div>)}</div></section>
 </section>}
 
 function HallOfFame({openModal,navigate,champions}){return <section className="page-shell"><PageHero eyebrow="HORIZON ARCHIVE" title={<>HALL OF<br/><em>FAME.</em></>} text="Those who made their mark on Log Horizon. Tournament records, champions and achievements preserved for the community." actions={<button className="btn primary" onClick={()=>document.getElementById('archive')?.scrollIntoView({behavior:'smooth'})}>Open the archive <ArrowRight/></button>}/>
@@ -490,7 +490,9 @@ function AdminPage(){
   useEffect(()=>{load()},[load]);
   const updateItem=(index,key,value)=>setItems(current=>current.map((item,i)=>i===index?{...item,[key]:value}:item));
   const addItem=()=>{
-    const base=section==='events'
+    const base=section==='leaderboard'
+      ? {id:'leaderboard-'+Date.now(),name:'New leaderboard entry',score:'—',status:'AWAITING DATA'}
+      : section==='events'
       ? {id:'event-'+Date.now(),title:'New Event',category:'COMMUNITY',sub:'Event',date:'Date to be announced',status:'UPCOMING',description:'Add the event description here.',participants:'OPEN',rules:['Add event rules here.']}
       : section==='hall'
       ? {id:'hall-'+Date.now(),tournament:'Tournament name',winner:'Winner name',place:'1ST',date:'Date'}
@@ -514,7 +516,7 @@ function AdminPage(){
     <header className="admin-header"><a className="brand" href="/"><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></a><div><span className="admin-badge">ADMIN CONTROL CENTER</span><a className="text-link" href="/">View website <ExternalLink size={14}/></a></div></header>
     <main className="admin-main">
       <section className="admin-hero"><div><span className="eyebrow">HORIZON / WEBSITE ADMIN</span><h1>Control the world.</h1><p>Manage the content shown on the Log Horizon website without editing code.</p></div><div className="admin-user"><span className="live-dot"/> Signed in as <b>{auth.user.global_name||auth.user.username}</b></div></section>
-      <div className="admin-tabs">{[['events','Events'],['hall','Hall of Fame'],['games','Games']].map(([id,label])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}>{label}</button>)}</div>
+      <div className="admin-tabs">{[['events','Events'],['hall','Hall of Fame'],['games','Games'],['leaderboard','Leaderboard']].map(([id,label])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}>{label}</button>)}</div>
       <section className="admin-editor">
         <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} entries</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add entry</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
         <div className="admin-list">{items.map((item,index)=><AdminEditorItem key={item.id||index} section={section} item={item} index={index} update={updateItem} remove={()=>removeItem(index)}/>)}</div>
@@ -528,7 +530,9 @@ function AdminEditorItem({section,item,index,update,remove}){
   const field=(key,label,type='text')=><label className="admin-field"><span>{label}</span>{type==='textarea'?<textarea value={item[key]??''} onChange={e=>update(index,key,e.target.value)} rows="3"/>:<input value={Array.isArray(item[key])?item[key].join(', '):(item[key]??'')} onChange={e=>update(index,key,type==='array'?e.target.value.split(',').map(x=>x.trim()).filter(Boolean):e.target.value)}/>}</label>;
   return <article className="admin-item"><div className="admin-item-top"><span className="admin-index">#{String(index+1).padStart(2,'0')}</span><button className="admin-delete" onClick={remove}>Remove</button></div><div className="admin-fields">
     {field('id','ID')}
-    {section==='hall'
+    {section==='leaderboard'
+      ? <>{field('name','Entry name')}{field('score','Score')}{field('status','Status')}</>
+      : section==='hall'
       ? <>{field('tournament','Tournament')}{field('winner','Winner / Member name')}{field('place','Place')}{field('date','Date')}</>
       : section==='events'
       ? <>{field('title','Event title')}{field('category','Category')}{field('sub','Type / subtitle')}{field('date','Date / time')}{field('status','Status')}{field('participants','Registration status')}{field('description','Description','textarea')}{field('rules','Rules (comma separated)','array')}</>
