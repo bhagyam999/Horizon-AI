@@ -155,6 +155,11 @@ class Dashboard:
             raise web.HTTPNotFound(text="Horizon is not in this server")
         member = guild.get_member(user_id)
         if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception:
+                member = None
+        if member is None:
             raise web.HTTPForbidden(text="You are not a member of this server")
         perms = member.guild_permissions
         if not (perms.administrator or perms.manage_guild):
@@ -171,6 +176,11 @@ class Dashboard:
         rows = []
         for guild in self.bot.guilds:
             member = guild.get_member(user_id)
+            if member is None:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except Exception:
+                    member = None
             if not member:
                 continue
             perms = member.guild_permissions
