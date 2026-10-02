@@ -676,57 +676,91 @@ function GameModal({game,close,notify}){
   const [mode,setMode]=useState(game?.id||'hub');
   const [quizQuestions]=useState(()=>shuffle(QUIZ_QUESTIONS).slice(0,10));
   const [guessQuestions]=useState(()=>shuffle(ANIME_GUESSES));
-  const [round,setRound]=useState(0),[score,setScore]=useState(0),[message,setMessage]=useState('');
-  const [forge,setForge]=useState({name:'',role:'Warrior',power:'',rarity:'RARE'});
-  const [mini,setMini]=useState('menu'),[numbers,setNumbers]=useState([]),[reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0);
-  const [memory,setMemory]=useState(()=>shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));
-  const [memoryPick,setMemoryPick]=useState([]);
+  const [round,setRound]=useState(0),[score,setScore]=useState(0),[message,setMessage]=useState(''),[answered,setAnswered]=useState(false);
+  const [forge,setForge]=useState({name:'',role:'Warrior',power:'',rarity:'RARE',stats:{STR:10,DEX:10,INT:10,VIT:10}});
+  const [mini,setMini]=useState('menu'),[numbers,setNumbers]=useState([]),[numberTarget,setNumberTarget]=useState(()=>shuffle([1,2,3,4,5])),[numberStarted,setNumberStarted]=useState(false),[numberTime,setNumberTime]=useState(0);
+  const [reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0);
+  const [memory,setMemory]=useState(()=>makeMemory()),[memoryPick,setMemoryPick]=useState([]),[memoryMoves,setMemoryMoves]=useState(0);
+  const [rps,setRps]=useState(null),[rpsScore,setRpsScore]=useState({you:0,bot:0});
   const [saved,setSaved]=useState(false);
 
-  const restart=()=>{setRound(0);setScore(0);setMessage('');setMessage('');setNumbers([]);setReaction('ready');setSaved(false);setMemory(shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));setMemoryPick([])};
-  const answer=(questions,index)=>{
-    const q=questions[round];
-    const correct=index===q[2];
-    setScore(s=>s+(correct?1:0)); setMessage(correct?'Correct.':'Not this time.');
-    if(round+1<questions.length)setTimeout(()=>{setRound(r=>r+1);setMessage('')},420);
+  function makeMemory(){return shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false}));}
+  function restart(){
+    setRound(0);setScore(0);setMessage('');setAnswered(false);setNumbers([]);setNumberTarget(shuffle([1,2,3,4,5]));setNumberStarted(false);setNumberTime(0);
+    setReaction('ready');setMemory(makeMemory());setMemoryPick([]);setMemoryMoves(0);setRps(null);setRpsScore({you:0,bot:0});setSaved(false);
+  }
+  function answer(questions,index){
+    if(answered)return;
+    const q=questions[round]; if(!q)return;
+    const correct=index===q[2]; setAnswered(true); setScore(s=>s+(correct?1:0)); setMessage(correct?'Correct.':'Not this time.');
+    if(round+1<questions.length)setTimeout(()=>{setRound(r=>r+1);setMessage('');setAnswered(false)},650);
     else setRound(r=>r+1);
-  };
-  const forgeSave=()=>{localStorage.setItem('lh-character-forge',JSON.stringify(forge));setSaved(true);notify?.('Character saved on this device.')};
-  const startReaction=()=>{setMessage('');setReaction('wait');const delay=900+Math.random()*2600;setTimeout(()=>{setReactionStart(performance.now());setReaction('go')},delay)};
-  const reactionClick=()=>{
-    if(reaction==='wait'){setReaction('tooSoon');return}
-    if(reaction==='go'){setReaction('result');setMessage(Math.round(performance.now()-reactionStart)+' ms reaction time');}
-  };
-  const memoryClick=(id)=>{
+  }
+  function forgeSave(){
+    if(!forge.name.trim()){notify?.('Give your character a name first.');return;}
+    localStorage.setItem('lh-character-forge',JSON.stringify(forge));setSaved(true);notify?.('Character saved on this device.');
+  }
+  function startNumber(){
+    setNumbers([]);setNumberTarget(shuffle([1,2,3,4,5]));setNumberStarted(true);setNumberTime(Date.now());setMessage('');
+  }
+  function numberClick(n){
+    if(!numberStarted)return;
+    const expected=numberTarget[numbers.length];
+    if(n!==expected){setMessage('Wrong number. The sequence has been reset.');setNumbers([]);setNumberStarted(false);return;}
+    const next=[...numbers,n];setNumbers(next);
+    if(next.length===5){const ms=Date.now()-numberTime;setMessage(`Complete in ${(ms/1000).toFixed(2)}s. New sequence ready!`);setNumberStarted(false);}
+  }
+  function startReaction(){
+    setMessage('');setReaction('wait');const delay=900+Math.random()*2400;
+    setTimeout(()=>{setReactionStart(performance.now());setReaction('go')},delay);
+  }
+  function reactionClick(){
+    if(reaction==='wait'){setReaction('tooSoon');setMessage('Too early.');return;}
+    if(reaction==='go'){setReaction('result');setMessage(`${Math.round(performance.now()-reactionStart)} ms`);}
+  }
+  function memoryClick(id){
     if(memoryPick.length>=2)return;
     const card=memory.find(x=>x.id===id);if(!card||card.open||card.done)return;
     const next=memory.map(x=>x.id===id?{...x,open:true}:x);const picks=[...memoryPick,id];setMemory(next);setMemoryPick(picks);
     if(picks.length===2){
-      const a=next.find(x=>x.id===picks[0]),b=next.find(x=>x.id===picks[1]);
-      if(a.v===b.v){setMemory(next.map(x=>x.id===a.id||x.id===b.id?{...x,done:true}:x));setMemoryPick([])}
+      setMemoryMoves(m=>m+1);const a=next.find(x=>x.id===picks[0]),b=next.find(x=>x.id===picks[1]);
+      if(a.v===b.v){setMemory(next.map(x=>x.id===a.id||x.id===b.id?{...x,done:true}:x));setMemoryPick([]);}
       else setTimeout(()=>{setMemory(m=>m.map(x=>picks.includes(x.id)?{...x,open:false}:x));setMemoryPick([])},650);
     }
-  };
-  useEffect(()=>{if(!saved){try{const x=JSON.parse(localStorage.getItem('lh-character-forge')||'null');if(x)setForge(x)}catch{}}},[saved]);
+  }
+  function playRps(choice){
+    const choices=['Rock','Paper','Scissors'];const bot=choices[Math.floor(Math.random()*3)];
+    const win=(choice==='Rock'&&bot==='Scissors')||(choice==='Paper'&&bot==='Rock')||(choice==='Scissors'&&bot==='Paper');
+    const draw=choice===bot;setRps({you:choice,bot,result:draw?'Draw':win?'You win':'Bot wins'});
+    if(!draw)setRpsScore(s=>({you:s.you+(win?1:0),bot:s.bot+(win?0:1)}));
+  }
+  useEffect(()=>{try{const x=JSON.parse(localStorage.getItem('lh-character-forge')||'null');if(x)setForge(x)}catch{}},[]);
 
   const quizDone=round>=quizQuestions.length,guessDone=round>=guessQuestions.length;
   let body;
   if(mode==='quiz'){
     const q=quizQuestions[round];
-    body=<>{!quizDone?<><div className="game-score"><span>QUESTION {round+1} / {quizQuestions.length}</span><b>{score}</b></div><h3>{q[0]}</h3><div className="game-options">{q[1].map((x,i)=><button key={x} onClick={()=>answer(quizQuestions,i)}>{x}</button>)}</div><div className="game-message">{message}</div></>:<div className="game-result"><span className="eyebrow">QUIZ COMPLETE</span><strong>{score}/{quizQuestions.length}</strong><p>{score>=8?'Excellent run.':score>=5?'Solid run.':'Good practice. Try again and beat your score.'}</p></div>}</>;
+    body=!quizDone?<><div className="game-score"><span>QUESTION {round+1} / {quizQuestions.length}</span><b>{score}</b></div><h3>{q[0]}</h3><div className="game-options">{q[1].map((x,i)=><button key={x} disabled={answered} onClick={()=>answer(quizQuestions,i)}>{x}</button>)}</div><div className="game-message">{message}</div></>:<div className="game-result"><span className="eyebrow">QUIZ COMPLETE</span><strong>{score}/{quizQuestions.length}</strong><p>{score>=8?'Excellent run.':score>=5?'Solid run.':'Good practice. Try again and beat your score.'}</p></div>;
   }else if(mode==='anime-guess'){
     const q=guessQuestions[round];
-    body=<>{!guessDone?<><div className="game-score"><span>ROUND {round+1} / {guessQuestions.length}</span><b>{score}</b></div><div className="guess-clue"><span className="eyebrow">IDENTIFY THE ANIME</span><h3>{q[0]}</h3></div><div className="game-options">{q[1].map((x,i)=><button key={x} onClick={()=>answer(guessQuestions,i)}>{x}</button>)}</div><div className="game-message">{message}</div></>:<div className="game-result"><span className="eyebrow">ANIME GUESS COMPLETE</span><strong>{score}/{guessQuestions.length}</strong><p>You completed the full 10-round challenge.</p></div>}</>;
+    body=!guessDone?<><div className="game-score"><span>ROUND {round+1} / {guessQuestions.length}</span><b>{score}</b></div><div className="guess-clue"><span className="eyebrow">IDENTIFY THE ANIME</span><h3>{q[0]}</h3></div><div className="game-options">{q[1].map((x,i)=><button key={x} disabled={answered} onClick={()=>answer(guessQuestions,i)}>{x}</button>)}</div><div className="game-message">{message}</div></>:<div className="game-result"><span className="eyebrow">ANIME GUESS COMPLETE</span><strong>{score}/{guessQuestions.length}</strong><p>You completed the full 10-round challenge.</p></div>;
   }else if(mode==='forge'){
-    body=<><h3>Create your character</h3><input className="game-input" placeholder="Character name" value={forge.name} onChange={e=>setForge({...forge,name:e.target.value})}/><select className="game-input" value={forge.role} onChange={e=>setForge({...forge,role:e.target.value})}>{['Warrior','Mage','Rogue','Support','Hunter'].map(x=><option key={x}>{x}</option>)}</select><input className="game-input" placeholder="Signature power" value={forge.power} onChange={e=>setForge({...forge,power:e.target.value})}/><select className="game-input" value={forge.rarity} onChange={e=>setForge({...forge,rarity:e.target.value})}>{['COMMON','RARE','EPIC','LEGENDARY'].map(x=><option key={x}>{x}</option>)}</select><div className="forge-preview"><small>CHARACTER PREVIEW</small><h4>{forge.name||'Unnamed Traveler'}</h4><p>{forge.rarity} • {forge.role} • {forge.power||'Choose a signature power'}</p></div><button className="btn primary" onClick={forgeSave}>Save Character</button>{saved&&<div className="game-message">Saved on this device. You can reopen the Forge later.</div>}</>;
+    body=<><span className="eyebrow">CHARACTER FORGE</span><h3>Build your traveler</h3><input className="game-input" placeholder="Character name" value={forge.name} onChange={e=>setForge({...forge,name:e.target.value})}/><select className="game-input" value={forge.role} onChange={e=>setForge({...forge,role:e.target.value})}>{['Warrior','Mage','Rogue','Support','Hunter'].map(x=><option key={x}>{x}</option>)}</select><input className="game-input" placeholder="Signature power" value={forge.power} onChange={e=>setForge({...forge,power:e.target.value})}/><select className="game-input" value={forge.rarity} onChange={e=>setForge({...forge,rarity:e.target.value})}>{['COMMON','RARE','EPIC','LEGENDARY'].map(x=><option key={x}>{x}</option>)}</select><div className="forge-preview"><small>CHARACTER PREVIEW</small><h4>{forge.name||'Unnamed Traveler'}</h4><p>{forge.rarity} • {forge.role} • {forge.power||'Choose a signature power'}</p></div><button className="btn primary" onClick={forgeSave}>Save Character</button>{saved&&<div className="game-message">Saved on this device.</div>}</>;
   }else if(mode==='browser'){
-    body=<div className="browser-game">{mini==='menu'&&<div className="mini-menu"><span className="eyebrow">MINI-GAME HUB</span><h3>Choose a challenge</h3><button className="btn secondary" onClick={()=>setMini('number')}>Number Rush</button><button className="btn secondary" onClick={()=>setMini('memory')}>Memory Match</button><button className="btn secondary" onClick={()=>{setMini('reaction');startReaction()}}>Reaction Test</button></div>}{mini==='number'&&<div className="number-rush"><span className="eyebrow">NUMBER RUSH</span><h3>Tap 1 → 5 in order</h3><strong>{numbers.length?numbers.join(' '):'READY'}</strong><div>{[1,2,3,4,5].map(n=><button key={n} disabled={numbers.includes(n)} onClick={()=>{const next=[...numbers,n];if(next.length===5)setMessage(next.join('')==='12345'?'Perfect run!':'Wrong order — restart and try again.');setNumbers(next)}}>{n}</button>)}</div><button className="btn secondary" onClick={()=>{setNumbers([]);setMessage('')}}>Restart</button><p className="game-message">{message}</p></div>}{mini==='memory'&&<div><span className="eyebrow">MEMORY MATCH</span><h3>Match every pair</h3><div className="memory-grid">{memory.map(card=><button key={card.id} className={card.open||card.done?'flipped':''} onClick={()=>memoryClick(card.id)}>{card.open||card.done?card.v:'?'}</button>)}</div><button className="btn secondary" onClick={()=>{setMemory(shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));setMemoryPick([])}}>Restart</button></div>}{mini==='reaction'&&<div className="reaction-game"><span className="eyebrow">REACTION TEST</span><h3>{reaction==='wait'?'Wait for it…':reaction==='go'?'TAP NOW!':reaction==='tooSoon'?'Too early!':reaction==='result'?message:'Ready?'}</h3><button className="reaction-button" onClick={reaction==='result'||reaction==='tooSoon'?startReaction:reactionClick}>{reaction==='wait'?'WAIT…':reaction==='go'?'TAP!':reaction==='result'?'TRY AGAIN':'START'}</button></div>}</div>;
+    body=<div className="browser-game">
+      {mini==='menu'&&<div className="mini-menu"><span className="eyebrow">MINI-GAME HUB</span><h3>Choose a challenge</h3><button className="btn secondary" onClick={()=>setMini('number')}>Number Rush</button><button className="btn secondary" onClick={()=>setMini('memory')}>Memory Match</button><button className="btn secondary" onClick={()=>setMini('reaction')}>Reaction Test</button><button className="btn secondary" onClick={()=>setMini('rps')}>Rock Paper Scissors</button></div>}
+      {mini==='number'&&<div className="number-rush"><span className="eyebrow">NUMBER RUSH</span><h3>Tap the shuffled sequence in order</h3><p>Find 1, then 2, then 3, 4 and 5. A wrong tap resets the run.</p><div className="game-options">{[1,2,3,4,5].map(n=><button key={n} disabled={!numberStarted} onClick={()=>numberClick(n)}>{n}</button>)}</div>{!numberStarted&&<button className="btn primary" onClick={startNumber}>{numbers.length===5?'Play again':'Start run'}</button>}<p className="game-message">{message}</p></div>}
+      {mini==='memory'&&<div><span className="eyebrow">MEMORY MATCH</span><h3>Match every pair</h3><p>Moves: {memoryMoves}</p><div className="memory-grid">{memory.map(card=><button key={card.id} className={card.open||card.done?'flipped':''} onClick={()=>memoryClick(card.id)}>{card.open||card.done?card.v:'?'}</button>)}</div><button className="btn secondary" onClick={()=>{setMemory(makeMemory());setMemoryPick([]);setMemoryMoves(0)}}>Restart</button></div>}
+      {mini==='reaction'&&<div className="reaction-game"><span className="eyebrow">REACTION TEST</span><h3>{reaction==='wait'?'Wait for it…':reaction==='go'?'TAP NOW!':reaction==='tooSoon'?'Too early!':reaction==='result'?message:'Ready?'}</h3><button className="reaction-button" onClick={reaction==='ready'||reaction==='result'||reaction==='tooSoon'?startReaction:reactionClick}>{reaction==='wait'?'WAIT…':reaction==='go'?'TAP!':reaction==='result'||reaction==='tooSoon'?'TRY AGAIN':'START'}</button></div>}
+      {mini==='rps'&&<div className="rps-game"><span className="eyebrow">ROCK PAPER SCISSORS</span><h3>First to 5 wins</h3><div className="game-score"><span>You {rpsScore.you} • Bot {rpsScore.bot}</span><b>{rps?.result||'Choose'}</b></div><div className="game-options">{['Rock','Paper','Scissors'].map(x=><button key={x} onClick={()=>playRps(x)}>{x}</button>)}</div>{rps&&<p className="game-message">You: {rps.you} • Bot: {rps.bot}</p>}<button className="btn secondary" onClick={()=>{setRps(null);setRpsScore({you:0,bot:0})}}>Reset match</button></div>}
+    </div>;
   }else{
-    body=<><div className="game-result"><span className="eyebrow">HORIZON GAMES</span><strong>Choose a game</strong><p>Each game is built into the website. No setup or admin configuration is required.</p></div><div className="game-options"><button onClick={()=>setMode('quiz')}>Horizon Quiz</button><button onClick={()=>setMode('anime-guess')}>Anime Guess</button><button onClick={()=>setMode('forge')}>Character Forge</button><button onClick={()=>setMode('browser')}>Browser Game Hub</button></div></>;
+    body=<><div className="game-result"><span className="eyebrow">HORIZON GAMES</span><strong>Choose your challenge</strong><p>Everything runs directly in the website. No admin setup is required.</p></div><div className="game-options"><button onClick={()=>setMode('quiz')}>Horizon Quiz</button><button onClick={()=>setMode('anime-guess')}>Anime Guess</button><button onClick={()=>setMode('forge')}>Character Forge</button><button onClick={()=>setMode('browser')}>Browser Game Hub</button></div></>;
   }
-
-  return <div className="game-overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{mode==='hub'?'HORIZON GAMES':game?.category?.join(' • ')||'GAME'}</span><h2>{mode==='hub'?'Choose your challenge':mode==='anime-guess'?'Anime Guess':mode==='quiz'?'Horizon Quiz':mode==='forge'?'Character Forge':'Browser Game Hub'}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body">{mode!=='hub'&&<button className="text-link" onClick={()=>{setMode('hub');setMessage('')}}>← All games</button>}<div className="game-play-card">{body}</div><div className="modal-actions">{mode!=='hub'&&<button className="btn secondary" onClick={restart}>Restart</button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div></div>;
+  return <div className="game-overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{mode==='hub'?'HORIZON GAMES':mode==='anime-guess'?'ANIME • CASUAL':mode==='quiz'?'QUIZ • ANIME • CASUAL':mode==='forge'?'CREATIVE':'CASUAL • COMMUNITY'}</span><h2>{mode==='hub'?'Choose your challenge':mode==='anime-guess'?'Anime Guess':mode==='quiz'?'Horizon Quiz':mode==='forge'?'Character Forge':'Browser Game Hub'}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body">{mode!=='hub'&&<button className="text-link" onClick={()=>{setMode('hub');setMessage('')}}>← All games</button>}<div className="game-play-card">{body}</div><div className="modal-actions">{mode!=='hub'&&<button className="btn secondary" onClick={restart}>Restart</button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div></div>;
 }
+
+
 
 
 createRoot(document.getElementById('root')).render(
