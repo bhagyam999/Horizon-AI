@@ -178,3 +178,56 @@ img,video,svg{max-width:100%}
 .anime-console{padding:16px}.console-stats{gap:8px}.console-stats div{min-width:0}
 .library-meta{display:block;line-height:1.5}
 }
+
+
+/* Website Admin Control Center */
+.admin-nav{color:var(--cyan)!important;border-color:rgba(0,229,255,.18)!important}
+.admin-app{min-height:100vh;background:#05060a;color:var(--text)}
+.admin-header{position:sticky;top:0;z-index:50;display:flex;justify-content:space-between;align-items:center;padding:16px max(24px,4vw);background:rgba(5,6,10,.92);border-bottom:1px solid var(--border);backdrop-filter:blur(18px)}
+.admin-header>div{display:flex;align-items:center;gap:18px}
+.admin-badge{font-size:8px;letter-spacing:.13em;color:var(--cyan);border:1px solid rgba(0,229,255,.24);padding:8px 10px}
+.admin-main{max-width:1250px;margin:auto;padding:70px max(20px,4vw) 100px}
+.admin-hero{display:flex;justify-content:space-between;align-items:end;gap:30px;border-bottom:1px solid var(--border);padding-bottom:42px}
+.admin-hero h1{font-family:var(--display);font-size:clamp(38px,6vw,70px);margin:10px 0}
+.admin-hero p{color:var(--muted);max-width:650px}
+.admin-user{font-size:10px;color:var(--muted);display:flex;gap:8px;align-items:center;white-space:nowrap}
+.admin-user b{color:var(--text)}
+.admin-tabs{display:flex;gap:8px;overflow-x:auto;padding:25px 0}
+.admin-tabs button{background:rgba(255,255,255,.02);border:1px solid var(--border);color:#7e889d;padding:12px 18px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+.admin-tabs button.selected,.admin-tabs button:hover{color:var(--text);border-color:var(--border-cyan);background:rgba(0,229,255,.06)}
+.admin-editor{border:1px solid var(--border);background:rgba(12,16,26,.72)}
+.admin-editor-head{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:24px;border-bottom:1px solid var(--border)}
+.admin-editor-head h2{font-family:var(--display);font-size:26px;margin:7px 0 0}
+.admin-actions{display:flex;gap:9px}
+.admin-actions .btn{margin:0}
+.admin-actions button:disabled{opacity:.5;cursor:wait}
+.admin-list{display:grid;gap:12px;padding:16px}
+.admin-item{border:1px solid rgba(255,255,255,.07);background:rgba(5,6,10,.5);padding:18px}
+.admin-item-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.admin-index{font:10px var(--display);color:var(--cyan);letter-spacing:.08em}
+.admin-delete{border:1px solid rgba(255,100,100,.18);background:rgba(255,80,80,.03);color:#d9868d;padding:7px 10px;font-size:8px;cursor:pointer}
+.admin-delete:hover{border-color:rgba(255,100,100,.4)}
+.admin-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.admin-field{display:flex;flex-direction:column;gap:6px}
+.admin-field>span{font-size:8px;color:#758096;letter-spacing:.09em;text-transform:uppercase}
+.admin-field input,.admin-field textarea{width:100%;box-sizing:border-box;border:1px solid var(--border);background:rgba(16,21,34,.72);color:var(--text);outline:none;padding:11px;font:11px inherit}
+.admin-field textarea{resize:vertical;line-height:1.5}
+.admin-field input:focus,.admin-field textarea:focus{border-color:var(--border-cyan);box-shadow:0 0 20px rgba(0,229,255,.04)}
+.admin-gate{min-height:100vh;background:#05060a;display:grid;place-items:center;padding:30px;text-align:center}
+.admin-gate>div{width:min(650px,100%);border:1px solid var(--border);padding:55px 30px;background:rgba(12,16,26,.72)}
+.admin-gate h1{font-family:var(--display);font-size:clamp(30px,6vw,55px);margin:12px 0}
+.admin-gate p{color:var(--muted);font-size:12px;max-width:520px;margin:0 auto 25px;line-height:1.7}
+.admin-gate .btn{margin:5px}
+.admin-gate .text-link{display:flex;margin:22px auto 0;justify-content:center}
+@media(max-width:700px){
+  .admin-header{align-items:flex-start;gap:14px}
+  .admin-header>div{align-items:flex-end;flex-direction:column;gap:8px}
+  .admin-badge{font-size:7px}
+  .admin-main{padding-top:45px}
+  .admin-hero{align-items:flex-start;flex-direction:column}
+  .admin-user{white-space:normal}
+  .admin-editor-head{align-items:flex-start;flex-direction:column}
+  .admin-actions{width:100%}
+  .admin-actions .btn{flex:1;justify-content:center}
+  .admin-fields{grid-template-columns:1fr}
+}
