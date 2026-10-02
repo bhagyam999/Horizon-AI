@@ -1859,6 +1859,7 @@ async def warn(
     await interaction.response.send_message(
         f"{member.mention} warned. Total warnings: **{profile_data['warnings']}**."
     )
+    await send_moderation_log(interaction.guild, "Warning", member, interaction.user, reason, f"Total warnings: {profile_data['warnings']}")
 
 
 @bot.tree.command(name="warnings", description="Show a member's warning history.")
@@ -5782,6 +5783,37 @@ async def prefix_rpg_roll(ctx):
 @bot.command(name="leaderboard", aliases=["lb"])
 async def prefix_rpg_leaderboard(ctx): await rpg_leaderboard.callback(ctx)
 
+async def send_moderation_log(guild, action, target=None, moderator=None, reason="No reason provided", details=""):
+    """Send a moderation audit entry to every dashboard-selected log channel."""
+    if not guild:
+        return
+    try:
+        multi = await bot.db.multi_settings(guild.id)
+        channel_ids = multi.get("log_channel_ids", [])
+        if not channel_ids:
+            return
+        target_text = target.mention if target else "Unknown"
+        moderator_text = moderator.mention if moderator else "Horizon"
+        embed = discord.Embed(
+            title=f"🛡️ Moderation • {action}",
+            colour=discord.Colour.orange(),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="Target", value=target_text, inline=True)
+        embed.add_field(name="Moderator", value=moderator_text, inline=True)
+        embed.add_field(name="Reason", value=reason[:1024], inline=False)
+        if details:
+            embed.add_field(name="Details", value=details[:1024], inline=False)
+        for channel_id in channel_ids:
+            channel = guild.get_channel(int(channel_id))
+            if not channel:
+                continue
+            try:
+                await channel.send(embed=embed)
+            except (discord.Forbidden, discord.HTTPException):
+                log.exception("Could not send moderation log to channel %s", channel_id)
+
+
 @bot.command(name="warn")
 @commands.has_guild_permissions(manage_messages=True)
 async def prefix_warn(ctx, member: discord.Member = None, *, reason: str = "No reason provided"):
@@ -5849,6 +5881,7 @@ async def prefix_timeout(ctx, member: discord.Member = None, minutes: int = 10, 
     try:
         await member.timeout(datetime.timedelta(minutes=minutes), reason=reason)
         await ctx.send(f"⏳ {member.mention} timed out for **{minutes} minutes**.")
+        await send_moderation_log(ctx.guild, "Timeout", member, ctx.author, reason, f"Duration: {minutes} minutes")
     except discord.Forbidden:
         await ctx.send("I can't timeout that member. Check my role position and Moderate Members permission.", delete_after=8)
 
@@ -5860,6 +5893,7 @@ async def prefix_kick(ctx, member: discord.Member = None, *, reason: str = "No r
     if not member: await ctx.send("Use `!kick @user [reason]`.", delete_after=6); return
     try:
         await member.kick(reason=reason); await ctx.send(f"👢 {member.mention} was kicked.")
+        await send_moderation_log(ctx.guild, "Kick", member, ctx.author, reason)
     except discord.Forbidden: await ctx.send("I can't kick that member. Check my role position and Kick Members permission.", delete_after=8)
 
 
@@ -5870,6 +5904,7 @@ async def prefix_ban(ctx, member: discord.Member = None, *, reason: str = "No re
     if not member: await ctx.send("Use `!ban @user [reason]`.", delete_after=6); return
     try:
         await member.ban(reason=reason); await ctx.send(f"🔨 {member.mention} was banned.")
+        await send_moderation_log(ctx.guild, "Ban", member, ctx.author, reason)
     except discord.Forbidden: await ctx.send("I can't ban that member. Check my role position and Ban Members permission.", delete_after=8)
 
 
