@@ -6207,16 +6207,18 @@ async def on_message(message: discord.Message):
                 decision.reason,
             )
 
-            if settings["log_channel_id"]:
-                channel = message.guild.get_channel(settings["log_channel_id"])
-                if channel:
-                    try:
-                        await channel.send(
-                            f"⚠️ **Moderation alert** | {message.author.mention} | "
-                            f"{decision.reason} | score={decision.score}"
-                        )
-                    except discord.HTTPException:
-                        pass
+            multi = await bot.db.multi_settings(message.guild.id)
+            for log_channel_id in multi.get("log_channel_ids", []):
+                channel = message.guild.get_channel(int(log_channel_id))
+                if not channel:
+                    continue
+                try:
+                    await channel.send(
+                        f"⚠️ **Moderation alert** | {message.author.mention} in {message.channel.mention}\n"
+                        f"Reason: **{decision.reason}** | score={decision.score}"
+                    )
+                except (discord.Forbidden, discord.HTTPException):
+                    log.exception("Could not send moderation alert to channel %s", log_channel_id)
 
         # Only severe, escalating cases can trigger automatic action.
         if (
