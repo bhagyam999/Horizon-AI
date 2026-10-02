@@ -44,8 +44,41 @@ intents.message_content = True
 intents.members = True
 
 
+# Normal Discord/server leveling (separate from Horizon RPG).
+# This follows Arcane's slow linear-style progression rather than the old
+# flat 100 XP-per-level curve, so high levels take substantially longer.
+LEVEL_XP_MIN = 10
+LEVEL_XP_MAX = 15
+LEVEL_XP_COOLDOWN = 60
+LEVEL_MAX = 200
+
+def xp_needed_for_level(level: int) -> int:
+    """Total XP needed to reach the start of a level."""
+    level = max(1, int(level))
+    if level <= 1:
+        return 0
+    n = level - 1
+    # Sum of Arcane-style per-level requirements:
+    # level 1 -> 2: 175, then +100 XP required per level.
+    return n * (50 * level + 75)
+
+def xp_for_next_level(level: int) -> int:
+    """XP required to move from this level to the next."""
+    level = max(1, int(level))
+    return level * 100 + 75
+
 def level_for(xp: int) -> int:
-    return xp // 100 + 1
+    """Convert total normal-server XP into a level using the slow curve."""
+    xp = max(0, int(xp))
+    lo, hi = 1, LEVEL_MAX
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if xp_needed_for_level(mid) <= xp:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
 
 
 def split_text(text: str, limit: int = 1900):
@@ -317,6 +350,10 @@ class Horizon(commands.Bot):
             if message.content.strip():
                 try: await self.db.add_ai_server_message(message.id,message.guild.id,message.channel.id,message.author.id,message.author.display_name,message.content)
                 except Exception: log.exception("Live AI history indexing failed")
+            try:
+                await self.xp_message(message)
+            except Exception:
+                log.exception("Normal leveling failed")
         await self.process_commands(message)
 
     async def on_ready(self):
@@ -535,31 +572,148 @@ class Horizon(commands.Bot):
                 except discord.HTTPException:
                     pass
 
+    async def apply_level_rewards(self, member: discord.Member, level: int):
+        """Give every configured level reward the member has earned."""
+        if not member.guild or member.bot:
+            return []
+        me = member.guild.me
+        if not me or not me.guild_permissions.manage_roles:
+            return []
+        earned = []
+        for reward_level, role_id in await self.db.level_reward_roles(member.guild.id, level):
+            role = member.guild.get_role(int(role_id))
+            if not role or role.is_default() or role.managed:
+                continue
+            if role >= me.top_role:
+                log.warning("Cannot assign level role %s in guild %s: role is above Horizon.", role.id, member.guild.id)
+                continue
+            if role not in member.roles:
+                try:
+                    await member.add_roles(role, reason=f"Horizon level reward: level {reward_level}")
+                    earned.append(role)
+                except (discord.Forbidden, discord.HTTPException):
+                    log.exception("Could not assign level role %s to %s in guild %s", role.id, member.id, member.guild.id)
+        return earned
+
     async def xp_message(self, message: discord.Message):
-        if not message.guild:
+        if not message.guild or message.author.bot:
             return
         if await self.db.is_cooldown(message.guild.id, message.author.id, "xp"):
             return
 
-        await self.db.cooldown(message.guild.id, message.author.id, "xp", 45)
+        await self.db.cooldown(message.guild.id, message.author.id, "xp", LEVEL_XP_COOLDOWN)
         before = await self.db.profile(message.guild.id, message.author.id)
-        after = await self.db.add_xp(
-            message.guild.id,
-            message.author.id,
-            random.randint(5, 12),
-        )
+        before_level = level_for(before["xp"])
+        if before_level >= LEVEL_MAX:
+            return
 
-        if level_for(after["xp"]) > level_for(before["xp"]):
+        amount = random.randint(LEVEL_XP_MIN, LEVEL_XP_MAX)
+        after = await self.db.add_xp(message.guild.id, message.author.id, amount)
+        after_level = min(LEVEL_MAX, level_for(after["xp"]))
+
+        if after_level > before_level:
+            member = message.author if isinstance(message.author, discord.Member) else message.guild.get_member(message.author.id)
+            earned = await self.apply_level_rewards(member, after_level) if member else []
+            reward_text = ""
+            if earned:
+                reward_text = " • Role unlocked: " + ", ".join(role.mention for role in earned)
             try:
                 await message.channel.send(
-                    f"**{message.author.display_name}** reached "
-                    f"**Level {level_for(after['xp'])}**!"
+                    f"**{message.author.display_name}** reached **Level {after_level}**!"
+                    f"{reward_text}"
                 )
             except discord.HTTPException:
                 pass
 
+    @commands.command(name="level", aliases=["rank"])
+    async def normal_level_command(self, ctx, member: discord.Member = None):
+        """Show a member's normal server level and current XP progress."""
+        if not ctx.guild:
+            return
+        member = member or ctx.author
+        profile = await self.db.profile(ctx.guild.id, member.id)
+        level = min(LEVEL_MAX, level_for(profile["xp"]))
+        current_floor = xp_needed_for_level(level)
+        required = xp_for_next_level(level)
+        progress = max(0, profile["xp"] - current_floor)
+        earned = await self.apply_level_rewards(member, level)
+        reward_note = f" • synced {len(earned)} role reward(s)" if earned else ""
+        await ctx.send(
+            f"**{member.display_name}** — **Level {level}\n"
+            f"XP: {progress:,} / {required:,} toward Level {min(level + 1, LEVEL_MAX)}"
+            f"{reward_note}"
+        )
+
+    @commands.group(name="levelrole", invoke_without_command=True)
+    @commands.has_guild_permissions(manage_guild=True)
+    async def levelrole_group(self, ctx):
+        """Configure automatic role rewards for normal levels."""
+        if not ctx.guild:
+            return
+        rows = await self.db.level_rewards(ctx.guild.id)
+        if not rows:
+            await ctx.send("No level role rewards are configured. Use levelrole add <level> @role.")
+            return
+        lines = []
+        for level, role_id in rows:
+            role = ctx.guild.get_role(int(role_id))
+            lines.append(f"Level {level} -> {role.mention if role else 'deleted role'}")
+        await ctx.send("Horizon Level Rewards\n" + "\n".join(lines))
+
+    @levelrole_group.command(name="add")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def levelrole_add(self, ctx, level: int, role: discord.Role):
+        if not ctx.guild:
+            return
+        if level < 2 or level > LEVEL_MAX:
+            await ctx.send(f"Level must be between 2 and {LEVEL_MAX}.")
+            return
+        me = ctx.guild.me
+        if role.is_default() or role.managed or not me or role >= me.top_role:
+            await ctx.send("I cannot assign that role. Put Horizon's bot role above the level role in Server Settings -> Roles.")
+            return
+        await self.db.set_level_reward(ctx.guild.id, level, role.id)
+        await ctx.send(f"Level {level} will now unlock {role.mention} automatically.")
+
+    @levelrole_group.command(name="remove")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def levelrole_remove(self, ctx, level: int):
+        if not ctx.guild:
+            return
+        if await self.db.remove_level_reward(ctx.guild.id, level):
+            await ctx.send(f"Removed the Level {level} role reward.")
+        else:
+            await ctx.send(f"No role reward was configured for Level {level}.")
+
+    @levelrole_group.command(name="list")
+    @commands.has_guild_permissions(manage_guild=True)
+    async def levelrole_list(self, ctx):
+        if not ctx.guild:
+            return
+        rows = await self.db.level_rewards(ctx.guild.id)
+        if not rows:
+            await ctx.send("No level role rewards are configured.")
+            return
+        lines = []
+        for level, role_id in rows:
+            role = ctx.guild.get_role(int(role_id))
+            lines.append(f"Level {level} -> {role.mention if role else 'deleted role'}")
+        await ctx.send("Horizon Level Rewards\n" + "\n".join(lines))
+
+
 
 bot = Horizon()
+
+
+@bot.command(name="levelreset")
+@commands.has_guild_permissions(manage_guild=True)
+async def level_reset_command(ctx):
+    """Reset normal server leveling XP for everyone in this server."""
+    if not ctx.guild:
+        return
+    count = await bot.db.reset_xp(ctx.guild.id)
+    await ctx.send(f"Normal leveling XP reset for {count} member(s). RPG levels were not changed.")
+
 
 
 def _ai_tone_cue(prompt: str, context: str = "") -> str:
