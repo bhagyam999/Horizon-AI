@@ -31,6 +31,12 @@ class Database:
                 warnings INTEGER DEFAULT 0,
                 PRIMARY KEY (guild_id, user_id)
             );
+            CREATE TABLE IF NOT EXISTS level_rewards (
+                guild_id INTEGER NOT NULL,
+                level INTEGER NOT NULL,
+                role_id INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, level)
+            );
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 guild_id INTEGER NOT NULL,
@@ -197,6 +203,48 @@ class Database:
         async with aiosqlite.connect(self.path) as db:
             cur = await db.execute('SELECT user_id,xp,coins FROM profiles WHERE guild_id=? ORDER BY xp DESC LIMIT ?', (guild_id,limit))
             return await cur.fetchall()
+
+    async def set_level_reward(self, guild_id, level, role_id):
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute(
+                'INSERT OR REPLACE INTO level_rewards(guild_id,level,role_id) VALUES(?,?,?)',
+                (int(guild_id), int(level), int(role_id))
+            )
+            await db.commit()
+
+    async def remove_level_reward(self, guild_id, level):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                'DELETE FROM level_rewards WHERE guild_id=? AND level=?',
+                (int(guild_id), int(level))
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def level_rewards(self, guild_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                'SELECT level,role_id FROM level_rewards WHERE guild_id=? ORDER BY level ASC',
+                (int(guild_id),)
+            )
+            return await cur.fetchall()
+
+    async def level_reward_roles(self, guild_id, level):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                'SELECT level,role_id FROM level_rewards WHERE guild_id=? AND level<=? ORDER BY level ASC',
+                (int(guild_id), int(level))
+            )
+            return await cur.fetchall()
+
+    async def reset_xp(self, guild_id):
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                'UPDATE profiles SET xp=0 WHERE guild_id=? AND xp<>0',
+                (int(guild_id),)
+            )
+            await db.commit()
+            return cur.rowcount
 
     async def add_memory(self, guild_id, fact, created_by):
         async with aiosqlite.connect(self.path) as db:
