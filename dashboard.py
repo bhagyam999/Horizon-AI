@@ -236,10 +236,10 @@ class Dashboard:
         rows = await self.bot.db.level_rewards(guild.id)
         return web.json_response({
             "enabled": True,
-            "xp_min": LEVEL_XP_MIN,
-            "xp_max": LEVEL_XP_MAX,
-            "cooldown": LEVEL_XP_COOLDOWN,
-            "max_level": LEVEL_MAX,
+            "xp_min": 10,
+            "xp_max": 15,
+            "cooldown": 60,
+            "max_level": 200,
             "rewards": [{"level": int(r[0]), "role_id": str(r[1]), "role_name": guild.get_role(int(r[1])).name if guild.get_role(int(r[1])) else "Deleted role"} for r in rows],
         })
 
@@ -251,7 +251,7 @@ class Dashboard:
             role_id = int(data.get("role_id"))
         except Exception:
             raise web.HTTPBadRequest(text="level and role_id are required")
-        if level < 2 or level > LEVEL_MAX:
+        if level < 2 or level > 200:
             raise web.HTTPBadRequest(text=f"Level must be between 2 and {LEVEL_MAX}")
         role = guild.get_role(role_id)
         if not role or role.is_default() or role.managed:
