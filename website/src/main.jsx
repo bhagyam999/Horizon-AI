@@ -35,10 +35,10 @@ const eventData = [
 const gameData = [
   {id:'anigame', title:'Anigame', category:['CARD','COMPETITIVE'], status:'LIVE', text:'The game where the Log Horizon community began.', action:'Learn More'},
   {id:'quiz', title:'Horizon Quiz', category:['QUIZ','ANIME','CASUAL'], status:'PLAYABLE', text:'Test your knowledge against other members.', action:'Play'},
-  {id:'anime-guess', title:'Anime Guess', category:['ANIME','CASUAL'], status:'COMING SOON', text:'Identify the anime before the timer runs out.', action:'Coming Soon'},
-  {id:'forge', title:'Character Forge', category:['CREATIVE'], status:'COMING SOON', text:'Build your own fictional character and share it with the community.', action:'Coming Soon'},
-  {id:'arena', title:'Horizon Arena', category:['COMPETITIVE'], status:'COMING SOON', text:'A small competitive arena built for Log Horizon members.', action:'Coming Soon'},
-  {id:'browser', title:'Browser Game Hub', category:['CASUAL','COMMUNITY'], status:'COMING SOON', text:'A rotating collection of lightweight games for community nights.', action:'Coming Soon'}
+  {id:'anime-guess', title:'Anime Guess', category:['ANIME','CASUAL'], status:'PLAYABLE', text:'Guess the anime from a clue.', action:'Play'},
+  {id:'forge', title:'Character Forge', category:['CREATIVE'], status:'PLAYABLE', text:'Build your own fictional character.', action:'Create'},
+  {id:'arena', title:'Horizon Arena', category:['COMPETITIVE'], status:'PLAYABLE', text:'Fight a training drone in a quick solo battle.', action:'Play'},
+  {id:'browser', title:'Browser Game Hub', category:['CASUAL','COMMUNITY'], status:'PLAYABLE', text:'Play quick mini-games in your browser.', action:'Play'}
 ];
 
 const champions = [
