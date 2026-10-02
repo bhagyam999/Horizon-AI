@@ -250,9 +250,7 @@ class Dashboard:
             elif key == "personality":
                 value = str(value)[:2000]
             await self.bot.db.set_setting(guild.id, key, value)
-        settings = await self.bot.db.settings(guild.id)
-        settings.update(await self.bot.db.multi_settings(guild.id))
-        return web.json_response({"settings": settings})
+        return web.json_response({"settings": await self.bot.db.settings(guild.id)})
 
     async def dashboard_roles(self, request):
         guild, member = await self._dashboard_member(request)
