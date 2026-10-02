@@ -526,75 +526,79 @@ function AnimeModal({ anime, saved, onSave, onClose }) {
 
 
 function AdminPage(){
-  const [loading,setLoading]=useState(true);
-  const [auth,setAuth]=useState(null);
-  const [section,setSection]=useState('events');
-  const [items,setItems]=useState([]);
-  const [notice,setNotice]=useState('');
-  const [busy,setBusy]=useState(false);
-  const notify=useCallback(msg=>{setNotice(msg);setTimeout(()=>setNotice(''),2500)},[]);
+  const [loading,setLoading]=useState(true), [auth,setAuth]=useState(null), [section,setSection]=useState('events');
+  const [items,setItems]=useState([]), [notice,setNotice]=useState(''), [busy,setBusy]=useState(false);
+  const notify=useCallback(msg=>{setNotice(msg);setTimeout(()=>setNotice(''),2600)},[]);
   const load=useCallback(async()=>{
     setLoading(true);
     try{
       const me=await fetch('/api/site/auth-me',{credentials:'include',cache:'no-store'}).then(r=>r.json());
-      setAuth(me);
-      if(!me.user||!me.admin){setLoading(false);return;}
-      const data=await fetch('/api/site/admin/content',{credentials:'include',cache:'no-store'}).then(async r=>{const x=await r.json();if(!r.ok)throw new Error(x.error||'Admin access denied');return x;});
+      setAuth(me); if(!me.user||!me.admin){setLoading(false);return;}
+      const data=await fetch('/api/site/admin/content',{credentials:'include',cache:'no-store'}).then(async r=>{const x=await r.json();if(!r.ok)throw new Error(x.error||'Admin access denied');return x});
       setItems(data.content?.[section]||[]);
-    }catch(e){notify(e.message||'Could not load admin data.')}
-    finally{setLoading(false)}
+    }catch(e){notify(e.message||'Could not load admin data.')}finally{setLoading(false)}
   },[section,notify]);
   useEffect(()=>{load()},[load]);
-  const updateItem=(index,key,value)=>setItems(current=>current.map((item,i)=>i===index?{...item,[key]:value}:item));
+  const updateItem=(index,key,value)=>setItems(cur=>cur.map((item,i)=>i===index?{...item,[key]:value}:item));
   const addItem=()=>{
-    const base=section==='leaderboard'
-      ? {id:'leaderboard-'+Date.now(),name:'New leaderboard entry',score:'—',status:'AWAITING DATA'}
-      : section==='events'
-      ? {id:'event-'+Date.now(),title:'New Event',category:'COMMUNITY',sub:'Event',date:'Date to be announced',status:'UPCOMING',description:'Add the event description here.',participants:'OPEN',rules:['Add event rules here.']}
+    const id=Date.now();
+    const base=section==='events'
+      ? {id:'event-'+id,title:'New Event',category:'COMMUNITY',sub:'Event',date:'Date to be announced',status:'UPCOMING',description:'',participants:'OPEN',rules:[]}
       : section==='hall'
-      ? {id:'hall-'+Date.now(),tournament:'Tournament name',winner:'Winner name',place:'1ST',date:'Date'}
-      : {id:'game-'+Date.now(),title:'New Game',category:['COMMUNITY'],status:'COMING SOON',text:'Describe the game here.',action:'Coming Soon'};
-    setItems(current=>[...current,base]);
+      ? {id:'hall-'+id,tournament:'Tournament name',winner:'Member name',place:'1ST',date:new Date().toLocaleDateString()}
+      : section==='leaderboard'
+      ? {id:'leaderboard-'+id,name:'Member name',score:'0',status:'ACTIVE'}
+      : {id:'game-'+id,title:'New Game',category:['CASUAL'],status:'PLAYABLE',text:'',action:'Play'};
+    setItems(cur=>[...cur,base]);
+    notify('New '+section.slice(0,-1)+' added. Fill it in below.');
   };
-  const removeItem=index=>setItems(current=>current.filter((_,i)=>i!==index));
+  const removeItem=index=>setItems(cur=>cur.filter((_,i)=>i!==index));
   const save=async()=>{
     setBusy(true);
     try{
       const r=await fetch('/api/site/admin/content/'+section,{method:'PUT',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({items})});
-      const data=await r.json().catch(()=>({}));
-      if(!r.ok)throw new Error(data.error||'Save failed');
-      setItems(data.items||items);notify(section.toUpperCase()+' saved.');
+      const data=await r.json().catch(()=>({})); if(!r.ok)throw new Error(data.error||'Save failed');
+      setItems(data.items||items);notify('Saved successfully.');
     }catch(e){notify(e.message||'Save failed.')}finally{setBusy(false)}
   };
   if(loading)return <div className="admin-gate"><div><span className="eyebrow">HORIZON ADMIN</span><h1>Opening control center…</h1><p>Checking your Discord permissions.</p></div></div>;
-  if(!auth?.user)return <div className="admin-gate"><div><span className="eyebrow">HORIZON ADMIN</span><h1>Discord login required.</h1><p>Only Log Horizon administrators can manage the website.</p><a className="btn primary" href="/api/site/auth-login">Continue with Discord <ArrowRight/></a><a className="text-link" href="/">Return to website</a></div></div>;
-  if(!auth.admin)return <div className="admin-gate"><div><span className="eyebrow">ACCESS DENIED</span><h1>Administrator permission required.</h1><p>Your Discord account is connected, but this control center is restricted to Discord server administrators.</p><a className="btn secondary" href="/">Return to Log Horizon <ArrowRight/></a></div></div>;
+  if(!auth?.user)return <div className="admin-gate"><div><span className="eyebrow">HORIZON ADMIN</span><h1>Discord login required.</h1><p>Sign in with Discord to continue.</p><a className="btn primary" href="/api/site/auth-login">Continue with Discord <ArrowRight/></a><a className="text-link" href="/">Return to website</a></div></div>;
+  if(!auth.admin)return <div className="admin-gate"><div><span className="eyebrow">ACCESS DENIED</span><h1>Administrator permission required.</h1><p>Your Discord account is connected, but only server administrators can manage the website.</p><a className="btn secondary" href="/">Return to Log Horizon <ArrowRight/></a></div></div>;
+  const tabs=[['events','Events','Create and manage community events'],['hall','Hall of Fame','Add winners and important records'],['games','Games','Control the games shown on the website'],['leaderboard','Leaderboard','Add members and their scores']];
   return <div className="admin-app">
     <header className="admin-header"><a className="brand" href="/"><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></a><div><span className="admin-badge">ADMIN CONTROL CENTER</span><a className="text-link" href="/">View website <ExternalLink size={14}/></a></div></header>
     <main className="admin-main">
-      <section className="admin-hero"><div><span className="eyebrow">HORIZON / WEBSITE ADMIN</span><h1>Control the world.</h1><p>Use the buttons below to change what visitors see. You do not need to edit code.</p><div className="admin-help"><b>How it works:</b> choose a section → change the boxes → press <b>Save changes</b> → refresh the website.</div></div><div className="admin-user"><span className="live-dot"/> Signed in as <b>{auth.user.global_name||auth.user.username}</b></div></section>
-      <div className="admin-tabs">{[['events','Events'],['hall','Hall of Fame'],['games','Games'],['leaderboard','Leaderboard']].map(([id,label])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}>{label}</button>)}</div>
+      <section className="admin-hero"><div><span className="eyebrow">HORIZON / WEBSITE ADMIN</span><h1>Website control center</h1><p>Everything here changes the public Log Horizon website. No code or technical knowledge is required.</p></div><div className="admin-user"><span className="live-dot"/> Signed in as <b>{auth.user.global_name||auth.user.username}</b></div></section>
+      <div className="admin-tabs">{tabs.map(([id,label,help])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}><b>{label}</b><small>{help}</small></button>)}</div>
       <section className="admin-editor">
-        <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} entries</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add entry</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
+        <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} {items.length===1?'item':'items'}</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add {section==='events'?'event':section==='hall'?'winner':section==='games'?'game':'member'}</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
+        <div className="admin-instructions"><b>How to use:</b> edit the information in each card, use the dropdowns for status/place, add rules or categories with the buttons, then press <b>Save changes</b>. Changes appear on the public website after refresh.</div>
         <div className="admin-list">{items.map((item,index)=><AdminEditorItem key={item.id||index} section={section} item={item} index={index} update={updateItem} remove={()=>removeItem(index)}/>)}</div>
+        {!items.length&&<div className="admin-empty"><Plus size={24}/><b>No {section} yet</b><span>Press “Add {section==='hall'?'winner':section.slice(0,-1)}” to create one.</span></div>}
       </section>
     </main>
-    {notice&&<div className="toast">{notice}</div>}
+    {notice&&<div className="toast"><span className="pulse-dot"/>{notice}</div>}
   </div>;
 }
 
 function AdminEditorItem({section,item,index,update,remove}){
-  const field=(key,label,type='text')=><label className="admin-field"><span>{label}</span>{type==='textarea'?<textarea value={item[key]??''} onChange={e=>update(index,key,e.target.value)} rows="3"/>:<input value={Array.isArray(item[key])?item[key].join(', '):(item[key]??'')} onChange={e=>update(index,key,type==='array'?e.target.value.split(',').map(x=>x.trim()).filter(Boolean):e.target.value)}/>}</label>;
-  return <article className="admin-item"><div className="admin-item-top"><span className="admin-index">#{String(index+1).padStart(2,'0')}</span><button className="admin-delete" onClick={remove}>Remove</button></div><div className="admin-fields">
-    <input type="hidden" value={item.id||''} readOnly/>
-    {section==='leaderboard'
-      ? <>{field('name','Entry name')}{field('score','Score')}{field('status','Status (UPCOMING / LIVE / PAST)')}</>
-      : section==='hall'
-      ? <>{field('tournament','Tournament')}{field('winner','Winner / Member name')}{field('place','Place')}{field('date','Date')}</>
-      : section==='events'
-      ? <>{field('title','Event title')}{field('category','Category (example: TOURNAMENTS)')}{field('sub','Type / subtitle')}{field('date','Date / time')}{field('status','Status')}{field('participants','Registration status')}{field('description','Description','textarea')}{field('rules','Rules (comma separated)','array')}</>
-      : <>{field('title','Game title')}{field('category','Categories (comma separated)','array')}{field('status','Status')}{field('text','Description','textarea')}{field('action','Button text')}</>}
-  </div></article>;
+  const text=(key,label,placeholder='')=><label className="admin-field"><span>{label}</span><input value={item[key]??''} placeholder={placeholder} onChange={e=>update(index,key,e.target.value)}/></label>;
+  const area=(key,label,placeholder='')=><label className="admin-field full"><span>{label}</span><textarea value={item[key]??''} placeholder={placeholder} rows="3" onChange={e=>update(index,key,e.target.value)}/></label>;
+  const select=(key,label,options)=><label className="admin-field"><span>{label}</span><select value={item[key]??options[0]} onChange={e=>update(index,key,e.target.value)}>{options.map(o=><option key={o}>{o}</option>)}</select></label>;
+  const chips=(key,label,placeholder)=>{
+    const values=Array.isArray(item[key])?item[key]:[];
+    return <div className="admin-field full"><span>{label}</span><div className="admin-chip-editor">{values.map((v,i)=><span className="admin-chip" key={i}>{v}<button type="button" onClick={()=>update(index,key,values.filter((_,x)=>x!==i))}>×</button></span>)}<input placeholder={placeholder} onKeyDown={e=>{if((e.key==='Enter'||e.key===',')&&e.currentTarget.value.trim()){e.preventDefault();const v=e.currentTarget.value.trim().replace(/,$/,'');update(index,key,[...values,v]);e.currentTarget.value=''}}}/></div><small>Type a value and press Enter.</small></div>;
+  };
+  const rules=Array.isArray(item.rules)?item.rules:[];
+  return <article className="admin-item">
+    <div className="admin-item-top"><div><span className="admin-index">#{String(index+1).padStart(2,'0')}</span><b>{item.title||item.name||item.winner||'New item'}</b></div><button className="admin-delete" onClick={remove}>Delete</button></div>
+    <div className="admin-fields">
+      {section==='events'&&<>{text('title','Event name','e.g. Fictional Character Tournament')}{select('category','Category',['COMMUNITY','TOURNAMENTS','CREATIVE','ANIME','COMPETITIVE'])}{text('sub','Type / subtitle','e.g. Character Creation')}{text('date','Date and time','e.g. Sunday • 7:00 PM IST')}{select('status','Status',['FEATURED','UPCOMING','LIVE','PAST'])}{select('participants','Registration',['OPEN','REGISTRATION SOON','CLOSED'])}{area('description','Description','Explain what the event is about.')}{<div className="admin-field full"><span>Rules</span><div className="admin-repeat">{rules.map((r,i)=><div key={i}><input value={r} onChange={e=>update(index,'rules',rules.map((x,n)=>n===i?e.target.value:x))}/><button onClick={()=>update(index,'rules',rules.filter((_,n)=>n!==i))}>×</button></div>)}<button className="add-small" onClick={()=>update(index,'rules',[...rules,'New rule'])}><Plus size={13}/> Add rule</button></div></div>}</>}
+      {section==='hall'&&<>{text('tournament','Tournament / event','e.g. Fictional Character Tournament')}{text('winner','Member name','e.g. Bhagyam Grover')}{select('place','Place',['1ST','2ND','3RD','HONOURABLE MENTION'])}{text('date','Date','e.g. October 2026')}</>}
+      {section==='leaderboard'&&<>{text('name','Member name','e.g. Player name')}{text('score','Score','e.g. 1500')}{select('status','Status',['ACTIVE','CHAMPION','INACTIVE','AWAITING DATA'])}</>}
+      {section==='games'&&<>{text('title','Game name','e.g. Anime Guess')}{chips('category','Categories','e.g. ANIME')}{select('status','Status',['PLAYABLE','LIVE','COMING SOON'])}{area('text','Description','Tell players what they will do.')}{select('action','Button',['Play','Create','Learn More','Coming Soon'])}</>}
+    </div>
+  </article>;
 }
 
 function PageHero({eyebrow,title,text,actions}){return <section className="page-hero"><div className="page-hero-art"><div className="hero-orbit"/><div className="hero-orbit second"/></div><div className="page-hero-copy"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{text}</p>{actions&&<div className="hero-actions">{actions}</div>}</div></section>}
@@ -604,7 +608,24 @@ function InfoCard({icon,title,text}){return <article className="info-card"><div 
 function EventCard({event,onClick,compact}){return <article className={`event-card ${compact?'compact':''}`} onClick={onClick}><div className="card-top"><span className="eyebrow">{event.category}</span><span className="status-pill">{event.status}</span></div><div className="event-card-icon"><CalendarDays/></div><h3>{event.title}</h3><span className="card-sub">{event.sub} • {event.date}</span><p>{event.description}</p><button className="text-link">View event <ArrowRight size={15}/></button></article>}
 function GameCard({game,onClick}){return <article className="game-card" onClick={onClick}><div className="game-art"><Gamepad2/><span>{game.status}</span></div><div className="card-top"><span className="eyebrow">{game.category.join(' • ')}</span></div><h3>{game.title}</h3><p>{game.text}</p><button className="text-link">{game.action} <ArrowRight size={15}/></button></article>}
 function Empty({text}){return <div className="empty"><Filter size={18}/>{text}</div>}
-function Modal({item,close,notify,session}){return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button><span className="eyebrow">{item.category||'LOG HORIZON'}</span><h2>{item.title}</h2><p>{item.description||item.text}</p>{item.date&&<div className="modal-meta"><span><CalendarDays/>{item.date}</span><span><Users/>{item.participants}</span></div>}<h3>Details</h3><ul>{(item.rules||['This feature is ready for the next integration step.']).map((r,i)=><li key={i}>{r}</li>)}</ul><div className="modal-actions">{item.status!=='PAST'&&<button className="btn primary" onClick={()=>notify(session?'Registration flow ready for backend.':'Connect Discord to register for member events.')}>{session?'Register interest':'Continue with Discord'} <ArrowRight/></button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div>}
+function Modal({item,close,notify,session}){if(['quiz','anime-guess','forge','arena','browser'].includes(item?.id))return <GameModal game={item} close={close} notify={notify}/>;return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button><span className="eyebrow">{item.category||'LOG HORIZON'}</span><h2>{item.title}</h2><p>{item.description||item.text}</p>{item.date&&<div className="modal-meta"><span><CalendarDays/>{item.date}</span><span><Users/>{item.participants}</span></div>}<h3>Details</h3><ul>{(item.rules||['This feature is ready for the next integration step.']).map((r,i)=><li key={i}>{r}</li>)}</ul><div className="modal-actions">{item.status!=='PAST'&&<button className="btn primary" onClick={()=>notify(session?'Registration flow ready for backend.':'Connect Discord to register for member events.')}>{session?'Register interest':'Continue with Discord'} <ArrowRight/></button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div>}
+
+function GameModal({game,close,notify}){
+  const [score,setScore]=useState(0),[round,setRound]=useState(0),[message,setMessage]=useState(''),[forge,setForge]=useState({name:'',role:'Warrior',power:''}),[enemy,setEnemy]=useState(100),[hp,setHp]=useState(100),[target,setTarget]=useState(null),[numbers,setNumbers]=useState([]);
+  const quiz=[['Which anime features the character Luffy?',['One Piece','Bleach','Naruto','Demon Slayer'],0],['Which Pokémon is known as the Electric Mouse?',['Eevee','Pikachu','Mew','Lucario'],1],['Which series has Tanjiro Kamado?',['One Piece','Demon Slayer','JJK','Bleach'],1]];
+  const guesses=[['Straw Hat Pirates',['One Piece','Naruto','Bleach'],0],['A demon slayer uses a Nichirin sword. Which series?',['Demon Slayer','One Punch Man','Dragon Ball'],0],['A ninja from the Uchiha clan is a major character.',['Naruto','One Piece','Fairy Tail'],0]];
+  useEffect(()=>{if(game.id==='arena'){setEnemy(100);setHp(100)}},[game.id]);
+  const pick=(answers,index)=>{if(round>=answers.length)return;setMessage(index===answers[round][2]?'Correct!':'Not quite.');if(index===answers[round][2])setScore(s=>s+1);setRound(r=>r+1)};
+  const reset=()=>{setScore(0);setRound(0);setMessage('');setEnemy(100);setHp(100);setNumbers([]);setTarget(null)};
+  const content=game.id==='quiz'?<><div className="game-score"><span>ROUND {Math.min(round+1,quiz.length)}/{quiz.length}</span><b>{score}</b></div>{round<quiz.length?<><h3>{quiz[round][0]}</h3><div className="game-options">{quiz[round][1].map((x,i)=><button onClick={()=>pick(quiz,i)} key={x}>{x}</button>)}</div></>:<div className="game-message">Finished — {score}/{quiz.length} correct.</div>}</>
+  :game.id==='anime-guess'?<><div className="game-score"><span>ROUND {Math.min(round+1,guesses.length)}/{guesses.length}</span><b>{score}</b></div>{round<guesses.length?<><h3>{guesses[round][0]}</h3><div className="game-options">{guesses[round][1].map((x,i)=><button onClick={()=>pick(guesses,i)} key={x}>{x}</button>)}</div></>:<div className="game-message">Finished — {score}/{guesses.length} correct.</div>}</>
+  :game.id==='forge'?<><h3>Create your character</h3><input className="game-input" placeholder="Character name" value={forge.name} onChange={e=>setForge({...forge,name:e.target.value})}/><select className="game-input" value={forge.role} onChange={e=>setForge({...forge,role:e.target.value})}>{['Warrior','Mage','Rogue','Support','Hunter'].map(x=><option key={x}>{x}</option>)}</select><input className="game-input" placeholder="Signature power" value={forge.power} onChange={e=>setForge({...forge,power:e.target.value})}/><div className="forge-preview"><small>CHARACTER PREVIEW</small><h4>{forge.name||'Unnamed Traveler'}</h4><p>{forge.role} • {forge.power||'Choose a signature power'}</p></div></>
+  :game.id==='arena'?<><div className="hp-row"><span>YOU {hp} HP</span><span>TRAINING DRONE {enemy} HP</span></div><div className="hp-bars"><i style={{width:hp+'%'}}/><i style={{width:enemy+'%'}}/></div><button className="btn primary arena-attack" disabled={!hp||!enemy} onClick={()=>{const dmg=Math.floor(Math.random()*16)+10;const hit=Math.floor(Math.random()*16)+8;setEnemy(e=>Math.max(0,e-dmg));setHp(h=>Math.max(0,h-hit));setMessage(enemy-dmg<=0?'Victory!':hp-hit<=0?'Defeated.':'Attack landed.')}}>ATTACK</button><div className="arena-result">{enemy<=0?'You defeated the drone.':hp<=0?'The drone defeated you.':message}</div></>
+  :<><div className="number-rush"><strong>{numbers.length?numbers.join(' '):'READY'}</strong><p>Click the numbers in order from 1 to 5.</p><div>{[1,2,3,4,5].map(n=><button key={n} onClick={()=>{const next=[...numbers,n];setNumbers(next);if(next.length===5)setMessage(next.join('')==='12345'?'Perfect run!':'Try again.')}}>{n}</button>)}</div></div><div className="game-message">{message}</div></>;
+  return <div className="game-overlay"><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{game.category?.join(' • ')||'GAME'}</span><h2>{game.title}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body"><div className="game-play-card">{content}</div><div className="modal-actions"><button className="btn secondary" onClick={reset}>Restart</button><button className="btn secondary" onClick={close}>Close</button></div></div></div></div>
+}
+
+
 
 
 createRoot(document.getElementById('root')).render(
