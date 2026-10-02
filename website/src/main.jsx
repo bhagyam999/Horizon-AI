@@ -20,7 +20,7 @@ const scenes = [
 ];
 
 const nav = [
-  ['Home','home'], ['Community','community'], ['Anime','anime'], ['Events','events'], ['Games','games'], ['Hall of Fame','hall']
+  ['Home','home'], ['Community','community'], ['Anime','anime'], ['Events','events'], ['Games','games'], ['Horizon RPG','rpg'], ['Hall of Fame','hall']
 ];
 
 const eventData = [
@@ -37,7 +37,6 @@ const gameData = [
   {id:'quiz', title:'Horizon Quiz', category:['QUIZ','ANIME','CASUAL'], status:'PLAYABLE', text:'Test your knowledge against other members.', action:'Play'},
   {id:'anime-guess', title:'Anime Guess', category:['ANIME','CASUAL'], status:'PLAYABLE', text:'Guess the anime from a clue.', action:'Play'},
   {id:'forge', title:'Character Forge', category:['CREATIVE'], status:'PLAYABLE', text:'Build your own fictional character.', action:'Create'},
-  {id:'arena', title:'Horizon Arena', category:['COMPETITIVE'], status:'PLAYABLE', text:'Fight a training drone in a quick solo battle.', action:'Play'},
   {id:'browser', title:'Browser Game Hub', category:['CASUAL','COMMUNITY'], status:'PLAYABLE', text:'Play quick mini-games in your browser.', action:'Play'}
 ];
 
@@ -244,7 +243,7 @@ function Events({filters,filter,setFilter,events,allEvents,search,setSearch,sear
 
 function Games({filters,filter,setFilter,games,leaderboard,openModal}){
   const [playing,setPlaying]=useState(null);
-  const playable=g=>['quiz','anime-guess','forge','arena','browser'].includes(g.id);
+  const playable=g=>['quiz','anime-guess','forge','browser'].includes(g.id);
   return <section className="page-shell">
     <PageHero eyebrow="GAMES" title={<>ENTER THE<br/><em>PLAYGROUND.</em></>} text="Real, playable community games — no placeholder buttons. Pick a game and start immediately." actions={<button className="btn primary" onClick={()=>setFilter('ALL')}>Explore games <ArrowRight/></button>}/>
     <section className="section inner-section">
@@ -265,7 +264,6 @@ function GamePlay({game,close}){
   const [message,setMessage]=useState('');
   const [quizIndex,setQuizIndex]=useState(0);
   const [forge,setForge]=useState({name:'',className:'',power:'',description:''});
-  const [arena,setArena]=useState({hp:100,enemy:100,turn:1});
   const [guess,setGuess]=useState('');
   const [hub,setHub]=useState(()=>['Memory Match','Reaction Test','Number Rush'][Math.floor(Math.random()*3)]);
   const quiz=[
@@ -287,15 +285,13 @@ function GamePlay({game,close}){
     }
   },[game.id,hub]);
   function quizAnswer(i){if(i===quiz[quizIndex][2]){setScore(s=>s+100);setMessage('Correct! +100')}else setMessage('Not quite.');setTimeout(()=>{setMessage('');setQuizIndex(x=>(x+1)%quiz.length)},500)}
-  function attack(){const damage=Math.floor(Math.random()*16)+10;const edamage=Math.floor(Math.random()*12)+7;setArena(a=>({...a,hp:Math.max(0,a.hp-edamage),enemy:Math.max(0,a.enemy-damage),turn:a.turn+1}));}
   return <div className="game-overlay"><div className="game-panel">
     <div className="game-header"><div><span className="eyebrow">HORIZON GAME</span><h2>{game.title}</h2></div><button onClick={close} className="modal-close"><X/></button></div>
     <div className="game-body">
       {game.id==='quiz'&&<div className="game-play-card"><div className="game-score">SCORE <b>{score}</b></div><span className="eyebrow">QUESTION {quizIndex+1}/{quiz.length}</span><h3>{quiz[quizIndex][0]}</h3><div className="game-options">{quiz[quizIndex][1].map((x,i)=><button key={x} onClick={()=>quizAnswer(i)}>{x}</button>)}</div>{message&&<p className="game-message">{message}</p>}</div>}
       {game.id==='anime-guess'&&<div className="game-play-card"><span className="eyebrow">ANIME GUESS</span><h3>Guess the anime from its title clue.</h3><p className="game-clue">The answer is one of five popular anime series. Try your best.</p><input className="game-input" value={guess} onChange={e=>setGuess(e.target.value)} placeholder="Type your answer"/><button className="btn primary" onClick={()=>setMessage(guess.trim().toLowerCase()===target[1].toLowerCase()?'Correct! You got it.':'Not this one — try again.')}>Submit <ArrowRight/></button>{message&&<p className="game-message">{message}</p>}<button className="btn secondary" onClick={()=>{setGuess('');setMessage('');}}>Reset</button></div>}
       {game.id==='forge'&&<div className="game-play-card"><span className="eyebrow">CHARACTER FORGE</span><h3>Create your character.</h3>{[['name','Character name'],['className','Class / role'],['power','Signature power'],['description','Short description']].map(([k,l])=><input key={k} className="game-input" value={forge[k]} onChange={e=>setForge({...forge,[k]:e.target.value})} placeholder={l}/>)}<div className="forge-preview"><span className="eyebrow">YOUR CHARACTER</span><h4>{forge.name||'Unnamed Traveler'}</h4><b>{forge.className||'Class not chosen'}</b><p>{forge.power||'Signature power not chosen'}</p><small>{forge.description||'Add a description to complete the profile.'}</small></div></div>}
-      {game.id==='arena'&&<div className="game-play-card"><span className="eyebrow">HORIZON ARENA • SOLO BATTLE</span><h3>Battle the training drone.</h3><div className="hp-row"><span>YOU {arena.hp}/100</span><span>DRONE {arena.enemy}/100</span></div><div className="hp-bars"><i style={{width:arena.hp+'%'}}/><i style={{width:arena.enemy+'%'}}/></div>{arena.hp<=0||arena.enemy<=0?<div className="arena-result"><h3>{arena.enemy<=0?'Victory!':'Defeat.'}</h3><button className="btn primary" onClick={()=>setArena({hp:100,enemy:100,turn:1})}>Play again</button></div>:<button className="btn primary arena-attack" onClick={attack}>Attack • Turn {arena.turn}</button>}</div>}
-      {game.id==='browser'&&<div className="game-play-card"><span className="eyebrow">BROWSER GAME HUB</span><h3>{hub}</h3>{hub==='Memory Match'?<MemoryMiniGame/>:hub==='Reaction Test'?<div className="reaction-game"><p>{reactionReady?'TAP NOW!':'Wait for the signal…'}</p><button className="reaction-button" onClick={()=>{if(!reactionReady){setMessage('Too early! Wait for the signal.');}else{setMessage('Reaction: '+(Date.now()-reactionStart)+' ms');setReactionReady(false)}}}>{reactionReady?'TAP':'WAIT'}</button></div>:<NumberRush/>}<button className="btn secondary" onClick={()=>setHub(['Memory Match','Reaction Test','Number Rush'][Math.floor(Math.random()*3)])}>Another game</button></div>}
+       {game.id==='browser'&&<div className="game-play-card"><span className="eyebrow">BROWSER GAME HUB</span><h3>{hub}</h3>{hub==='Memory Match'?<MemoryMiniGame/>:hub==='Reaction Test'?<div className="reaction-game"><p>{reactionReady?'TAP NOW!':'Wait for the signal…'}</p><button className="reaction-button" onClick={()=>{if(!reactionReady){setMessage('Too early! Wait for the signal.');}else{setMessage('Reaction: '+(Date.now()-reactionStart)+' ms');setReactionReady(false)}}}>{reactionReady?'TAP':'WAIT'}</button></div>:<NumberRush/>}<button className="btn secondary" onClick={()=>setHub(['Memory Match','Reaction Test','Number Rush'][Math.floor(Math.random()*3)])}>Another game</button></div>}
     </div>
   </div></div>
 }
@@ -608,7 +604,7 @@ function InfoCard({icon,title,text}){return <article className="info-card"><div 
 function EventCard({event,onClick,compact}){return <article className={`event-card ${compact?'compact':''}`} onClick={onClick}><div className="card-top"><span className="eyebrow">{event.category}</span><span className="status-pill">{event.status}</span></div><div className="event-card-icon"><CalendarDays/></div><h3>{event.title}</h3><span className="card-sub">{event.sub} • {event.date}</span><p>{event.description}</p><button className="text-link">View event <ArrowRight size={15}/></button></article>}
 function GameCard({game,onClick}){return <article className="game-card" onClick={onClick}><div className="game-art"><Gamepad2/><span>{game.status}</span></div><div className="card-top"><span className="eyebrow">{game.category.join(' • ')}</span></div><h3>{game.title}</h3><p>{game.text}</p><button className="text-link">{game.action} <ArrowRight size={15}/></button></article>}
 function Empty({text}){return <div className="empty"><Filter size={18}/>{text}</div>}
-function Modal({item,close,notify,session}){if(['quiz','anime-guess','forge','arena','browser'].includes(item?.id))return <GameModal game={item} close={close} notify={notify}/>;return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button><span className="eyebrow">{item.category||'LOG HORIZON'}</span><h2>{item.title}</h2><p>{item.description||item.text}</p>{item.date&&<div className="modal-meta"><span><CalendarDays/>{item.date}</span><span><Users/>{item.participants}</span></div>}<h3>Details</h3><ul>{(item.rules||['This feature is ready for the next integration step.']).map((r,i)=><li key={i}>{r}</li>)}</ul><div className="modal-actions">{item.status!=='PAST'&&<button className="btn primary" onClick={()=>notify(session?'Registration flow ready for backend.':'Connect Discord to register for member events.')}>{session?'Register interest':'Continue with Discord'} <ArrowRight/></button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div>}
+function Modal({item,close,notify,session}){if(['quiz','anime-guess','forge','browser'].includes(item?.id))return <GameModal game={item} close={close} notify={notify}/>;return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button><span className="eyebrow">{item.category||'LOG HORIZON'}</span><h2>{item.title}</h2><p>{item.description||item.text}</p>{item.date&&<div className="modal-meta"><span><CalendarDays/>{item.date}</span><span><Users/>{item.participants}</span></div>}<h3>Details</h3><ul>{(item.rules||['This feature is ready for the next integration step.']).map((r,i)=><li key={i}>{r}</li>)}</ul><div className="modal-actions">{item.status!=='PAST'&&<button className="btn primary" onClick={()=>notify(session?'Registration flow ready for backend.':'Connect Discord to register for member events.')}>{session?'Register interest':'Continue with Discord'} <ArrowRight/></button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div>}
 
 function shuffle(list){return [...list].sort(()=>Math.random()-0.5)}
 
@@ -645,33 +641,19 @@ function GameModal({game,close,notify}){
   const [quizQuestions]=useState(()=>shuffle(QUIZ_QUESTIONS).slice(0,10));
   const [guessQuestions]=useState(()=>shuffle(ANIME_GUESSES));
   const [round,setRound]=useState(0),[score,setScore]=useState(0),[message,setMessage]=useState('');
-  const [arena,setArena]=useState({hp:100,enemy:120,guard:false,turn:'player',log:'Choose an action.'});
   const [forge,setForge]=useState({name:'',role:'Warrior',power:'',rarity:'RARE'});
   const [mini,setMini]=useState('menu'),[numbers,setNumbers]=useState([]),[reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0);
   const [memory,setMemory]=useState(()=>shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));
   const [memoryPick,setMemoryPick]=useState([]);
   const [saved,setSaved]=useState(false);
 
-  const restart=()=>{setRound(0);setScore(0);setMessage('');setArena({hp:100,enemy:120,guard:false,turn:'player',log:'Choose an action.'});setNumbers([]);setReaction('ready');setSaved(false);setMemory(shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));setMemoryPick([])};
+  const restart=()=>{setRound(0);setScore(0);setMessage('');setMessage('');setNumbers([]);setReaction('ready');setSaved(false);setMemory(shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));setMemoryPick([])};
   const answer=(questions,index)=>{
     const q=questions[round];
     const correct=index===q[2];
     setScore(s=>s+(correct?1:0)); setMessage(correct?'Correct.':'Not this time.');
     if(round+1<questions.length)setTimeout(()=>{setRound(r=>r+1);setMessage('')},420);
     else setRound(r=>r+1);
-  };
-  const arenaAction=(action)=>{
-    if(arena.hp<=0||arena.enemy<=0)return;
-    let hp=arena.hp,enemy=arena.enemy,guard=false,log='';
-    if(action==='attack'){const dmg=Math.floor(Math.random()*16)+14;enemy=Math.max(0,enemy-dmg);log='You dealt '+dmg+' damage.'}
-    if(action==='heavy'){const dmg=Math.floor(Math.random()*26)+18;enemy=Math.max(0,enemy-dmg);log='Heavy strike dealt '+dmg+' damage.'}
-    if(action==='heal'){const heal=Math.floor(Math.random()*16)+12;hp=Math.min(100,hp+heal);log='You recovered '+heal+' HP.'}
-    if(action==='guard'){guard=true;log='Guard raised. The next hit is reduced.'}
-    if(enemy<=0){setArena({hp,enemy,guard:false,turn:'done',log:'Victory! Training drone defeated.'});return}
-    const incoming=Math.floor(Math.random()*13)+9;
-    const taken=guard?Math.ceil(incoming*.4):incoming;
-    hp=Math.max(0,hp-taken);
-    setArena({hp,enemy,guard:false,turn:hp<=0?'done':'player',log:log+' Drone dealt '+taken+' damage.'});
   };
   const forgeSave=()=>{localStorage.setItem('lh-character-forge',JSON.stringify(forge));setSaved(true);notify?.('Character saved on this device.')};
   const startReaction=()=>{setMessage('');setReaction('wait');const delay=900+Math.random()*2600;setTimeout(()=>{setReactionStart(performance.now());setReaction('go')},delay)};
@@ -699,21 +681,20 @@ function GameModal({game,close,notify}){
   }else if(mode==='anime-guess'){
     const q=guessQuestions[round];
     body=<>{!guessDone?<><div className="game-score"><span>ROUND {round+1} / {guessQuestions.length}</span><b>{score}</b></div><div className="guess-clue"><span className="eyebrow">IDENTIFY THE ANIME</span><h3>{q[0]}</h3></div><div className="game-options">{q[1].map((x,i)=><button key={x} onClick={()=>answer(guessQuestions,i)}>{x}</button>)}</div><div className="game-message">{message}</div></>:<div className="game-result"><span className="eyebrow">ANIME GUESS COMPLETE</span><strong>{score}/{guessQuestions.length}</strong><p>You completed the full 10-round challenge.</p></div>}</>;
-  }else if(mode==='arena'){
-    body=<><div className="arena-title"><span>PLAYER</span><b>{arena.hp} HP</b><span>TRAINING DRONE</span><b>{arena.enemy} HP</b></div><div className="hp-bars"><i style={{width:arena.hp+'%'}}/><i style={{width:Math.max(0,arena.enemy/120*100)+'%'}}/></div><div className="arena-log">{arena.log}</div><div className="arena-actions"><button className="btn primary" disabled={arena.turn==='done'} onClick={()=>arenaAction('attack')}>Quick Attack</button><button className="btn secondary" disabled={arena.turn==='done'} onClick={()=>arenaAction('heavy')}>Heavy Strike</button><button className="btn secondary" disabled={arena.turn==='done'} onClick={()=>arenaAction('heal')}>Heal</button><button className="btn secondary" disabled={arena.turn==='done'} onClick={()=>arenaAction('guard')}>Guard</button></div>{arena.turn==='done'&&<div className="game-result"><strong>{arena.enemy<=0?'VICTORY':'DEFEAT'}</strong><p>{arena.enemy<=0?'The training drone is down.':'The drone won this round.'}</p></div>}</>;
   }else if(mode==='forge'){
     body=<><h3>Create your character</h3><input className="game-input" placeholder="Character name" value={forge.name} onChange={e=>setForge({...forge,name:e.target.value})}/><select className="game-input" value={forge.role} onChange={e=>setForge({...forge,role:e.target.value})}>{['Warrior','Mage','Rogue','Support','Hunter'].map(x=><option key={x}>{x}</option>)}</select><input className="game-input" placeholder="Signature power" value={forge.power} onChange={e=>setForge({...forge,power:e.target.value})}/><select className="game-input" value={forge.rarity} onChange={e=>setForge({...forge,rarity:e.target.value})}>{['COMMON','RARE','EPIC','LEGENDARY'].map(x=><option key={x}>{x}</option>)}</select><div className="forge-preview"><small>CHARACTER PREVIEW</small><h4>{forge.name||'Unnamed Traveler'}</h4><p>{forge.rarity} • {forge.role} • {forge.power||'Choose a signature power'}</p></div><button className="btn primary" onClick={forgeSave}>Save Character</button>{saved&&<div className="game-message">Saved on this device. You can reopen the Forge later.</div>}</>;
   }else if(mode==='browser'){
     body=<div className="browser-game">{mini==='menu'&&<div className="mini-menu"><span className="eyebrow">MINI-GAME HUB</span><h3>Choose a challenge</h3><button className="btn secondary" onClick={()=>setMini('number')}>Number Rush</button><button className="btn secondary" onClick={()=>setMini('memory')}>Memory Match</button><button className="btn secondary" onClick={()=>{setMini('reaction');startReaction()}}>Reaction Test</button></div>}{mini==='number'&&<div className="number-rush"><span className="eyebrow">NUMBER RUSH</span><h3>Tap 1 → 5 in order</h3><strong>{numbers.length?numbers.join(' '):'READY'}</strong><div>{[1,2,3,4,5].map(n=><button key={n} disabled={numbers.includes(n)} onClick={()=>{const next=[...numbers,n];if(next.length===5)setMessage(next.join('')==='12345'?'Perfect run!':'Wrong order — restart and try again.');setNumbers(next)}}>{n}</button>)}</div><button className="btn secondary" onClick={()=>{setNumbers([]);setMessage('')}}>Restart</button><p className="game-message">{message}</p></div>}{mini==='memory'&&<div><span className="eyebrow">MEMORY MATCH</span><h3>Match every pair</h3><div className="memory-grid">{memory.map(card=><button key={card.id} className={card.open||card.done?'flipped':''} onClick={()=>memoryClick(card.id)}>{card.open||card.done?card.v:'?'}</button>)}</div><button className="btn secondary" onClick={()=>{setMemory(shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));setMemoryPick([])}}>Restart</button></div>}{mini==='reaction'&&<div className="reaction-game"><span className="eyebrow">REACTION TEST</span><h3>{reaction==='wait'?'Wait for it…':reaction==='go'?'TAP NOW!':reaction==='tooSoon'?'Too early!':reaction==='result'?message:'Ready?'}</h3><button className="reaction-button" onClick={reaction==='result'||reaction==='tooSoon'?startReaction:reactionClick}>{reaction==='wait'?'WAIT…':reaction==='go'?'TAP!':reaction==='result'?'TRY AGAIN':'START'}</button></div>}</div>;
   }else{
-    body=<><div className="game-result"><span className="eyebrow">HORIZON GAMES</span><strong>Choose a game</strong><p>Each game is built into the website. No setup or admin configuration is required.</p></div><div className="game-options"><button onClick={()=>setMode('quiz')}>Horizon Quiz</button><button onClick={()=>setMode('anime-guess')}>Anime Guess</button><button onClick={()=>setMode('arena')}>Horizon Arena</button><button onClick={()=>setMode('forge')}>Character Forge</button><button onClick={()=>setMode('browser')}>Browser Game Hub</button></div></>;
+    body=<><div className="game-result"><span className="eyebrow">HORIZON GAMES</span><strong>Choose a game</strong><p>Each game is built into the website. No setup or admin configuration is required.</p></div><div className="game-options"><button onClick={()=>setMode('quiz')}>Horizon Quiz</button><button onClick={()=>setMode('anime-guess')}>Anime Guess</button><button onClick={()=>setMode('forge')}>Character Forge</button><button onClick={()=>setMode('browser')}>Browser Game Hub</button></div></>;
   }
 
-  return <div className="game-overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{mode==='hub'?'HORIZON GAMES':game?.category?.join(' • ')||'GAME'}</span><h2>{mode==='hub'?'Choose your challenge':mode==='anime-guess'?'Anime Guess':mode==='quiz'?'Horizon Quiz':mode==='arena'?'Horizon Arena':mode==='forge'?'Character Forge':'Browser Game Hub'}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body">{mode!=='hub'&&<button className="text-link" onClick={()=>{setMode('hub');setMessage('')}}>← All games</button>}<div className="game-play-card">{body}</div><div className="modal-actions">{mode!=='hub'&&<button className="btn secondary" onClick={restart}>Restart</button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div></div>;
+  return <div className="game-overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{mode==='hub'?'HORIZON GAMES':game?.category?.join(' • ')||'GAME'}</span><h2>{mode==='hub'?'Choose your challenge':mode==='anime-guess'?'Anime Guess':mode==='quiz'?'Horizon Quiz' :''mode==='forge'?'Character Forge':'Browser Game Hub'}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body">{mode!=='hub'&&<button className="text-link" onClick={()=>{setMode('hub');setMessage('')}}>← All games</button>}<div className="game-play-card">{body}</div><div className="modal-actions">{mode!=='hub'&&<button className="btn secondary" onClick={restart}>Restart</button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div></div>;
 }
 
 
 createRoot(document.getElementById('root')).render(
   window.location.pathname.replace(/\/$/, '') === '/anime' ? <AnimePage /> :
-  window.location.pathname.replace(/\/$/, '') === '/admin' ? <AdminPage /> : <App />
+  window.location.pathname.replace(/\/$/, '') === '/admin' ? <AdminPage /> :
+  window.location.pathname.replace(/\/$/, '') === '/rpg' ? <HorizonRPGPage /> : <App />
 );
