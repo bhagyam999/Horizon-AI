@@ -37,6 +37,10 @@ class Database:
                 role_id INTEGER NOT NULL,
                 PRIMARY KEY (guild_id, level)
             );
+            CREATE TABLE IF NOT EXISTS system_migrations (
+                name TEXT PRIMARY KEY,
+                applied_at REAL DEFAULT (strftime('%s','now'))
+            );
             CREATE TABLE IF NOT EXISTS memories (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 guild_id INTEGER NOT NULL,
@@ -146,6 +150,57 @@ class Database:
             except Exception:
                 pass
             await db.commit()
+        # One-time migration: preserve everyone's existing normal level/progress
+        # while moving their stored XP onto the new slow curve.
+        await self.convert_legacy_level_xp()
+
+    async def convert_legacy_level_xp(self):
+        """Convert the old 100-XP-per-level totals to the new Arcane-style curve once."""
+        async with aiosqlite.connect(self.path) as db:
+            cur = await db.execute(
+                "SELECT 1 FROM system_migrations WHERE name=?",
+                ("normal_level_curve_v1",),
+            )
+            if await cur.fetchone():
+                return 0
+
+            cur = await db.execute(
+                "SELECT guild_id,user_id,xp FROM profiles WHERE xp > 0"
+            )
+            rows = await cur.fetchall()
+
+            updates = []
+            for guild_id, user_id, old_xp in rows:
+                old_xp = max(0, int(old_xp))
+                old_level = old_xp // 100 + 1
+                if old_level <= 1:
+                    new_xp = old_xp
+                elif old_level >= 200:
+                    # Level 200 was the old practical ceiling. Keep those members
+                    # at level 200 rather than unexpectedly demoting them.
+                    new_xp = (199 * (50 * 200 + 75))
+                else:
+                    # Preserve both the old level and its fractional progress.
+                    # Old level N starts at (N-1)*100 XP; the remainder is out of
+                    # the old 100-XP level segment.
+                    old_progress = old_xp % 100
+                    new_floor = (old_level - 1) * (50 * old_level + 75)
+                    new_segment = old_level * 100 + 75
+                    new_xp = new_floor + round(new_segment * old_progress / 100)
+
+                updates.append((int(new_xp), int(guild_id), int(user_id)))
+
+            if updates:
+                await db.executemany(
+                    "UPDATE profiles SET xp=? WHERE guild_id=? AND user_id=?",
+                    updates,
+                )
+            await db.execute(
+                "INSERT INTO system_migrations(name) VALUES(?)",
+                ("normal_level_curve_v1",),
+            )
+            await db.commit()
+            return len(updates)
 
     async def _ensure_profile(self, db, guild_id, user_id):
         await db.execute('INSERT OR IGNORE INTO profiles(guild_id,user_id) VALUES(?,?)', (guild_id, user_id))
