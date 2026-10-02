@@ -32,6 +32,7 @@ class Dashboard:
             web.get("/", self.website),
             web.get("/anime", self.website),
             web.get("/admin", self.website),
+            web.get("/rpg", self.website),
             web.get("/health", self.health),
             web.get("/api/overview", self.api_overview),
             web.get("/api/member", self.api_member),
