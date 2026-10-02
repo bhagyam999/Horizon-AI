@@ -684,13 +684,17 @@ class Horizon(commands.Bot):
         profile = await self.db.profile(ctx.guild.id, member.id)
         level = min(LEVEL_MAX, level_for(profile["xp"]))
         current_floor = xp_needed_for_level(level)
-        required = xp_for_next_level(level)
-        progress = max(0, profile["xp"] - current_floor)
         earned = await self.apply_level_rewards(member, level)
         reward_note = f" • synced {len(earned)} role reward(s)" if earned else ""
+        if level >= LEVEL_MAX:
+            xp_text = f"{profile['xp']:,} / {current_floor:,} (MAX LEVEL)"
+        else:
+            required = xp_for_next_level(level)
+            progress = max(0, profile["xp"] - current_floor)
+            xp_text = f"{progress:,} / {required:,} toward Level {level + 1}"
         await ctx.send(
             f"**{member.display_name}** — **Level {level}\n"
-            f"XP: {progress:,} / {required:,} toward Level {min(level + 1, LEVEL_MAX)}"
+            f"XP: {xp_text}"
             f"{reward_note}"
         )
 
