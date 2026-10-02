@@ -918,3 +918,32 @@ async def setup(bot):
         await _delete(ctx)
         await ctx.send("⌨️ **Horizon Prefix:** !")
     await add("prefix",prefix,"Show the current prefix.")
+
+    async def links(ctx):
+        if not await _guard(ctx,"links"): return
+        await _delete(ctx)
+
+        dashboard_url = "https://horizon-dashboard-live-production.up.railway.app"
+        bot_website_url = "https://zucchini-inspiration-production-1cf2.up.railway.app"
+
+        if bot.user:
+            invite_url = (
+                "https://discord.com/oauth2/authorize"
+                f"?client_id={bot.user.id}"
+                "&scope=bot%20applications.commands"
+                "&permissions=1099780189270"
+            )
+        else:
+            invite_url = "https://discord.com/developers/applications"
+
+        await ctx.send(
+            "**Horizon Links**\n"
+            f"**Dashboard:** {dashboard_url}\n"
+            f"**Website:** {bot_website_url}\n"
+            f"**Invite Horizon:** {invite_url}"
+        )
+    await add("links",links,"Show Horizon's websites and bot invite link.")
+    if not bot.get_command("link"):
+        bot.add_command(_cmd("link", links, "Show Horizon's websites and bot invite link."))
+    if not bot.get_command("invite"):
+        bot.add_command(_cmd("invite", links, "Show Horizon's websites and bot invite link."))
