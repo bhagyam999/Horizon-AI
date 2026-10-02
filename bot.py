@@ -561,14 +561,32 @@ class Horizon(commands.Bot):
         if member.bot or not member.guild:
             return
         settings = await self.db.settings(member.guild.id)
-        channel_id = settings["welcome_channel_id"]
-        if channel_id:
-            channel = member.guild.get_channel(channel_id)
-            if channel:
+
+        join_role_id = int(settings.get("join_role_id") or 0)
+        if join_role_id:
+            role = member.guild.get_role(join_role_id)
+            me = member.guild.me
+            if role and not role.is_default() and not role.managed and me and role < me.top_role:
                 try:
-                    await channel.send(
-                        f"Welcome to **{member.guild.name}**, {member.mention}!"
+                    await member.add_roles(role, reason="Horizon automatic join role")
+                except (discord.Forbidden, discord.HTTPException):
+                    log.exception("Could not assign join role %s in guild %s", join_role_id, member.guild.id)
+
+        if int(settings.get("welcome_enabled", 1) or 0) and int(settings.get("welcome_channel_id") or 0):
+            channel = member.guild.get_channel(int(settings["welcome_channel_id"]))
+            if channel:
+                template = str(settings.get("welcome_message") or "Welcome to **{server}**, {mention}!")
+                try:
+                    content = template.format(
+                        server=member.guild.name,
+                        mention=member.mention,
+                        username=member.display_name,
+                        member_count=member.guild.member_count or 0,
                     )
+                except Exception:
+                    content = f"Welcome to **{member.guild.name}**, {member.mention}!"
+                try:
+                    await channel.send(content[:2000])
                 except discord.HTTPException:
                     pass
 
@@ -598,16 +616,22 @@ class Horizon(commands.Bot):
     async def xp_message(self, message: discord.Message):
         if not message.guild or message.author.bot:
             return
+        settings = await self.db.settings(message.guild.id)
+        if not int(settings.get("leveling_enabled", 1) or 0):
+            return
+        cooldown = max(5, min(3600, int(settings.get("leveling_cooldown") or LEVEL_XP_COOLDOWN)))
+        xp_min = max(1, min(1000, int(settings.get("leveling_xp_min") or LEVEL_XP_MIN)))
+        xp_max = max(xp_min, min(1000, int(settings.get("leveling_xp_max") or LEVEL_XP_MAX)))
         if await self.db.is_cooldown(message.guild.id, message.author.id, "xp"):
             return
 
-        await self.db.cooldown(message.guild.id, message.author.id, "xp", LEVEL_XP_COOLDOWN)
+        await self.db.cooldown(message.guild.id, message.author.id, "xp", cooldown)
         before = await self.db.profile(message.guild.id, message.author.id)
         before_level = level_for(before["xp"])
         if before_level >= LEVEL_MAX:
             return
 
-        amount = random.randint(LEVEL_XP_MIN, LEVEL_XP_MAX)
+        amount = random.randint(xp_min, xp_max)
         after = await self.db.add_xp(message.guild.id, message.author.id, amount)
         after_level = min(LEVEL_MAX, level_for(after["xp"]))
 
