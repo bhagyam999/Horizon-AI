@@ -274,9 +274,26 @@ function GamePlay({game,close}){
     ['What does XP usually represent in games?',['Experience','Extra Power only','Example Player','Exit Point'],0]
   ];
   const guessBank=[
-    ['Naruto','Naruto'],['One Piece','One Piece'],['Demon Slayer','Demon Slayer'],['Attack on Titan','Attack on Titan'],['Jujutsu Kaisen','Jujutsu Kaisen']
+    ['Pirates, Devil Fruits and a rubber-bodied captain are central to this adventure.','One Piece'],
+    ['A boy and his sister travel while fighting demons with Nichirin blades.','Demon Slayer'],
+    ['Ninja villages, chakra and the Uchiha clan are key parts of this story.','Naruto'],
+    ['Cursed energy and sorcerers face supernatural curses in modern Japan.','Jujutsu Kaisen'],
+    ['Humanity fights enormous humanoid threats behind massive walls.','Attack on Titan'],
+    ['A young hero enters a school where students train to become professional heroes.','My Hero Academia'],
+    ['A volleyball team works toward the national stage under a passionate first-year player.','Haikyuu!!'],
+    ['A quiet genius becomes involved with a mysterious notebook.','Death Note'],
+    ['A young alchemist travels with his brother while searching for a way to restore their bodies.','Fullmetal Alchemist: Brotherhood'],
+    ['A fantasy world follows a reincarnated slime building a new community.','That Time I Got Reincarnated as a Slime']
   ];
-  const [target]=useState(()=>guessBank[Math.floor(Math.random()*guessBank.length)]);
+  const [guessRound,setGuessRound]=useState(0);
+  const target=guessBank[guessRound];
+  const [guessOptions,setGuessOptions]=useState([]);
+  useEffect(()=>{
+    if(game.id==='anime-guess'){
+      const answers=[target[1],...guessBank.filter((_,i)=>i!==guessRound).sort(()=>Math.random()-.5).slice(0,3).map(x=>x[1])];
+      setGuessOptions(answers.sort(()=>Math.random()-.5));
+    }
+  },[game.id,guessRound]);
   const [reactionReady,setReactionReady]=useState(false);
   const [reactionStart,setReactionStart]=useState(0);
   useEffect(()=>{
@@ -290,7 +307,7 @@ function GamePlay({game,close}){
     <div className="game-header"><div><span className="eyebrow">HORIZON GAME</span><h2>{game.title}</h2></div><button onClick={close} className="modal-close"><X/></button></div>
     <div className="game-body">
       {game.id==='quiz'&&<div className="game-play-card"><div className="game-score">SCORE <b>{score}</b></div><span className="eyebrow">QUESTION {quizIndex+1}/{quiz.length}</span><h3>{quiz[quizIndex][0]}</h3><div className="game-options">{quiz[quizIndex][1].map((x,i)=><button key={x} onClick={()=>quizAnswer(i)}>{x}</button>)}</div>{message&&<p className="game-message">{message}</p>}</div>}
-      {game.id==='anime-guess'&&<div className="game-play-card"><span className="eyebrow">ANIME GUESS</span><h3>Guess the anime from its title clue.</h3><p className="game-clue">The answer is one of five popular anime series. Try your best.</p><input className="game-input" value={guess} onChange={e=>setGuess(e.target.value)} placeholder="Type your answer"/><button className="btn primary" onClick={()=>setMessage(guess.trim().toLowerCase()===target[1].toLowerCase()?'Correct! You got it.':'Not this one — try again.')}>Submit <ArrowRight/></button>{message&&<p className="game-message">{message}</p>}<button className="btn secondary" onClick={()=>{setGuess('');setMessage('');}}>Reset</button></div>}
+      {game.id==='anime-guess'&&<div className="game-play-card"><div className="game-score">ROUND <b>{guessRound+1}/10</b></div><span className="eyebrow">ANIME GUESS</span><h3>{target[0]}</h3><div className="game-options">{guessOptions.map(option=><button key={option} onClick={()=>{const correct=option===target[1];setMessage(correct?'Correct! +1':'Not quite.');if(correct)setScore(s=>s+1);setTimeout(()=>{setMessage('');setGuess('');setGuessRound(r=>(r+1)%guessBank.length)},500)}}>{option}</button>)}</div><p className="game-score">SCORE <b>{score}</b></p>{message&&<p className="game-message">{message}</p>}</div>}
       {game.id==='forge'&&<div className="game-play-card"><span className="eyebrow">CHARACTER FORGE</span><h3>Create your character.</h3>{[['name','Character name'],['className','Class / role'],['power','Signature power'],['description','Short description']].map(([k,l])=><input key={k} className="game-input" value={forge[k]} onChange={e=>setForge({...forge,[k]:e.target.value})} placeholder={l}/>)}<div className="forge-preview"><span className="eyebrow">YOUR CHARACTER</span><h4>{forge.name||'Unnamed Traveler'}</h4><b>{forge.className||'Class not chosen'}</b><p>{forge.power||'Signature power not chosen'}</p><small>{forge.description||'Add a description to complete the profile.'}</small></div></div>}
        {game.id==='browser'&&<div className="game-play-card"><span className="eyebrow">BROWSER GAME HUB</span><h3>{hub}</h3>{hub==='Memory Match'?<MemoryMiniGame/>:hub==='Reaction Test'?<div className="reaction-game"><p>{reactionReady?'TAP NOW!':'Wait for the signal…'}</p><button className="reaction-button" onClick={()=>{if(!reactionReady){setMessage('Too early! Wait for the signal.');}else{setMessage('Reaction: '+(Date.now()-reactionStart)+' ms');setReactionReady(false)}}}>{reactionReady?'TAP':'WAIT'}</button></div>:<NumberRush/>}<button className="btn secondary" onClick={()=>setHub(['Memory Match','Reaction Test','Number Rush'][Math.floor(Math.random()*3)])}>Another game</button></div>}
     </div>
