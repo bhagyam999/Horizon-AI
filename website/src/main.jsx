@@ -81,7 +81,7 @@ function App(){
     else if(authResult==='not-member') notify('Your Discord account is not a member of Log Horizon.');
     else if(authResult==='error') notify('Discord login could not be completed. Check the OAuth settings.');
     if(authResult){ window.history.replaceState({},'',window.location.pathname+window.location.hash); }
-    const h=()=>{const id=window.location.hash.replace('#',''); if(id && ['home','community','events','games','hall'].includes(id)) setView(id)};
+    const h=()=>{const id=window.location.hash.replace('#',''); if(id && ['home','community','events','games','rpg','hall'].includes(id)) setView(id)};
     window.addEventListener('hashchange',h);h();return()=>window.removeEventListener('hashchange',h);
   },[notify]);
 
@@ -96,7 +96,7 @@ function App(){
   return <div className="app"><div className="ambient ambient-cyan"/><div className="ambient ambient-violet"/><div className="grid"/>
     <header className="header">
       <button className="brand" onClick={()=>navigate('home')}><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></button>
-      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}{session?.admin&&<a className="admin-nav" href="/admin">Admin</a>}</nav>
+      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : id==='rpg' ? <a key={id} href="/rpg">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}{session?.admin&&<a className="admin-nav" href="/admin">Admin</a>}</nav>
       <div className="header-actions">
         <button className="horizon-ai-trigger" onClick={()=>setAiOpen(true)} aria-label="Open Horizon AI"><Bot size={15}/><span>HORIZON AI</span></button>
         {session ? <button className="profile-chip" onClick={()=>notify(`Connected as ${session.username}`)}><span className="profile-dot"/>{session.username}</button> : <button className="discord-login" onClick={()=>window.location.href='/api/site/auth-login'}><MessageCircle size={16}/> Continue with Discord</button>}
@@ -689,7 +689,7 @@ function GameModal({game,close,notify}){
     body=<><div className="game-result"><span className="eyebrow">HORIZON GAMES</span><strong>Choose a game</strong><p>Each game is built into the website. No setup or admin configuration is required.</p></div><div className="game-options"><button onClick={()=>setMode('quiz')}>Horizon Quiz</button><button onClick={()=>setMode('anime-guess')}>Anime Guess</button><button onClick={()=>setMode('forge')}>Character Forge</button><button onClick={()=>setMode('browser')}>Browser Game Hub</button></div></>;
   }
 
-  return <div className="game-overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{mode==='hub'?'HORIZON GAMES':game?.category?.join(' • ')||'GAME'}</span><h2>{mode==='hub'?'Choose your challenge':mode==='anime-guess'?'Anime Guess':mode==='quiz'?'Horizon Quiz' :''mode==='forge'?'Character Forge':'Browser Game Hub'}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body">{mode!=='hub'&&<button className="text-link" onClick={()=>{setMode('hub');setMessage('')}}>← All games</button>}<div className="game-play-card">{body}</div><div className="modal-actions">{mode!=='hub'&&<button className="btn secondary" onClick={restart}>Restart</button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div></div>;
+  return <div className="game-overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{mode==='hub'?'HORIZON GAMES':game?.category?.join(' • ')||'GAME'}</span><h2>{mode==='hub'?'Choose your challenge':mode==='anime-guess'?'Anime Guess':mode==='quiz'?'Horizon Quiz':mode==='forge'?'Character Forge':'Browser Game Hub'}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body">{mode!=='hub'&&<button className="text-link" onClick={()=>{setMode('hub');setMessage('')}}>← All games</button>}<div className="game-play-card">{body}</div><div className="modal-actions">{mode!=='hub'&&<button className="btn secondary" onClick={restart}>Restart</button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div></div>;
 }
 
 
