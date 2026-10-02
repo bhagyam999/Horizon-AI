@@ -242,11 +242,68 @@ function Events({filters,filter,setFilter,events,allEvents,search,setSearch,sear
   <section className="host-panel"><Plus/><div><span className="eyebrow">HAVE AN IDEA?</span><h3>Host or submit an event</h3><p>Phase 1 provides the interface. Registration and staff workflows can be connected to Discord in the next backend pass.</p></div><button className="btn secondary" onClick={()=>openModal({title:'Event submission',category:'COMMUNITY',description:'Tell the staff what you want to host. The full submission form will be connected after Discord authentication is live.',rules:['Event name','Proposed date/time','Game or activity','Rules and participant requirements']})}>Submit an idea</button></section>
 </section>}
 
-function Games({filters,filter,setFilter,games,leaderboard,openModal}){return <section className="page-shell"><PageHero eyebrow="GAMES" title={<>ENTER THE<br/><em>PLAYGROUND.</em></>} text="From competitive battles to casual games with friends, Log Horizon is expanding beyond a single world." actions={<button className="btn primary" onClick={()=>setFilter('ALL')}>Explore games <ArrowRight/></button>}/>
-  <section className="featured-game"><div><span className="eyebrow">FEATURED • COMMUNITY GAME</span><h2>Horizon Arena</h2><p>A small competitive arena built for Log Horizon members. It is a placeholder for the community's future game systems.</p><span className="status-pill">COMING SOON</span></div><div className="arena-visual"><div className="arena-ring"/><span>LH://ARENA</span></div></section>
-  <section className="section inner-section"><div className="section-heading"><div><span className="eyebrow">COMMUNITY GAMES</span><h2>Pick a world.</h2></div></div><div className="filters">{filters.map(f=><button key={f} className={filter===f?'selected':''} onClick={()=>setFilter(f)}>{f}</button>)}</div><div className="game-grid">{games.map(g=><GameCard key={g.id} game={g} onClick={()=>openModal(g)}/>)}</div></section>
-  <section className="section leaderboard"><div className="section-heading"><div><span className="eyebrow">COMMUNITY LEADERBOARD</span><h2>Names worth remembering.</h2></div><span className="status-pill">SYSTEM COMING SOON</span></div><div className="leader-table"><div className="leader-head"><span>PLAYER</span><span>SCORE</span><span>STATUS</span></div>{leaderboard.map((x,i)=><div className="leader-row" key={x.id||x.name||i}><span><span className="rank-box">{String(i+1).padStart(2,'0')}</span>{x.name}</span><span>{x.score}</span><span>{x.status}</span></div>)}</div></section>
-</section>}
+function Games({filters,filter,setFilter,games,leaderboard,openModal}){
+  const [playing,setPlaying]=useState(null);
+  const playable=g=>['quiz','anime-guess','forge','arena','browser'].includes(g.id);
+  return <section className="page-shell">
+    <PageHero eyebrow="GAMES" title={<>ENTER THE<br/><em>PLAYGROUND.</em></>} text="Real, playable community games — no placeholder buttons. Pick a game and start immediately." actions={<button className="btn primary" onClick={()=>setFilter('ALL')}>Explore games <ArrowRight/></button>}/>
+    <section className="section inner-section">
+      <div className="section-heading"><div><span className="eyebrow">COMMUNITY GAMES</span><h2>Pick a world.</h2><p className="section-help">Tap <b>Play</b> on a game. Your progress is saved in this session.</p></div></div>
+      <div className="filters">{filters.map(f=><button key={f} className={filter===f?'selected':''} onClick={()=>setFilter(f)}>{f}</button>)}</div>
+      <div className="game-grid">{games.map(g=><GameCard key={g.id} game={g} onClick={()=>playable(g)?setPlaying(g):openModal(g)}/>)}</div>
+    </section>
+    <section className="section leaderboard">
+      <div className="section-heading"><div><span className="eyebrow">COMMUNITY LEADERBOARD</span><h2>Names worth remembering.</h2><p className="section-help">Admins can edit these names, scores and statuses from the website control center.</p></div></div>
+      <div className="leader-table"><div className="leader-head"><span>PLAYER</span><span>SCORE</span><span>STATUS</span></div>{leaderboard.map((x,i)=><div className="leader-row" key={x.id||x.name||i}><span><span className="rank-box">{String(i+1).padStart(2,'0')}</span>{x.name}</span><span>{x.score}</span><span>{x.status}</span></div>)}</div>
+    </section>
+    {playing&&<GamePlay game={playing} close={()=>setPlaying(null)}/>}
+  </section>
+}
+
+function GamePlay({game,close}){
+  const [score,setScore]=useState(0);
+  const [message,setMessage]=useState('');
+  const [quizIndex,setQuizIndex]=useState(0);
+  const [forge,setForge]=useState({name:'',className:'',power:'',description:''});
+  const [arena,setArena]=useState({hp:100,enemy:100,turn:1});
+  const [guess,setGuess]=useState('');
+  const [hub,setHub]=useState(()=>['Memory Match','Reaction Test','Number Rush'][Math.floor(Math.random()*3)]);
+  const quiz=[
+    ['Which anime features the character Luffy?',['One Piece','Naruto','Bleach','Demon Slayer'],0],
+    ['What is a Pokémon?',['A creature species','A weapon','A planet','A card game only'],0],
+    ['Which series features Tanjiro Kamado?',['Demon Slayer','One Piece','Attack on Titan','Jujutsu Kaisen'],0],
+    ['What does XP usually represent in games?',['Experience','Extra Power only','Example Player','Exit Point'],0]
+  ];
+  const guessBank=[
+    ['Naruto','Naruto'],['One Piece','One Piece'],['Demon Slayer','Demon Slayer'],['Attack on Titan','Attack on Titan'],['Jujutsu Kaisen','Jujutsu Kaisen']
+  ];
+  const [target]=useState(()=>guessBank[Math.floor(Math.random()*guessBank.length)]);
+  const [reactionReady,setReactionReady]=useState(false);
+  const [reactionStart,setReactionStart]=useState(0);
+  useEffect(()=>{
+    if(game.id==='browser'&&hub==='Reaction Test'){
+      const t=setTimeout(()=>{setReactionReady(true);setReactionStart(Date.now())},1200+Math.random()*2500);
+      return()=>clearTimeout(t);
+    }
+  },[game.id,hub]);
+  function quizAnswer(i){if(i===quiz[quizIndex][2]){setScore(s=>s+100);setMessage('Correct! +100')}else setMessage('Not quite.');setTimeout(()=>{setMessage('');setQuizIndex(x=>(x+1)%quiz.length)},500)}
+  function attack(){const damage=Math.floor(Math.random()*16)+10;const edamage=Math.floor(Math.random()*12)+7;setArena(a=>({...a,hp:Math.max(0,a.hp-edamage),enemy:Math.max(0,a.enemy-damage),turn:a.turn+1}));}
+  return <div className="game-overlay"><div className="game-panel">
+    <div className="game-header"><div><span className="eyebrow">HORIZON GAME</span><h2>{game.title}</h2></div><button onClick={close} className="modal-close"><X/></button></div>
+    <div className="game-body">
+      {game.id==='quiz'&&<div className="game-play-card"><div className="game-score">SCORE <b>{score}</b></div><span className="eyebrow">QUESTION {quizIndex+1}/{quiz.length}</span><h3>{quiz[quizIndex][0]}</h3><div className="game-options">{quiz[quizIndex][1].map((x,i)=><button key={x} onClick={()=>quizAnswer(i)}>{x}</button>)}</div>{message&&<p className="game-message">{message}</p>}</div>}
+      {game.id==='anime-guess'&&<div className="game-play-card"><span className="eyebrow">ANIME GUESS</span><h3>Guess the anime from its title clue.</h3><p className="game-clue">The answer is one of five popular anime series. Try your best.</p><input className="game-input" value={guess} onChange={e=>setGuess(e.target.value)} placeholder="Type your answer"/><button className="btn primary" onClick={()=>setMessage(guess.trim().toLowerCase()===target[1].toLowerCase()?'Correct! You got it.':'Not this one — try again.')}>Submit <ArrowRight/></button>{message&&<p className="game-message">{message}</p>}<button className="btn secondary" onClick={()=>{setGuess('');setMessage('');}}>Reset</button></div>}
+      {game.id==='forge'&&<div className="game-play-card"><span className="eyebrow">CHARACTER FORGE</span><h3>Create your character.</h3>{[['name','Character name'],['className','Class / role'],['power','Signature power'],['description','Short description']].map(([k,l])=><input key={k} className="game-input" value={forge[k]} onChange={e=>setForge({...forge,[k]:e.target.value})} placeholder={l}/>)}<div className="forge-preview"><span className="eyebrow">YOUR CHARACTER</span><h4>{forge.name||'Unnamed Traveler'}</h4><b>{forge.className||'Class not chosen'}</b><p>{forge.power||'Signature power not chosen'}</p><small>{forge.description||'Add a description to complete the profile.'}</small></div></div>}
+      {game.id==='arena'&&<div className="game-play-card"><span className="eyebrow">HORIZON ARENA • SOLO BATTLE</span><h3>Battle the training drone.</h3><div className="hp-row"><span>YOU {arena.hp}/100</span><span>DRONE {arena.enemy}/100</span></div><div className="hp-bars"><i style={{width:arena.hp+'%'}}/><i style={{width:arena.enemy+'%'}}/></div>{arena.hp<=0||arena.enemy<=0?<div className="arena-result"><h3>{arena.enemy<=0?'Victory!':'Defeat.'}</h3><button className="btn primary" onClick={()=>setArena({hp:100,enemy:100,turn:1})}>Play again</button></div>:<button className="btn primary arena-attack" onClick={attack}>Attack • Turn {arena.turn}</button>}</div>}
+      {game.id==='browser'&&<div className="game-play-card"><span className="eyebrow">BROWSER GAME HUB</span><h3>{hub}</h3>{hub==='Memory Match'?<MemoryMiniGame/>:hub==='Reaction Test'?<div className="reaction-game"><p>{reactionReady?'TAP NOW!':'Wait for the signal…'}</p><button className="reaction-button" onClick={()=>{if(!reactionReady){setMessage('Too early! Wait for the signal.');}else{setMessage('Reaction: '+(Date.now()-reactionStart)+' ms');setReactionReady(false)}}}>{reactionReady?'TAP':'WAIT'}</button></div>:<NumberRush/>}<button className="btn secondary" onClick={()=>setHub(['Memory Match','Reaction Test','Number Rush'][Math.floor(Math.random()*3)])}>Another game</button></div>}
+    </div>
+  </div></div>
+}
+
+function MemoryMiniGame(){const [cards]=useState(()=>['LH','AI','XP','LH','AI','XP'].sort(()=>Math.random()-.5));const [open,setOpen]=useState([]);const [matched,setMatched]=useState([]);function tap(i){if(open.length===2||open.includes(i)||matched.includes(i))return;const next=[...open,i];setOpen(next);if(next.length===2&&cards[next[0]]===cards[next[1]]){setMatched(m=>[...m,...next]);setTimeout(()=>setOpen([]),350)}else if(next.length===2)setTimeout(()=>setOpen([]),650)}return <div className="memory-grid">{cards.map((x,i)=><button key={i} onClick={()=>tap(i)} className={open.includes(i)||matched.includes(i)?'flipped':''}>{open.includes(i)||matched.includes(i)?x:'?'}</button>)}</div>}
+
+function NumberRush(){const [target,setTarget]=useState(()=>Math.floor(Math.random()*9)+1);const [n,setN]=useState(0);return <div className="number-rush"><p>Tap the buttons until your total reaches <b>{target}</b>.</p><div>{[1,2,3].map(x=><button key={x} onClick={()=>setN(v=>v+x)}>{x}</button>)}</div><strong>{n}</strong>{n===target&&<p className="game-message">Completed!</p>}{n>target&&<button className="btn secondary" onClick={()=>{setN(0);setTarget(Math.floor(Math.random()*9)+1)}}>Reset</button>}</div>}
+
 
 function HallOfFame({openModal,navigate,champions}){return <section className="page-shell"><PageHero eyebrow="HORIZON ARCHIVE" title={<>HALL OF<br/><em>FAME.</em></>} text="Those who made their mark on Log Horizon. Tournament records, champions and achievements preserved for the community." actions={<button className="btn primary" onClick={()=>document.getElementById('archive')?.scrollIntoView({behavior:'smooth'})}>Open the archive <ArrowRight/></button>}/>
   <section className="champion-feature"><div className="crown-stage"><div className="archive-ring"/><Crown size={56}/><span>{champions[0]?.place||'1ST PLACE'}</span></div><div><span className="eyebrow">CURRENT CHAMPION RECORD</span><h2>{champions[0]?.winner||'Champion to be recorded.'}</h2><p>{champions[0]?.tournament||'The Hall of Fame'} • {champions[0]?.date||'Awaiting results'}</p><div className="achievement-row"><span><Crown/> TOURNAMENT WINNER</span><span><Medal/> HALL OF FAME MEMBER</span></div></div></section>
@@ -515,7 +572,7 @@ function AdminPage(){
   return <div className="admin-app">
     <header className="admin-header"><a className="brand" href="/"><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></a><div><span className="admin-badge">ADMIN CONTROL CENTER</span><a className="text-link" href="/">View website <ExternalLink size={14}/></a></div></header>
     <main className="admin-main">
-      <section className="admin-hero"><div><span className="eyebrow">HORIZON / WEBSITE ADMIN</span><h1>Control the world.</h1><p>Manage the content shown on the Log Horizon website without editing code.</p></div><div className="admin-user"><span className="live-dot"/> Signed in as <b>{auth.user.global_name||auth.user.username}</b></div></section>
+      <section className="admin-hero"><div><span className="eyebrow">HORIZON / WEBSITE ADMIN</span><h1>Control the world.</h1><p>Use the buttons below to change what visitors see. You do not need to edit code.</p><div className="admin-help"><b>How it works:</b> choose a section → change the boxes → press <b>Save changes</b> → refresh the website.</div></div><div className="admin-user"><span className="live-dot"/> Signed in as <b>{auth.user.global_name||auth.user.username}</b></div></section>
       <div className="admin-tabs">{[['events','Events'],['hall','Hall of Fame'],['games','Games'],['leaderboard','Leaderboard']].map(([id,label])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}>{label}</button>)}</div>
       <section className="admin-editor">
         <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} entries</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add entry</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
@@ -529,13 +586,13 @@ function AdminPage(){
 function AdminEditorItem({section,item,index,update,remove}){
   const field=(key,label,type='text')=><label className="admin-field"><span>{label}</span>{type==='textarea'?<textarea value={item[key]??''} onChange={e=>update(index,key,e.target.value)} rows="3"/>:<input value={Array.isArray(item[key])?item[key].join(', '):(item[key]??'')} onChange={e=>update(index,key,type==='array'?e.target.value.split(',').map(x=>x.trim()).filter(Boolean):e.target.value)}/>}</label>;
   return <article className="admin-item"><div className="admin-item-top"><span className="admin-index">#{String(index+1).padStart(2,'0')}</span><button className="admin-delete" onClick={remove}>Remove</button></div><div className="admin-fields">
-    {field('id','ID')}
+    <input type="hidden" value={item.id||''} readOnly/>
     {section==='leaderboard'
-      ? <>{field('name','Entry name')}{field('score','Score')}{field('status','Status')}</>
+      ? <>{field('name','Entry name')}{field('score','Score')}{field('status','Status (UPCOMING / LIVE / PAST)')}</>
       : section==='hall'
       ? <>{field('tournament','Tournament')}{field('winner','Winner / Member name')}{field('place','Place')}{field('date','Date')}</>
       : section==='events'
-      ? <>{field('title','Event title')}{field('category','Category')}{field('sub','Type / subtitle')}{field('date','Date / time')}{field('status','Status')}{field('participants','Registration status')}{field('description','Description','textarea')}{field('rules','Rules (comma separated)','array')}</>
+      ? <>{field('title','Event title')}{field('category','Category (example: TOURNAMENTS)')}{field('sub','Type / subtitle')}{field('date','Date / time')}{field('status','Status')}{field('participants','Registration status')}{field('description','Description','textarea')}{field('rules','Rules (comma separated)','array')}</>
       : <>{field('title','Game title')}{field('category','Categories (comma separated)','array')}{field('status','Status')}{field('text','Description','textarea')}{field('action','Button text')}</>}
   </div></article>;
 }
