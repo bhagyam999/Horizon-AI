@@ -344,18 +344,22 @@ class Dashboard:
         try:
             data = await request.json()
             level = int(data.get("level"))
-            role_id = int(data.get("role_id"))
+            role_ids = data.get("role_ids", [])
+            if not role_ids and data.get("role_id"):
+                role_ids = [data.get("role_id")]
+            role_ids = list(dict.fromkeys(int(x) for x in role_ids))
         except Exception:
-            raise web.HTTPBadRequest(text="level and role_id are required")
-        if level < 2 or level > 200:
-            raise web.HTTPBadRequest(text=f"Level must be between 2 and {LEVEL_MAX}")
-        role = guild.get_role(role_id)
-        if not role or role.is_default() or role.managed:
-            raise web.HTTPBadRequest(text="Invalid role")
+            raise web.HTTPBadRequest(text="level and role_ids are required")
+        if level < 2 or level > 200 or not role_ids:
+            raise web.HTTPBadRequest(text="Level must be between 2 and 200 and include at least one role")
         me = guild.me
-        if me and role >= me.top_role:
-            raise web.HTTPBadRequest(text="Horizon cannot manage that role because it is above the bot")
-        await self.bot.db.set_level_reward(guild.id, level, role_id)
+        for role_id in role_ids[:50]:
+            role = guild.get_role(role_id)
+            if not role or role.is_default() or role.managed:
+                raise web.HTTPBadRequest(text="Invalid role")
+            if me and role >= me.top_role:
+                raise web.HTTPBadRequest(text="Horizon cannot manage one of those roles because it is above the bot")
+            await self.bot.db.set_level_reward(guild.id, level, role_id)
         return await self.dashboard_leveling(request)
 
     async def dashboard_level_reward_remove(self, request):
