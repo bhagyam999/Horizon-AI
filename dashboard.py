@@ -46,6 +46,9 @@ class Dashboard:
             web.get("/auth/callback", self.site_auth_callback),
             web.get("/api/site/auth-me", self.site_auth_me),
             web.get("/api/site/auth-logout", self.site_auth_logout),
+            web.get("/api/site/content", self.site_content),
+            web.get("/api/site/admin/content", self.site_admin_content),
+            web.put("/api/site/admin/content/{section}", self.site_admin_content_update),
             web.get("/api/dashboard/guilds", self.dashboard_guilds),
             web.get("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings),
             web.patch("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings_update),
@@ -135,6 +138,36 @@ class Dashboard:
 
     def _session(self, request):
         return self._verify_token(self._cookies(request).get("lh_session", ""))
+
+    async def _site_admin(self, request):
+        session = self._session(request)
+        if not session or not str(session.get("id", "")).isdigit():
+            raise web.HTTPUnauthorized(text="Discord login required")
+        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
+        if not guild_id.isdigit():
+            raise web.HTTPServiceUnavailable(text="Horizon guild is not configured")
+        guild = self.bot.get_guild(int(guild_id))
+        if guild is None:
+            raise web.HTTPServiceUnavailable(text="Horizon community is unavailable")
+        user_id = int(session["id"])
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception:
+                member = None
+        if member is None:
+            raise web.HTTPForbidden(text="You are not a member of Log Horizon")
+        if not member.guild_permissions.administrator and user_id != guild.owner_id:
+            raise web.HTTPForbidden(text="Administrator permission required")
+        return guild, member
+
+    async def _site_admin_status(self, request):
+        try:
+            await self._site_admin(request)
+            return True
+        except web.HTTPException:
+            return False
 
     async def _discord(self, path, **kwargs):
         timeout = aiohttp.ClientTimeout(total=15)
@@ -897,8 +930,77 @@ class Dashboard:
             # remains in Railway logs for diagnosis.
             return web.HTTPFound(f"{site}/?discord=error")
 
+    SITE_DEFAULTS = {
+        "events": [
+            {"id":"fc-2026","title":"Fictional Character Tournament","category":"CREATIVE","sub":"Character Creation","date":"Thursday • 7:00 PM IST","status":"FEATURED","description":"Create an original fictional character and compete on creativity, presentation, concept and execution.","participants":"OPEN","rules":["Original character concept","Clear presentation","No changing your submitted character after the deadline","Judging criteria are published with the event"]},
+            {"id":"anigame-pvp","title":"Anigame PvP Tournament","category":"TOURNAMENTS","sub":"Anigame","date":"Schedule announced in Discord","status":"UPCOMING","description":"Build your team, enter the arena and prove yourself in the game where the community began.","participants":"REGISTRATION SOON","rules":["Follow the tournament announcement","Submit verification screenshots when requested","Staff decisions are final"]},
+            {"id":"game-night","title":"Community Game Night","category":"SOCIAL","sub":"Gaming","date":"Date announced in Discord","status":"UPCOMING","description":"Pick a game, bring your friends and spend an evening together.","participants":"OPEN","rules":["Be respectful","Join the voice/text channels for the selected game","Have fun"]},
+            {"id":"anime-trivia","title":"Anime Trivia Night","category":"ANIME","sub":"Quiz","date":"Date announced in Discord","status":"UPCOMING","description":"How deep does your anime knowledge go? Bring your fastest answers.","participants":"COMING SOON","rules":["No answer sharing during rounds","Follow the host timer","Tie-breakers may be used"]}
+        ],
+        "hall": [
+            {"id":"fc-champion","tournament":"Fictional Character Tournament","winner":"Champion to be recorded","place":"1ST","date":"Awaiting results"},
+            {"id":"anigame-champion","tournament":"Anigame PvP Tournament","winner":"Winner to be recorded","place":"1ST","date":"Awaiting results"},
+            {"id":"community-archive","tournament":"Community Tournament Archive","winner":"Record to be added","place":"1ST","date":"Archived"}
+        ],
+        "games": [
+            {"id":"anigame","title":"Anigame","category":["CARD","COMPETITIVE"],"status":"LIVE","text":"The game where the Log Horizon community began.","action":"Learn More"},
+            {"id":"quiz","title":"Horizon Quiz","category":["QUIZ","ANIME","CASUAL"],"status":"PLAYABLE","text":"Test your knowledge against other members.","action":"Play"},
+            {"id":"anime-guess","title":"Anime Guess","category":["ANIME","CASUAL"],"status":"COMING SOON","text":"Identify the anime before the timer runs out.","action":"Coming Soon"},
+            {"id":"forge","title":"Character Forge","category":["CREATIVE"],"status":"COMING SOON","text":"Build your own fictional character and share it with the community.","action":"Coming Soon"},
+            {"id":"arena","title":"Horizon Arena","category":["COMPETITIVE"],"status":"COMING SOON","text":"A small competitive arena built for Log Horizon members.","action":"Coming Soon"},
+            {"id":"browser","title":"Browser Game Hub","category":["CASUAL","COMMUNITY"],"status":"COMING SOON","text":"A rotating collection of lightweight games for community nights.","action":"Coming Soon"}
+        ]
+    }
+
+    async def site_content(self, request):
+        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
+        if not guild_id.isdigit():
+            return web.json_response({"error":"Horizon guild is not configured."}, status=503)
+        section = request.query.get("section", "").strip()
+        sections = [section] if section in self.SITE_DEFAULTS else list(self.SITE_DEFAULTS.keys())
+        result = {}
+        for name in sections:
+            result[name] = await self.bot.db.site_content(int(guild_id), name, self.SITE_DEFAULTS[name])
+        return web.json_response(result, headers={"Cache-Control":"no-store"})
+
+    async def site_admin_content(self, request):
+        guild, member = await self._site_admin(request)
+        result = {}
+        for name, default in self.SITE_DEFAULTS.items():
+            result[name] = await self.bot.db.site_content(guild.id, name, default)
+        return web.json_response({"admin":True,"user_id":str(member.id),"username":member.display_name,"content":result}, headers={"Cache-Control":"no-store"})
+
+    async def site_admin_content_update(self, request):
+        guild, member = await self._site_admin(request)
+        section = request.match_info.get("section", "").strip()
+        if section not in self.SITE_DEFAULTS:
+            raise web.HTTPNotFound(text="Unknown website content section")
+        try:
+            body = await request.json()
+        except Exception:
+            raise web.HTTPBadRequest(text="Invalid JSON body")
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise web.HTTPBadRequest(text="items must be an array")
+        if len(items) > 100:
+            raise web.HTTPBadRequest(text="Too many content entries")
+        cleaned = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            cleaned.append({str(k): v for k, v in item.items() if str(k) in {
+                "id","title","category","sub","date","status","description","participants","rules",
+                "tournament","winner","place","text","action"
+            }})
+        await self.bot.db.set_site_content(guild.id, section, cleaned, member.id)
+        return web.json_response({"ok":True,"section":section,"items":cleaned})
+
     async def site_auth_me(self, request):
-        return web.json_response({"user":self._session(request)},headers={"Cache-Control":"no-store"})
+        user = self._session(request)
+        is_admin = False
+        if user:
+            is_admin = await self._site_admin_status(request)
+        return web.json_response({"user":user, "admin":is_admin},headers={"Cache-Control":"no-store"})
 
     async def site_auth_logout(self, request):
         response=web.json_response({"ok":True})
