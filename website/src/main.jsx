@@ -74,7 +74,7 @@ function App(){
   useEffect(()=>{
     fetch('/api/site/auth-me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user ? {...data.user, admin:Boolean(data.admin)} : null)).catch(()=>{});
     fetch('/api/site/content', {credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():null).then(data=>{
-      if(data) setContent({events:Array.isArray(data.events)&&data.events.length?data.events:eventData,games:Array.isArray(data.games)&&data.games.length?data.games:gameData,hall:Array.isArray(data.hall)&&data.hall.length?data.hall:champions,leaderboard:Array.isArray(data.leaderboard)&&data.leaderboard.length?data.leaderboard:[]});
+      if(data) setContent({events:Array.isArray(data.events)&&data.events.length?data.events:eventData,games:gameData,hall:Array.isArray(data.hall)&&data.hall.length?data.hall:champions,leaderboard:Array.isArray(data.leaderboard)&&data.leaderboard.length?data.leaderboard:[]});
     }).catch(()=>{});
     const params=new URLSearchParams(window.location.search);
     const authResult=params.get('discord');
@@ -550,7 +550,7 @@ function AdminPage(){
       ? {id:'leaderboard-'+id,name:'Member name',score:'0',status:'ACTIVE'}
       : {id:'game-'+id,title:'New Game',category:['CASUAL'],status:'PLAYABLE',text:'',action:'Play'};
     setItems(cur=>[...cur,base]);
-    notify('New '+section.slice(0,-1)+' added. Fill it in below.');
+    notify('New '+(section==='hall'?'winner':section==='events'?'event':'member')+' added. Fill it in below.');
   };
   const removeItem=index=>setItems(cur=>cur.filter((_,i)=>i!==index));
   const save=async()=>{
@@ -564,15 +564,15 @@ function AdminPage(){
   if(loading)return <div className="admin-gate"><div><span className="eyebrow">HORIZON ADMIN</span><h1>Opening control center…</h1><p>Checking your Discord permissions.</p></div></div>;
   if(!auth?.user)return <div className="admin-gate"><div><span className="eyebrow">HORIZON ADMIN</span><h1>Discord login required.</h1><p>Sign in with Discord to continue.</p><a className="btn primary" href="/api/site/auth-login">Continue with Discord <ArrowRight/></a><a className="text-link" href="/">Return to website</a></div></div>;
   if(!auth.admin)return <div className="admin-gate"><div><span className="eyebrow">ACCESS DENIED</span><h1>Administrator permission required.</h1><p>Your Discord account is connected, but only server administrators can manage the website.</p><a className="btn secondary" href="/">Return to Log Horizon <ArrowRight/></a></div></div>;
-  const tabs=[['events','Events','Create and manage community events'],['hall','Hall of Fame','Add winners and important records'],['games','Games','Control the games shown on the website'],['leaderboard','Leaderboard','Add members and their scores']];
+  const tabs=[['events','Events','Create and manage community events'],['hall','Hall of Fame','Add winners and important records'],['leaderboard','Leaderboard','Add members and their scores']];
   return <div className="admin-app">
     <header className="admin-header"><a className="brand" href="/"><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></a><div><span className="admin-badge">ADMIN CONTROL CENTER</span><a className="text-link" href="/">View website <ExternalLink size={14}/></a></div></header>
     <main className="admin-main">
       <section className="admin-hero"><div><span className="eyebrow">HORIZON / WEBSITE ADMIN</span><h1>Website control center</h1><p>Everything here changes the public Log Horizon website. No code or technical knowledge is required.</p></div><div className="admin-user"><span className="live-dot"/> Signed in as <b>{auth.user.global_name||auth.user.username}</b></div></section>
       <div className="admin-tabs">{tabs.map(([id,label,help])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}><b>{label}</b><small>{help}</small></button>)}</div>
       <section className="admin-editor">
-        <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} {items.length===1?'item':'items'}</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add {section==='events'?'event':section==='hall'?'winner':section==='games'?'game':'member'}</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
-        <div className="admin-instructions"><b>How to use:</b> edit the information in each card, use the dropdowns for status/place, add rules or categories with the buttons, then press <b>Save changes</b>. Changes appear on the public website after refresh.</div>
+        <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} {items.length===1?'item':'items'}</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add {section==='events'?'event':section==='hall'?'winner':'member'}</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
+        <div className="admin-instructions"><b>How to use:</b> edit the information in each card, use the dropdowns and buttons, then press <b>Save changes</b>. Games are maintained by Horizon and are not editable here.</div>
         <div className="admin-list">{items.map((item,index)=><AdminEditorItem key={item.id||index} section={section} item={item} index={index} update={updateItem} remove={()=>removeItem(index)}/>)}</div>
         {!items.length&&<div className="admin-empty"><Plus size={24}/><b>No {section} yet</b><span>Press “Add {section==='hall'?'winner':section.slice(0,-1)}” to create one.</span></div>}
       </section>
@@ -596,7 +596,7 @@ function AdminEditorItem({section,item,index,update,remove}){
       {section==='events'&&<>{text('title','Event name','e.g. Fictional Character Tournament')}{select('category','Category',['COMMUNITY','TOURNAMENTS','CREATIVE','ANIME','COMPETITIVE'])}{text('sub','Type / subtitle','e.g. Character Creation')}{text('date','Date and time','e.g. Sunday • 7:00 PM IST')}{select('status','Status',['FEATURED','UPCOMING','LIVE','PAST'])}{select('participants','Registration',['OPEN','REGISTRATION SOON','CLOSED'])}{area('description','Description','Explain what the event is about.')}{<div className="admin-field full"><span>Rules</span><div className="admin-repeat">{rules.map((r,i)=><div key={i}><input value={r} onChange={e=>update(index,'rules',rules.map((x,n)=>n===i?e.target.value:x))}/><button onClick={()=>update(index,'rules',rules.filter((_,n)=>n!==i))}>×</button></div>)}<button className="add-small" onClick={()=>update(index,'rules',[...rules,'New rule'])}><Plus size={13}/> Add rule</button></div></div>}</>}
       {section==='hall'&&<>{text('tournament','Tournament / event','e.g. Fictional Character Tournament')}{text('winner','Member name','e.g. Bhagyam Grover')}{select('place','Place',['1ST','2ND','3RD','HONOURABLE MENTION'])}{text('date','Date','e.g. October 2026')}</>}
       {section==='leaderboard'&&<>{text('name','Member name','e.g. Player name')}{text('score','Score','e.g. 1500')}{select('status','Status',['ACTIVE','CHAMPION','INACTIVE','AWAITING DATA'])}</>}
-      {section==='games'&&<>{text('title','Game name','e.g. Anime Guess')}{chips('category','Categories','e.g. ANIME')}{select('status','Status',['PLAYABLE','LIVE','COMING SOON'])}{area('text','Description','Tell players what they will do.')}{select('action','Button',['Play','Create','Learn More','Coming Soon'])}</>}
+      
     </div>
   </article>;
 }
@@ -610,22 +610,107 @@ function GameCard({game,onClick}){return <article className="game-card" onClick=
 function Empty({text}){return <div className="empty"><Filter size={18}/>{text}</div>}
 function Modal({item,close,notify,session}){if(['quiz','anime-guess','forge','arena','browser'].includes(item?.id))return <GameModal game={item} close={close} notify={notify}/>;return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button><span className="eyebrow">{item.category||'LOG HORIZON'}</span><h2>{item.title}</h2><p>{item.description||item.text}</p>{item.date&&<div className="modal-meta"><span><CalendarDays/>{item.date}</span><span><Users/>{item.participants}</span></div>}<h3>Details</h3><ul>{(item.rules||['This feature is ready for the next integration step.']).map((r,i)=><li key={i}>{r}</li>)}</ul><div className="modal-actions">{item.status!=='PAST'&&<button className="btn primary" onClick={()=>notify(session?'Registration flow ready for backend.':'Connect Discord to register for member events.')}>{session?'Register interest':'Continue with Discord'} <ArrowRight/></button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div>}
 
+function shuffle(list){return [...list].sort(()=>Math.random()-0.5)}
+
+const QUIZ_QUESTIONS=[
+  ['Which anime features Monkey D. Luffy?',['One Piece','Bleach','Naruto','Demon Slayer'],0],
+  ['Which Pokémon is known as the Electric Mouse?',['Eevee','Pikachu','Mew','Lucario'],1],
+  ['Who uses the breathing style called Hinokami Kagura?',['Tanjiro Kamado','Gojo Satoru','Ichigo Kurosaki','Saitama'],0],
+  ['Which series is set around the Hidden Leaf Village?',['Naruto','One Piece','Jujutsu Kaisen','Bleach'],0],
+  ['What is the name of Ichigo’s sword?',['Zangetsu','Enma','Samehada','Nichirin'],0],
+  ['Which anime has the character Satoru Gojo?',['Jujutsu Kaisen','Black Clover','One Punch Man','Fairy Tail'],0],
+  ['Who is the captain of the Straw Hat Pirates?',['Zoro','Sanji','Luffy','Usopp'],2],
+  ['Which series features the Survey Corps?',['Attack on Titan','Bleach','Demon Slayer','Blue Lock'],0],
+  ['What is the name of Tanjiro’s sister?',['Nezuko','Mikasa','Nami','Shinobu'],0],
+  ['Which anime is centered around a hero named Izuku Midoriya?',['My Hero Academia','Hunter x Hunter','Haikyuu!!','Tokyo Ghoul'],0],
+  ['Which character is known for saying “Plus Ultra” in hero training?',['All Might','Kakashi','Levi','Gon'],0],
+  ['Which series features the Soul Reapers?',['Bleach','Naruto','One Piece','Chainsaw Man'],0]
+];
+
+const ANIME_GUESSES=[
+  ['Pirates, Devil Fruits and a rubber-bodied captain are central to this adventure.',['One Piece','Naruto','Bleach','Fairy Tail'],0],
+  ['A boy and his sister travel while fighting demons with Nichirin blades.',['Demon Slayer','Jujutsu Kaisen','Blue Exorcist','Noragami'],0],
+  ['Ninja villages, chakra and the Uchiha clan are key parts of this story.',['Naruto','One Piece','Black Clover','Bleach'],0],
+  ['Cursed energy and sorcerers face supernatural curses in modern Japan.',['Jujutsu Kaisen','Mob Psycho 100','Tokyo Ghoul','Fire Force'],0],
+  ['Humanity fights enormous humanoid threats behind massive walls.',['Attack on Titan','Dr. Stone','86','Vinland Saga'],0],
+  ['A young hero enters a school where students train to become professional heroes.',['My Hero Academia','Blue Lock','Assassination Classroom','Soul Eater'],0],
+  ['A volleyball team works toward the national stage under a passionate first-year player.',['Haikyuu!!','Kuroko’s Basketball','Free!','Blue Lock'],0],
+  ['A swordsman hunts monsters while mastering several powerful breathing techniques.',['Demon Slayer','Bleach','Rurouni Kenshin','Samurai Champloo'],0],
+  ['A quiet genius and a group of classmates become involved with a mysterious notebook.',['Death Note','Code Geass','Monster','Erased'],0],
+  ['A young alchemist travels with his brother while searching for a way to restore their bodies.',['Fullmetal Alchemist','Hunter x Hunter','Soul Eater','Fire Force'],0]
+];
+
 function GameModal({game,close,notify}){
-  const [score,setScore]=useState(0),[round,setRound]=useState(0),[message,setMessage]=useState(''),[forge,setForge]=useState({name:'',role:'Warrior',power:''}),[enemy,setEnemy]=useState(100),[hp,setHp]=useState(100),[target,setTarget]=useState(null),[numbers,setNumbers]=useState([]);
-  const quiz=[['Which anime features the character Luffy?',['One Piece','Bleach','Naruto','Demon Slayer'],0],['Which Pokémon is known as the Electric Mouse?',['Eevee','Pikachu','Mew','Lucario'],1],['Which series has Tanjiro Kamado?',['One Piece','Demon Slayer','JJK','Bleach'],1]];
-  const guesses=[['Straw Hat Pirates',['One Piece','Naruto','Bleach'],0],['A demon slayer uses a Nichirin sword. Which series?',['Demon Slayer','One Punch Man','Dragon Ball'],0],['A ninja from the Uchiha clan is a major character.',['Naruto','One Piece','Fairy Tail'],0]];
-  useEffect(()=>{if(game.id==='arena'){setEnemy(100);setHp(100)}},[game.id]);
-  const pick=(answers,index)=>{if(round>=answers.length)return;setMessage(index===answers[round][2]?'Correct!':'Not quite.');if(index===answers[round][2])setScore(s=>s+1);setRound(r=>r+1)};
-  const reset=()=>{setScore(0);setRound(0);setMessage('');setEnemy(100);setHp(100);setNumbers([]);setTarget(null)};
-  const content=game.id==='quiz'?<><div className="game-score"><span>ROUND {Math.min(round+1,quiz.length)}/{quiz.length}</span><b>{score}</b></div>{round<quiz.length?<><h3>{quiz[round][0]}</h3><div className="game-options">{quiz[round][1].map((x,i)=><button onClick={()=>pick(quiz,i)} key={x}>{x}</button>)}</div></>:<div className="game-message">Finished — {score}/{quiz.length} correct.</div>}</>
-  :game.id==='anime-guess'?<><div className="game-score"><span>ROUND {Math.min(round+1,guesses.length)}/{guesses.length}</span><b>{score}</b></div>{round<guesses.length?<><h3>{guesses[round][0]}</h3><div className="game-options">{guesses[round][1].map((x,i)=><button onClick={()=>pick(guesses,i)} key={x}>{x}</button>)}</div></>:<div className="game-message">Finished — {score}/{guesses.length} correct.</div>}</>
-  :game.id==='forge'?<><h3>Create your character</h3><input className="game-input" placeholder="Character name" value={forge.name} onChange={e=>setForge({...forge,name:e.target.value})}/><select className="game-input" value={forge.role} onChange={e=>setForge({...forge,role:e.target.value})}>{['Warrior','Mage','Rogue','Support','Hunter'].map(x=><option key={x}>{x}</option>)}</select><input className="game-input" placeholder="Signature power" value={forge.power} onChange={e=>setForge({...forge,power:e.target.value})}/><div className="forge-preview"><small>CHARACTER PREVIEW</small><h4>{forge.name||'Unnamed Traveler'}</h4><p>{forge.role} • {forge.power||'Choose a signature power'}</p></div></>
-  :game.id==='arena'?<><div className="hp-row"><span>YOU {hp} HP</span><span>TRAINING DRONE {enemy} HP</span></div><div className="hp-bars"><i style={{width:hp+'%'}}/><i style={{width:enemy+'%'}}/></div><button className="btn primary arena-attack" disabled={!hp||!enemy} onClick={()=>{const dmg=Math.floor(Math.random()*16)+10;const hit=Math.floor(Math.random()*16)+8;setEnemy(e=>Math.max(0,e-dmg));setHp(h=>Math.max(0,h-hit));setMessage(enemy-dmg<=0?'Victory!':hp-hit<=0?'Defeated.':'Attack landed.')}}>ATTACK</button><div className="arena-result">{enemy<=0?'You defeated the drone.':hp<=0?'The drone defeated you.':message}</div></>
-  :<><div className="number-rush"><strong>{numbers.length?numbers.join(' '):'READY'}</strong><p>Click the numbers in order from 1 to 5.</p><div>{[1,2,3,4,5].map(n=><button key={n} onClick={()=>{const next=[...numbers,n];setNumbers(next);if(next.length===5)setMessage(next.join('')==='12345'?'Perfect run!':'Try again.')}}>{n}</button>)}</div></div><div className="game-message">{message}</div></>;
-  return <div className="game-overlay"><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{game.category?.join(' • ')||'GAME'}</span><h2>{game.title}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body"><div className="game-play-card">{content}</div><div className="modal-actions"><button className="btn secondary" onClick={reset}>Restart</button><button className="btn secondary" onClick={close}>Close</button></div></div></div></div>
+  const [mode,setMode]=useState(game?.id||'hub');
+  const [quizQuestions]=useState(()=>shuffle(QUIZ_QUESTIONS).slice(0,10));
+  const [guessQuestions]=useState(()=>shuffle(ANIME_GUESSES));
+  const [round,setRound]=useState(0),[score,setScore]=useState(0),[message,setMessage]=useState('');
+  const [arena,setArena]=useState({hp:100,enemy:120,guard:false,turn:'player',log:'Choose an action.'});
+  const [forge,setForge]=useState({name:'',role:'Warrior',power:'',rarity:'RARE'});
+  const [mini,setMini]=useState('menu'),[numbers,setNumbers]=useState([]),[reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0);
+  const [memory,setMemory]=useState(()=>shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));
+  const [memoryPick,setMemoryPick]=useState([]);
+  const [saved,setSaved]=useState(false);
+
+  const restart=()=>{setRound(0);setScore(0);setMessage('');setArena({hp:100,enemy:120,guard:false,turn:'player',log:'Choose an action.'});setNumbers([]);setReaction('ready');setSaved(false);setMemory(shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));setMemoryPick([])};
+  const answer=(questions,index)=>{
+    const q=questions[round];
+    const correct=index===q[2];
+    setScore(s=>s+(correct?1:0)); setMessage(correct?'Correct.':'Not this time.');
+    if(round+1<questions.length)setTimeout(()=>{setRound(r=>r+1);setMessage('')},420);
+    else setRound(r=>r+1);
+  };
+  const arenaAction=(action)=>{
+    if(arena.hp<=0||arena.enemy<=0)return;
+    let hp=arena.hp,enemy=arena.enemy,guard=false,log='';
+    if(action==='attack'){const dmg=Math.floor(Math.random()*16)+14;enemy=Math.max(0,enemy-dmg);log='You dealt '+dmg+' damage.'}
+    if(action==='heavy'){const dmg=Math.floor(Math.random()*26)+18;enemy=Math.max(0,enemy-dmg);log='Heavy strike dealt '+dmg+' damage.'}
+    if(action==='heal'){const heal=Math.floor(Math.random()*16)+12;hp=Math.min(100,hp+heal);log='You recovered '+heal+' HP.'}
+    if(action==='guard'){guard=true;log='Guard raised. The next hit is reduced.'}
+    if(enemy<=0){setArena({hp,enemy,guard:false,turn:'done',log:'Victory! Training drone defeated.'});return}
+    const incoming=Math.floor(Math.random()*13)+9;
+    const taken=guard?Math.ceil(incoming*.4):incoming;
+    hp=Math.max(0,hp-taken);
+    setArena({hp,enemy,guard:false,turn:hp<=0?'done':'player',log:log+' Drone dealt '+taken+' damage.'});
+  };
+  const forgeSave=()=>{localStorage.setItem('lh-character-forge',JSON.stringify(forge));setSaved(true);notify?.('Character saved on this device.')};
+  const startReaction=()=>{setReaction('wait');const delay=900+Math.random()*2600;setTimeout(()=>{setReactionStart(performance.now());setReaction('go')},delay)};
+  const reactionClick=()=>{
+    if(reaction==='wait'){setReaction('tooSoon');return}
+    if(reaction==='go'){setReaction('result');setMessage(Math.round(performance.now()-reactionStart)+' ms reaction time');}
+  };
+  const memoryClick=(id)=>{
+    if(memoryPick.length>=2)return;
+    const card=memory.find(x=>x.id===id);if(!card||card.open||card.done)return;
+    const next=memory.map(x=>x.id===id?{...x,open:true}:x);const picks=[...memoryPick,id];setMemory(next);setMemoryPick(picks);
+    if(picks.length===2){
+      const a=next.find(x=>x.id===picks[0]),b=next.find(x=>x.id===picks[1]);
+      if(a.v===b.v){setMemory(next.map(x=>x.id===a.id||x.id===b.id?{...x,done:true}:x));setMemoryPick([])}
+      else setTimeout(()=>{setMemory(m=>m.map(x=>picks.includes(x.id)?{...x,open:false}:x));setMemoryPick([])},650);
+    }
+  };
+  useEffect(()=>{if(!saved){try{const x=JSON.parse(localStorage.getItem('lh-character-forge')||'null');if(x)setForge(x)}catch{}}},[saved]);
+
+  const quizDone=round>=quizQuestions.length,guessDone=round>=guessQuestions.length;
+  let body;
+  if(mode==='quiz'){
+    const q=quizQuestions[round];
+    body=<>{!quizDone?<><div className="game-score"><span>QUESTION {round+1} / {quizQuestions.length}</span><b>{score}</b></div><h3>{q[0]}</h3><div className="game-options">{q[1].map((x,i)=><button key={x} onClick={()=>answer(quizQuestions,i)}>{x}</button>)}</div><div className="game-message">{message}</div></>:<div className="game-result"><span className="eyebrow">QUIZ COMPLETE</span><strong>{score}/{quizQuestions.length}</strong><p>{score>=8?'Excellent run.':score>=5?'Solid run.':'Good practice. Try again and beat your score.'}</p></div>}</>;
+  }else if(mode==='anime-guess'){
+    const q=guessQuestions[round];
+    body=<>{!guessDone?<><div className="game-score"><span>ROUND {round+1} / {guessQuestions.length}</span><b>{score}</b></div><div className="guess-clue"><span className="eyebrow">IDENTIFY THE ANIME</span><h3>{q[0]}</h3></div><div className="game-options">{q[1].map((x,i)=><button key={x} onClick={()=>answer(guessQuestions,i)}>{x}</button>)}</div><div className="game-message">{message}</div></>:<div className="game-result"><span className="eyebrow">ANIME GUESS COMPLETE</span><strong>{score}/{guessQuestions.length}</strong><p>You completed the full 10-round challenge.</p></div>}</>;
+  }else if(mode==='arena'){
+    body=<><div className="arena-title"><span>PLAYER</span><b>{arena.hp} HP</b><span>TRAINING DRONE</span><b>{arena.enemy} HP</b></div><div className="hp-bars"><i style={{width:arena.hp+'%'}}/><i style={{width:Math.max(0,arena.enemy/120*100)+'%'}}/></div><div className="arena-log">{arena.log}</div><div className="arena-actions"><button className="btn primary" disabled={arena.turn==='done'} onClick={()=>arenaAction('attack')}>Quick Attack</button><button className="btn secondary" disabled={arena.turn==='done'} onClick={()=>arenaAction('heavy')}>Heavy Strike</button><button className="btn secondary" disabled={arena.turn==='done'} onClick={()=>arenaAction('heal')}>Heal</button><button className="btn secondary" disabled={arena.turn==='done'} onClick={()=>arenaAction('guard')}>Guard</button></div>{arena.turn==='done'&&<div className="game-result"><strong>{arena.enemy<=0?'VICTORY':'DEFEAT'}</strong><p>{arena.enemy<=0?'The training drone is down.':'The drone won this round.'}</p></div>}</>;
+  }else if(mode==='forge'){
+    body=<><h3>Create your character</h3><input className="game-input" placeholder="Character name" value={forge.name} onChange={e=>setForge({...forge,name:e.target.value})}/><select className="game-input" value={forge.role} onChange={e=>setForge({...forge,role:e.target.value})}>{['Warrior','Mage','Rogue','Support','Hunter'].map(x=><option key={x}>{x}</option>)}</select><input className="game-input" placeholder="Signature power" value={forge.power} onChange={e=>setForge({...forge,power:e.target.value})}/><select className="game-input" value={forge.rarity} onChange={e=>setForge({...forge,rarity:e.target.value})}>{['COMMON','RARE','EPIC','LEGENDARY'].map(x=><option key={x}>{x}</option>)}</select><div className="forge-preview"><small>CHARACTER PREVIEW</small><h4>{forge.name||'Unnamed Traveler'}</h4><p>{forge.rarity} • {forge.role} • {forge.power||'Choose a signature power'}</p></div><button className="btn primary" onClick={forgeSave}>Save Character</button>{saved&&<div className="game-message">Saved on this device. You can reopen the Forge later.</div>}</>;
+  }else if(mode==='browser'){
+    body=<>{mini==='menu'&&<div className="mini-menu"><span className="eyebrow">MINI-GAME HUB</span><h3>Choose a challenge</h3><button className="btn secondary" onClick={()=>setMini('number')}>Number Rush</button><button className="btn secondary" onClick={()=>setMini('memory')}>Memory Match</button><button className="btn secondary" onClick={()=>startReaction()}>Reaction Test</button></>}{mini==='number'&&<div className="number-rush"><span className="eyebrow">NUMBER RUSH</span><h3>Tap 1 → 5 in order</h3><strong>{numbers.length?numbers.join(' '):'READY'}</strong><div>{[1,2,3,4,5].map(n=><button key={n} disabled={numbers.includes(n)} onClick={()=>{const next=[...numbers,n];if(next.length===5)setMessage(next.join('')==='12345'?'Perfect run!':'Wrong order — restart and try again.');setNumbers(next)}}>{n}</button>)}</div><button className="btn secondary" onClick={()=>{setNumbers([]);setMessage('')}}>Restart</button><p className="game-message">{message}</p></div>}{mini==='memory'&&<div><span className="eyebrow">MEMORY MATCH</span><h3>Match every pair</h3><div className="memory-grid">{memory.map(card=><button key={card.id} className={card.open||card.done?'flipped':''} onClick={()=>memoryClick(card.id)}>{card.open||card.done?card.v:'?'}</button>)}</div><button className="btn secondary" onClick={()=>{setMemory(shuffle(['A','A','B','B','C','C','D','D','E','E','F','F']).map((v,i)=>({v,id:i,open:false,done:false})));setMemoryPick([])}}>Restart</button></div>}{mini==='wait'&&null}{mini==='reaction'&&<div className="reaction-game"><span className="eyebrow">REACTION TEST</span><h3>{reaction==='wait'?'Wait for it…':reaction==='go'?'TAP NOW!':reaction==='tooSoon'?'Too early!':reaction==='result'?message:'Ready?'}</h3><button className="reaction-button" onClick={reaction==='result'||reaction==='tooSoon'?startReaction:reactionClick}>{reaction==='wait'?'WAIT…':reaction==='go'?'TAP!':reaction==='result'?'TRY AGAIN':'START'}</button></div>}</>;
+  }else{
+    body=<><div className="game-result"><span className="eyebrow">HORIZON GAMES</span><strong>Choose a game</strong><p>Each game is built into the website. No setup or admin configuration is required.</p></div><div className="game-options"><button onClick={()=>setMode('quiz')}>Horizon Quiz</button><button onClick={()=>setMode('anime-guess')}>Anime Guess</button><button onClick={()=>setMode('arena')}>Horizon Arena</button><button onClick={()=>setMode('forge')}>Character Forge</button><button onClick={()=>setMode('browser')}>Browser Game Hub</button></div></>;
+  }
+
+  return <div className="game-overlay" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="game-panel"><div className="game-header"><div><span className="eyebrow">{mode==='hub'?'HORIZON GAMES':game?.category?.join(' • ')||'GAME'}</span><h2>{mode==='hub'?'Choose your challenge':mode==='anime-guess'?'Anime Guess':mode==='quiz'?'Horizon Quiz':mode==='arena'?'Horizon Arena':mode==='forge'?'Character Forge':'Browser Game Hub'}</h2></div><button className="modal-close" onClick={close}><X/></button></div><div className="game-body">{mode!=='hub'&&<button className="text-link" onClick={()=>{setMode('hub');setMessage('')}}>← All games</button>}<div className="game-play-card">{body}</div><div className="modal-actions">{mode!=='hub'&&<button className="btn secondary" onClick={restart}>Restart</button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div></div>;
 }
-
-
 
 
 createRoot(document.getElementById('root')).render(
