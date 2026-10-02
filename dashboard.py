@@ -207,7 +207,7 @@ class Dashboard:
             data = await request.json()
         except Exception:
             raise web.HTTPBadRequest(text="Invalid JSON")
-        allowed = {"ai_channel_id","log_channel_id","welcome_channel_id","announcement_channel_id","prefix","mod_enabled","mod_action","personality"}
+        allowed = {"ai_channel_id","log_channel_id","welcome_channel_id","announcement_channel_id","join_role_id","welcome_enabled","welcome_message","prefix","mod_enabled","mod_action","personality"}
         for key, value in data.items():
             if key not in allowed:
                 continue
