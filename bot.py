@@ -698,6 +698,42 @@ class Horizon(commands.Bot):
             f"{reward_note}"
         )
 
+    @commands.command(name="levelreset")
+    @commands.has_guild_permissions(administrator=True)
+    async def level_reset(self, ctx, target: str = ""):
+        """Reset normal server leveling XP. Use !levelreset all to reset everyone."""
+        if not ctx.guild:
+            return
+        if target.lower() != "all":
+            await ctx.send("Use **!levelreset all** to reset normal leveling XP for everyone in this server.")
+            return
+
+        # Reset only normal server XP; RPG progression is untouched.
+        async with aiosqlite.connect(self.db.path) as db:
+            await db.execute("UPDATE profiles SET xp=0 WHERE guild_id=?", (ctx.guild.id,))
+            await db.commit()
+
+        # Remove configured automatic level-reward roles so nobody keeps
+        # a level role earned from the old XP totals.
+        removed = 0
+        rows = await self.db.level_rewards(ctx.guild.id)
+        reward_role_ids = {int(role_id) for _, role_id in rows}
+        if reward_role_ids:
+            for member in ctx.guild.members:
+                roles_to_remove = [role for role in member.roles if role.id in reward_role_ids]
+                if not roles_to_remove:
+                    continue
+                try:
+                    await member.remove_roles(*roles_to_remove, reason="Horizon normal leveling reset")
+                    removed += len(roles_to_remove)
+                except discord.HTTPException:
+                    pass
+
+        await ctx.send(
+            f"**Normal leveling reset.** XP has been reset to **0** for everyone in this server."
+            f" Removed **{removed}** configured level-reward role assignment(s)."
+        )
+
     @commands.group(name="levelrole", invoke_without_command=True)
     @commands.has_guild_permissions(manage_guild=True)
     async def levelrole_group(self, ctx):
