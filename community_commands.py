@@ -359,9 +359,36 @@ async def setup(bot):
         await _delete(ctx)
         target=member or ctx.author
         p=await bot.db.profile(ctx.guild.id,target.id)
-        xp=int(p.get("xp",0)); lvl=xp//100+1
+        xp=max(0,int(p.get("xp",0)))
+        # Keep community !level consistent with Horizon's main leveling curve.
+        # Level 200 starts at 2,004,925 total XP.
+        level_max=200
+        def xp_needed(level):
+            level=max(1,int(level))
+            if level<=1:
+                return 0
+            n=level-1
+            return n*(50*level+75)
+        def level_for(total_xp):
+            lo,hi=1,level_max
+            while lo<hi:
+                mid=(lo+hi+1)//2
+                if xp_needed(mid)<=total_xp:
+                    lo=mid
+                else:
+                    hi=mid-1
+            return lo
+        lvl=level_for(xp)
+        floor=xp_needed(lvl)
         gif=await _get_gif(SOCIAL_GIFS["level"])
-        await ctx.send(embed=_gif_embed("✨ Level Check", "**{}** — Level **{}**\nXP: **{} / {}**".format(target.display_name,lvl,xp,lvl*100), gif))
+        if lvl>=level_max:
+            progress="MAX LEVEL"
+            xp_text=f"{xp:,} / {floor:,}"
+        else:
+            required=lvl*100+75
+            progress=f"{max(0,xp-floor):,} / {required:,} toward Level {lvl+1}"
+            xp_text=progress
+        await ctx.send(embed=_gif_embed("✨ Level Check", "**{}** — Level **{}**\nXP: **{}**".format(target.display_name,lvl,xp_text), gif))
     await add("level",level,"Show a member's Horizon level.")
 
     async def wallpaper(ctx, *, query=""):
