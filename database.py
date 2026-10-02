@@ -26,7 +26,12 @@ class Database:
                 prefix TEXT DEFAULT '!',
                 mod_enabled INTEGER DEFAULT 1,
                 mod_action INTEGER DEFAULT 1,
-                personality TEXT DEFAULT ''
+                personality TEXT DEFAULT '',
+                ai_channel_ids TEXT DEFAULT '[]',
+                log_channel_ids TEXT DEFAULT '[]',
+                welcome_channel_ids TEXT DEFAULT '[]',
+                announcement_channel_ids TEXT DEFAULT '[]',
+                join_role_ids TEXT DEFAULT '[]'
             );
             CREATE TABLE IF NOT EXISTS profiles (
                 guild_id INTEGER NOT NULL,
@@ -167,6 +172,54 @@ class Database:
                 except Exception:
                     pass
 
+            # Dashboard multi-select settings. Keep the original singular columns for
+            # backwards compatibility with older commands, while JSON arrays hold the
+            # complete dashboard configuration.
+            for column, definition in [
+                ("ai_channel_ids", "TEXT DEFAULT '[]'"),
+                ("log_channel_ids", "TEXT DEFAULT '[]'"),
+                ("welcome_channel_ids", "TEXT DEFAULT '[]'"),
+                ("announcement_channel_ids", "TEXT DEFAULT '[]'"),
+                ("join_role_ids", "TEXT DEFAULT '[]'")
+            ]:
+                try:
+                    await db.execute(f"ALTER TABLE settings ADD COLUMN {column} {definition}")
+                except Exception:
+                    pass
+
+            # Allow multiple roles at the same level. Existing one-role-per-level
+            # data is copied into the new composite-key table.
+            cur = await db.execute("PRAGMA table_info(level_rewards)")
+            level_columns = await cur.fetchall()
+            pk_columns = [str(row[1]) for row in sorted(level_columns, key=lambda row: row[5]) if row[5]]
+            if pk_columns == ["guild_id", "level"]:
+                await db.execute("CREATE TABLE IF NOT EXISTS level_rewards_v2 (guild_id INTEGER NOT NULL, level INTEGER NOT NULL, role_id INTEGER NOT NULL, PRIMARY KEY (guild_id, level, role_id))")
+                await db.execute("INSERT OR IGNORE INTO level_rewards_v2(guild_id,level,role_id) SELECT guild_id,level,role_id FROM level_rewards")
+                await db.execute("DROP TABLE level_rewards")
+                await db.execute("ALTER TABLE level_rewards_v2 RENAME TO level_rewards")
+
+            # Backfill multi-select JSON from the existing singular settings.
+            cur = await db.execute("SELECT guild_id,ai_channel_id,log_channel_id,welcome_channel_id,announcement_channel_id,join_role_id FROM settings")
+            for row in await cur.fetchall():
+                gid, ai_id, log_id, welcome_id, announcement_id, join_id = row
+                updates = {
+                    "ai_channel_ids": [int(ai_id)] if ai_id else [],
+                    "log_channel_ids": [int(log_id)] if log_id else [],
+                    "welcome_channel_ids": [int(welcome_id)] if welcome_id else [],
+                    "announcement_channel_ids": [int(announcement_id)] if announcement_id else [],
+                    "join_role_ids": [int(join_id)] if join_id else []
+                }
+                for key, values in updates.items():
+                    cur2 = await db.execute(f"SELECT {key} FROM settings WHERE guild_id=?", (gid,))
+                    existing = await cur2.fetchone()
+                    try:
+                        import json
+                        parsed = json.loads(existing[0] or "[]")
+                    except Exception:
+                        parsed = []
+                    if not parsed and values:
+                        await db.execute(f"UPDATE settings SET {key}=? WHERE guild_id=?", (json.dumps(values), gid))
+
             # One-time migration from the old 100-XP-per-level curve to the
             # new slow Arcane-style cumulative curve. This preserves each
             # member's old level and their progress within that level.
@@ -216,12 +269,51 @@ class Database:
             return dict(await cur.fetchone())
 
     async def set_setting(self, guild_id, key, value):
-        allowed = {'ai_channel_id','log_channel_id','welcome_channel_id','announcement_channel_id','join_role_id','welcome_enabled','welcome_message','leveling_enabled','leveling_xp_min','leveling_xp_max','leveling_cooldown','prefix','mod_enabled','mod_action','personality'}
+        allowed = {'ai_channel_id','log_channel_id','welcome_channel_id','announcement_channel_id','join_role_id','ai_channel_ids','log_channel_ids','welcome_channel_ids','announcement_channel_ids','join_role_ids','welcome_enabled','welcome_message','leveling_enabled','leveling_xp_min','leveling_xp_max','leveling_cooldown','prefix','mod_enabled','mod_action','personality'}
         if key not in allowed:
             raise ValueError(f'Unknown setting: {key}')
         async with aiosqlite.connect(self.path) as db:
             await db.execute('INSERT OR IGNORE INTO settings(guild_id) VALUES(?)', (guild_id,))
             await db.execute(f'UPDATE settings SET {key}=? WHERE guild_id=?', (value, guild_id))
+            await db.commit()
+
+    async def multi_settings(self, guild_id):
+        import json
+        settings = await self.settings(guild_id)
+        result = {}
+        for key, legacy in [
+            ("ai_channel_ids","ai_channel_id"),
+            ("log_channel_ids","log_channel_id"),
+            ("welcome_channel_ids","welcome_channel_id"),
+            ("announcement_channel_ids","announcement_channel_id"),
+            ("join_role_ids","join_role_id"),
+        ]:
+            try:
+                values = [int(x) for x in json.loads(settings.get(key) or "[]") if int(x) > 0]
+            except Exception:
+                values = []
+            if not values and int(settings.get(legacy) or 0):
+                values = [int(settings[legacy])]
+            result[key] = list(dict.fromkeys(values))
+        return result
+
+    async def set_multi_setting(self, guild_id, key, values):
+        import json
+        allowed = {"ai_channel_ids","log_channel_ids","welcome_channel_ids","announcement_channel_ids","join_role_ids"}
+        if key not in allowed:
+            raise ValueError(f"Unknown multi setting: {key}")
+        values = list(dict.fromkeys(int(x) for x in values if int(x) > 0))
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute('INSERT OR IGNORE INTO settings(guild_id) VALUES(?)', (guild_id,))
+            await db.execute(f'UPDATE settings SET {key}=? WHERE guild_id=?', (json.dumps(values), guild_id))
+            # Keep legacy single-value settings pointing at the first selected item
+            # so existing Horizon commands continue to work.
+            legacy = {
+                "ai_channel_ids":"ai_channel_id","log_channel_ids":"log_channel_id",
+                "welcome_channel_ids":"welcome_channel_id","announcement_channel_ids":"announcement_channel_id",
+                "join_role_ids":"join_role_id"
+            }[key]
+            await db.execute(f'UPDATE settings SET {legacy}=? WHERE guild_id=?', (values[0] if values else 0, guild_id))
             await db.commit()
 
     async def add_warning(self, guild_id, user_id, moderator_id, reason):
@@ -264,7 +356,7 @@ class Database:
     async def set_level_reward(self, guild_id, level, role_id):
         async with aiosqlite.connect(self.path) as db:
             await db.execute(
-                'INSERT OR REPLACE INTO level_rewards(guild_id,level,role_id) VALUES(?,?,?)',
+                'INSERT OR IGNORE INTO level_rewards(guild_id,level,role_id) VALUES(?,?,?)',
                 (int(guild_id), int(level), int(role_id))
             )
             await db.commit()
