@@ -37,6 +37,14 @@ class Database:
                 role_id INTEGER NOT NULL,
                 PRIMARY KEY (guild_id, level)
             );
+            CREATE TABLE IF NOT EXISTS migrations (
+                name TEXT PRIMARY KEY,
+                applied_at REAL DEFAULT (strftime('%s','now'))
+            );
+            CREATE TABLE IF NOT EXISTS migrations (
+                name TEXT PRIMARY KEY,
+                applied_at REAL DEFAULT (strftime('%s','now'))
+            );
             CREATE TABLE IF NOT EXISTS system_migrations (
                 name TEXT PRIMARY KEY,
                 applied_at REAL DEFAULT (strftime('%s','now'))
@@ -149,6 +157,43 @@ class Database:
                 await db.execute("ALTER TABLE settings ADD COLUMN prefix TEXT DEFAULT '!'")
             except Exception:
                 pass
+
+            # One-time migration from the old 100-XP-per-level curve to the
+            # new slow Arcane-style cumulative curve. This preserves each
+            # member's old level and their progress within that level.
+            migration_name = 'normal_leveling_curve_v2'
+            cur = await db.execute('SELECT 1 FROM migrations WHERE name=?', (migration_name,))
+            if await cur.fetchone() is None:
+                cur = await db.execute('SELECT guild_id, user_id, xp FROM profiles WHERE xp > 0')
+                rows = await cur.fetchall()
+
+                def new_xp_floor(level):
+                    level = max(1, min(200, int(level)))
+                    if level <= 1:
+                        return 0
+                    n = level - 1
+                    return n * (50 * level + 75)
+
+                for guild_id, user_id, old_xp in rows:
+                    old_xp = max(0, int(old_xp))
+                    old_level = old_xp // 100 + 1
+                    capped_level = min(200, old_level)
+                    old_progress = old_xp - ((old_level - 1) * 100)
+                    if capped_level >= 200:
+                        new_xp = new_xp_floor(200)
+                    else:
+                        new_xp = new_xp_floor(capped_level) + round(
+                            (old_progress / 100) * (capped_level * 100 + 75)
+                        )
+                    await db.execute(
+                        'UPDATE profiles SET xp=? WHERE guild_id=? AND user_id=?',
+                        (new_xp, guild_id, user_id),
+                    )
+
+                await db.execute(
+                    'INSERT INTO migrations(name) VALUES(?)',
+                    (migration_name,),
+                )
             await db.commit()
         # One-time migration: preserve everyone's existing normal level/progress
         # while moving their stored XP onto the new slow curve.
