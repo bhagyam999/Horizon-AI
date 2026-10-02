@@ -834,10 +834,15 @@ class Dashboard:
         if not self._secret(): return web.Response(status=503,text="SESSION_SECRET is not configured.")
         client_id=os.getenv("DISCORD_CLIENT_ID","").strip()
         if not client_id: return web.Response(status=503,text="DISCORD_CLIENT_ID is not configured.")
-        state=secrets.token_urlsafe(32)
+        # Keep OAuth state self-contained instead of relying on a temporary
+        # browser cookie. Mobile/in-app browsers can drop that cookie while
+        # returning from Discord, which otherwise causes a false OAuth error.
+        state=self._make_token({
+            "nonce":secrets.token_urlsafe(24),
+            "exp":int(time.time())+600,
+        })
         params=urlencode({"client_id":client_id,"response_type":"code","redirect_uri":self._redirect_uri(request),"scope":"identify guilds","state":state})
         response=web.HTTPFound(f"https://discord.com/oauth2/authorize?{params}")
-        self._set_cookie(response,"lh_oauth_state",state,600,http_only=True)
         return response
 
     async def site_auth_callback(self, request):
@@ -845,7 +850,8 @@ class Dashboard:
         try:
             q=request.rel_url.query
             code,state=q.get("code"),q.get("state")
-            if not code or not state or state!=self._cookies(request).get("lh_oauth_state"):
+            saved=self._verify_token(state or "")
+            if not code or not state or not saved or int(saved.get("exp",0) or 0) < int(time.time()):
                 return web.HTTPFound(f"{site}/?discord=error")
             data={"client_id":os.getenv("DISCORD_CLIENT_ID",""),"client_secret":os.getenv("DISCORD_CLIENT_SECRET",""),"grant_type":"authorization_code","code":code,"redirect_uri":self._redirect_uri(request)}
             timeout=aiohttp.ClientTimeout(total=15)
