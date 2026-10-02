@@ -45,6 +45,16 @@ class Dashboard:
             web.get("/auth/callback", self.site_auth_callback),
             web.get("/api/site/auth-me", self.site_auth_me),
             web.get("/api/site/auth-logout", self.site_auth_logout),
+            web.get("/api/dashboard/guilds", self.dashboard_guilds),
+            web.get("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings),
+            web.patch("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings_update),
+            web.get("/api/dashboard/guild/{guild_id}/roles", self.dashboard_roles),
+            web.get("/api/dashboard/guild/{guild_id}/channels", self.dashboard_channels),
+            web.get("/api/dashboard/guild/{guild_id}/leveling", self.dashboard_leveling),
+            web.post("/api/dashboard/guild/{guild_id}/leveling/reward", self.dashboard_level_reward_add),
+            web.delete("/api/dashboard/guild/{guild_id}/leveling/reward/{level}", self.dashboard_level_reward_remove),
+            web.get("/api/dashboard/guild/{guild_id}/reaction-roles", self.dashboard_reaction_roles),
+            web.delete("/api/dashboard/guild/{guild_id}/reaction-roles/{message_id}/{emoji}", self.dashboard_reaction_role_remove),
             web.route("*", "/api/site/horizon-ai", self.site_horizon_ai),
             web.get("/api/site/horizon-server", self.site_horizon_server),
             web.get("/api/rpg/art", self.rpg_art),
@@ -130,6 +140,148 @@ class Dashboard:
                 if response.status >= 400:
                     raise RuntimeError(f"Discord API {response.status}")
                 return data
+
+
+    async def _dashboard_member(self, request):
+        if not self._authorized(request):
+            raise web.HTTPUnauthorized(text="Invalid Horizon API token")
+        try:
+            user_id = int(request.headers.get("X-Horizon-User-ID", "0"))
+            guild_id = int(request.match_info["guild_id"])
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Invalid user or guild id")
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            raise web.HTTPNotFound(text="Horizon is not in this server")
+        member = guild.get_member(user_id)
+        if member is None:
+            raise web.HTTPForbidden(text="You are not a member of this server")
+        perms = member.guild_permissions
+        if not (perms.administrator or perms.manage_guild):
+            raise web.HTTPForbidden(text="Manage Server or Administrator permission required")
+        return guild, member
+
+    async def dashboard_guilds(self, request):
+        if not self._authorized(request):
+            raise web.HTTPUnauthorized(text="Invalid Horizon API token")
+        try:
+            user_id = int(request.headers.get("X-Horizon-User-ID", "0"))
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Invalid user id")
+        rows = []
+        for guild in self.bot.guilds:
+            member = guild.get_member(user_id)
+            if not member:
+                continue
+            perms = member.guild_permissions
+            if perms.administrator or perms.manage_guild:
+                rows.append({
+                    "id": str(guild.id),
+                    "name": guild.name,
+                    "icon": str(guild.icon.url) if guild.icon else None,
+                    "member_count": guild.member_count or 0,
+                })
+        rows.sort(key=lambda x: x["name"].lower())
+        return web.json_response({"guilds": rows})
+
+    async def dashboard_settings(self, request):
+        guild, member = await self._dashboard_member(request)
+        return web.json_response({"guild": {"id": str(guild.id), "name": guild.name, "member_count": guild.member_count or 0},
+                                  "settings": await self.bot.db.settings(guild.id)})
+
+    async def dashboard_settings_update(self, request):
+        guild, member = await self._dashboard_member(request)
+        try:
+            data = await request.json()
+        except Exception:
+            raise web.HTTPBadRequest(text="Invalid JSON")
+        allowed = {"ai_channel_id","log_channel_id","welcome_channel_id","announcement_channel_id","prefix","mod_enabled","mod_action","personality"}
+        for key, value in data.items():
+            if key not in allowed:
+                continue
+            if key.endswith("_channel_id"):
+                value = int(value or 0)
+                if value and guild.get_channel(value) is None:
+                    raise web.HTTPBadRequest(text=f"Invalid channel for {key}")
+            elif key in {"mod_enabled"}:
+                value = 1 if bool(value) else 0
+            elif key == "mod_action":
+                value = max(0, min(2, int(value)))
+            elif key == "prefix":
+                value = str(value)[:5] or "!"
+            elif key == "personality":
+                value = str(value)[:2000]
+            await self.bot.db.set_setting(guild.id, key, value)
+        return web.json_response({"settings": await self.bot.db.settings(guild.id)})
+
+    async def dashboard_roles(self, request):
+        guild, member = await self._dashboard_member(request)
+        roles = []
+        for role in sorted(guild.roles, key=lambda r: r.position, reverse=True):
+            if role.is_default() or role.managed:
+                continue
+            roles.append({"id": str(role.id), "name": role.name, "position": role.position, "color": role.color.value})
+        return web.json_response({"roles": roles})
+
+    async def dashboard_channels(self, request):
+        guild, member = await self._dashboard_member(request)
+        channels = []
+        for channel in guild.channels:
+            if isinstance(channel, discord.TextChannel):
+                channels.append({"id": str(channel.id), "name": channel.name, "type": "text", "category_id": str(channel.category_id) if channel.category_id else None})
+        return web.json_response({"channels": channels})
+
+    async def dashboard_leveling(self, request):
+        guild, member = await self._dashboard_member(request)
+        rows = await self.bot.db.level_rewards(guild.id)
+        return web.json_response({
+            "enabled": True,
+            "xp_min": LEVEL_XP_MIN,
+            "xp_max": LEVEL_XP_MAX,
+            "cooldown": LEVEL_XP_COOLDOWN,
+            "max_level": LEVEL_MAX,
+            "rewards": [{"level": int(r[0]), "role_id": str(r[1]), "role_name": guild.get_role(int(r[1])).name if guild.get_role(int(r[1])) else "Deleted role"} for r in rows],
+        })
+
+    async def dashboard_level_reward_add(self, request):
+        guild, member = await self._dashboard_member(request)
+        try:
+            data = await request.json()
+            level = int(data.get("level"))
+            role_id = int(data.get("role_id"))
+        except Exception:
+            raise web.HTTPBadRequest(text="level and role_id are required")
+        if level < 2 or level > LEVEL_MAX:
+            raise web.HTTPBadRequest(text=f"Level must be between 2 and {LEVEL_MAX}")
+        role = guild.get_role(role_id)
+        if not role or role.is_default() or role.managed:
+            raise web.HTTPBadRequest(text="Invalid role")
+        me = guild.me
+        if me and role >= me.top_role:
+            raise web.HTTPBadRequest(text="Horizon cannot manage that role because it is above the bot")
+        await self.bot.db.set_level_reward(guild.id, level, role_id)
+        return await self.dashboard_leveling(request)
+
+    async def dashboard_level_reward_remove(self, request):
+        guild, member = await self._dashboard_member(request)
+        level = int(request.match_info["level"])
+        await self.bot.db.remove_level_reward(guild.id, level)
+        return await self.dashboard_leveling(request)
+
+    async def dashboard_reaction_roles(self, request):
+        guild, member = await self._dashboard_member(request)
+        rows = await self.bot.db.reaction_roles(guild.id)
+        return web.json_response({"reaction_roles": [
+            {"message_id": str(r[0]), "emoji": r[1], "role_id": str(r[2]), "channel_id": str(r[3]),
+             "role_name": guild.get_role(int(r[2])).name if guild.get_role(int(r[2])) else "Deleted role",
+             "channel_name": guild.get_channel(int(r[3])).name if guild.get_channel(int(r[3])) else "Deleted channel"}
+            for r in rows
+        ]})
+
+    async def dashboard_reaction_role_remove(self, request):
+        guild, member = await self._dashboard_member(request)
+        await self.bot.db.remove_reaction_role(guild.id, int(request.match_info["message_id"]), request.match_info["emoji"])
+        return await self.dashboard_reaction_roles(request)
 
     async def website(self, request):
         index = self.dist_dir / "index.html"
