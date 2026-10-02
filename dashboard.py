@@ -51,6 +51,7 @@ class Dashboard:
             web.patch("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings_update),
             web.get("/api/dashboard/guild/{guild_id}/roles", self.dashboard_roles),
             web.get("/api/dashboard/guild/{guild_id}/channels", self.dashboard_channels),
+            web.get("/api/dashboard/guild/{guild_id}/commands", self.dashboard_commands),
             web.get("/api/dashboard/guild/{guild_id}/leveling", self.dashboard_leveling),
             web.patch("/api/dashboard/guild/{guild_id}/leveling", self.dashboard_leveling_update),
             web.post("/api/dashboard/guild/{guild_id}/leveling/reward", self.dashboard_level_reward_add),
@@ -199,8 +200,10 @@ class Dashboard:
 
     async def dashboard_settings(self, request):
         guild, member = await self._dashboard_member(request)
+        settings = await self.bot.db.settings(guild.id)
+        settings.update(await self.bot.db.multi_settings(guild.id))
         return web.json_response({"guild": {"id": str(guild.id), "name": guild.name, "member_count": guild.member_count or 0},
-                                  "settings": await self.bot.db.settings(guild.id)})
+                                  "settings": settings})
 
     async def dashboard_settings_update(self, request):
         guild, member = await self._dashboard_member(request)
@@ -208,9 +211,31 @@ class Dashboard:
             data = await request.json()
         except Exception:
             raise web.HTTPBadRequest(text="Invalid JSON")
-        allowed = {"ai_channel_id","log_channel_id","welcome_channel_id","announcement_channel_id","join_role_id","welcome_enabled","welcome_message","prefix","mod_enabled","mod_action","personality"}
+        allowed = {"ai_channel_id","log_channel_id","welcome_channel_id","announcement_channel_id","join_role_id","ai_channel_ids","log_channel_ids","welcome_channel_ids","announcement_channel_ids","join_role_ids","welcome_enabled","welcome_message","prefix","mod_enabled","mod_action","personality"}
+        multi_keys = {"ai_channel_ids","log_channel_ids","welcome_channel_ids","announcement_channel_ids","join_role_ids"}
         for key, value in data.items():
             if key not in allowed:
+                continue
+            if key in multi_keys:
+                if not isinstance(value, list):
+                    raise web.HTTPBadRequest(text=f"{key} must be an array")
+                ids = []
+                for raw in value[:50]:
+                    try:
+                        item = int(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if item <= 0 or item in ids:
+                        continue
+                    if key.endswith("_channel_ids"):
+                        if guild.get_channel(item) is None:
+                            raise web.HTTPBadRequest(text=f"Invalid channel for {key}")
+                    else:
+                        role = guild.get_role(item)
+                        if not role or role.is_default() or role.managed:
+                            raise web.HTTPBadRequest(text=f"Invalid role for {key}")
+                    ids.append(item)
+                await self.bot.db.set_multi_setting(guild.id, key, ids)
                 continue
             if key.endswith("_channel_id"):
                 value = int(value or 0)
@@ -234,7 +259,7 @@ class Dashboard:
             if role.is_default() or role.managed:
                 continue
             roles.append({"id": str(role.id), "name": role.name, "position": role.position, "color": role.color.value})
-        return web.json_response({"roles": roles})
+        return web.json_response({"roles": roles, "bot_top_role_id": str(guild.me.top_role.id) if guild.me else "0"})
 
     async def dashboard_channels(self, request):
         guild, member = await self._dashboard_member(request)
@@ -270,6 +295,24 @@ class Dashboard:
         for key, value in (("leveling_enabled", enabled), ("leveling_xp_min", xp_min), ("leveling_xp_max", xp_max), ("leveling_cooldown", cooldown)):
             await self.bot.db.set_setting(guild.id, key, value)
         return await self.dashboard_leveling(request)
+
+    async def dashboard_commands(self, request):
+        guild, member = await self._dashboard_member(request)
+        categories = [
+            ("AI", ["!ai <message>", "!ask <question>", "!aistatus", "!aimodels", "!personality <text>", "!remember <fact>", "!forget <id>", "!memories"]),
+            ("Games", ["!games", "!game <name>", "!guess <letter>", "!join", "!begin", "!vote @user", "!dayend", "!nightend", "!rps <rock|paper|scissors>", "!truth", "!dare", "!wyr"]),
+            ("Horizon RPG", ["!rpg", "!rpg start <name> <race> <class>", "!rpg profile", "!rpg stats", "!rpg adventure", "!rpg dungeon", "!rpg quests", "!rpg party", "!rpg guild", "!rpg shop", "!rpg craft", "!rpg market", "!rpg trade", "!rpg pet", "!rpg achievements", "!rpg leaderboard"]),
+            ("Moderation", ["!warn @user [reason]", "!warnings @user", "!mod on|off", "!modaction log|warn|timeout", "!clear <1-100>", "!timeout @user <minutes> [reason]", "!kick @user [reason]", "!ban @user [reason]"]),
+            ("Announcements", ["!announce <type> <ping> [#channel] | <title> | <message>"]),
+            ("Server", ["!config show", "!config welcome #channel", "!config logs #channel", "!config personality <text>", "!serverinfo", "!permissions", "!userinfo @user", "!avatar @user", "!channelinfo"]),
+            ("Fun", ["!8b", "!define", "!gif", "!pic", "!translate", "!roll", "!choose", "!pick", "!random", "!dice", "!bell", "!fortune", "!rate", "!judge", "!roast", "!compliment"]),
+            ("Social", ["!cookie", "!ship", "!pray", "!curse", "!marry", "!emoji", "!level", "!wallpaper", "!owoify", "!friendship", "!compatibility", "!couple", "!duo", "!crush", "!bestie", "!rival", "!adopt", "!breakup", "!divorce"]),
+            ("Meme Generation", ["!spongebobchicken", "!slapcar", "!isthisa", "!drake", "!distractedbf", "!communismcat", "!eject", "!emergencymeeting", "!headpat", "!tradeoffer", "!waddle"]),
+            ("Emotes", ["!blush", "!cry", "!dance", "!lewd", "!pout", "!shrug", "!sleepy", "!smile", "!smug", "!thumbsup", "!wag", "!thinking", "!triggered", "!teehee", "!deredere", "!thonking", "!scoff", "!happy", "!thumbs", "!grin"]),
+            ("Actions", ["!cuddle", "!hug", "!kiss", "!lick", "!nom", "!pat", "!poke", "!slap", "!stare", "!highfive", "!bite", "!greet", "!punch", "!handholding", "!tickle", "!kill", "!hold", "!pats", "!wave", "!boop", "!snuggle", "!bully", "!feed", "!carry", "!bonk", "!comfort", "!cheer", "!protect", "!shield", "!fistbump", "!salute", "!bow", "!laughwith", "!crywith", "!dancewith"]),
+            ("Utility", ["!ping", "!stats", "!link", "!guildlink", "!disable <command>", "!enable <command>", "!censor <text>", "!patreon", "!announcement <text>", "!rules", "!suggest <idea>", "!shards", "!math <expression>", "!color <hex>", "!prefix"]),
+        ]
+        return web.json_response({"categories":[{"id":name.lower().replace(" ","_"),"name":name,"commands":commands} for name,commands in categories]})
 
     async def dashboard_reaction_role_add(self, request):
         guild, member = await self._dashboard_member(request)
