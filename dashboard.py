@@ -255,6 +255,45 @@ class Dashboard:
             "rewards": [{"level": int(r[0]), "role_id": str(r[1]), "role_name": guild.get_role(int(r[1])).name if guild.get_role(int(r[1])) else "Deleted role"} for r in rows],
         })
 
+    async def dashboard_leveling_update(self, request):
+        guild, member = await self._dashboard_member(request)
+        try:
+            data = await request.json()
+            enabled = 1 if bool(data.get("enabled", True)) else 0
+            xp_min = max(1, min(1000, int(data.get("xp_min", 10))))
+            xp_max = max(xp_min, min(1000, int(data.get("xp_max", 15))))
+            cooldown = max(5, min(3600, int(data.get("cooldown", 60))))
+        except Exception:
+            raise web.HTTPBadRequest(text="Invalid leveling settings")
+        for key, value in (("leveling_enabled", enabled), ("leveling_xp_min", xp_min), ("leveling_xp_max", xp_max), ("leveling_cooldown", cooldown)):
+            await self.bot.db.set_setting(guild.id, key, value)
+        return await self.dashboard_leveling(request)
+
+    async def dashboard_reaction_role_add(self, request):
+        guild, member = await self._dashboard_member(request)
+        try:
+            data = await request.json()
+            channel_id = int(data.get("channel_id"))
+            message_id = int(data.get("message_id"))
+            role_id = int(data.get("role_id"))
+            emoji = str(data.get("emoji", "")).strip()
+        except Exception:
+            raise web.HTTPBadRequest(text="channel_id, message_id, role_id and emoji are required")
+        channel = guild.get_channel(channel_id)
+        role = guild.get_role(role_id)
+        me = guild.me
+        if not isinstance(channel, discord.TextChannel):
+            raise web.HTTPBadRequest(text="Invalid text channel")
+        if not role or role.is_default() or role.managed or not me or role >= me.top_role:
+            raise web.HTTPBadRequest(text="Invalid role or Horizon cannot manage it")
+        try:
+            message = await channel.fetch_message(message_id)
+            await message.add_reaction(emoji)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException) as exc:
+            raise web.HTTPBadRequest(text=f"Could not update that message: {exc}")
+        await self.bot.db.add_reaction_role(guild.id, channel_id, message_id, emoji, role_id)
+        return await self.dashboard_reaction_roles(request)
+
     async def dashboard_level_reward_add(self, request):
         guild, member = await self._dashboard_member(request)
         try:
