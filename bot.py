@@ -2402,7 +2402,33 @@ def _prefix_help_text(category: str | None = None):
 @bot.command(name="help", aliases=["commands"])
 async def prefix_help(ctx, category: str = ""):
     await _quiet_delete(ctx.message)
-    await ctx.send(embeds=_build_help_embeds(category), allowed_mentions=discord.AllowedMentions.none())
+    embeds = _build_help_embeds(category)
+
+    # Some servers/channels do not grant Horizon the Embed Links permission.
+    # The old implementation sent only embeds, which made !help fail with
+    # Discord 403 / error 50013 instead of showing the command list. Try the
+    # normal rich help first, then fall back to plain text so !help works with
+    # ordinary Send Messages permission.
+    try:
+        await ctx.send(embeds=embeds, allowed_mentions=discord.AllowedMentions.none())
+        return
+    except discord.Forbidden:
+        pass
+
+    pages = []
+    for embed in embeds:
+        lines = []
+        if embed.title:
+            lines.append(f"**{embed.title}**")
+        if embed.description:
+            lines.append(embed.description)
+        for field in embed.fields:
+            lines.append(f"**{field.name}**\n{field.value}")
+        pages.append("\n\n".join(lines))
+
+    for page in pages:
+        for chunk in split_text(page, 1900):
+            await ctx.send(chunk, allowed_mentions=discord.AllowedMentions.none())
 
 
 @bot.command(name="ping")
