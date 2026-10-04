@@ -682,7 +682,8 @@ function GameModal({game,close,notify}){
   const [forgePoints,setForgePoints]=useState(20),[saved,setSaved]=useState(false);
   const [mini,setMini]=useState('menu');
   const [numbers,setNumbers]=useState([]),[numberTarget,setNumberTarget]=useState([]),[numberButtons,setNumberButtons]=useState([]),[numberStarted,setNumberStarted]=useState(false),[numberTime,setNumberTime]=useState(0),[numberRound,setNumberRound]=useState(1),[numberScore,setNumberScore]=useState(0);
-  const [reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0),[reactionBest,setReactionBest]=useState(null);\n  const reactionTimer=React.useRef(null);
+  const [reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0),[reactionBest,setReactionBest]=useState(null);
+  const reactionTimer=React.useRef(null);
   const [memory,setMemory]=useState(()=>makeMemory()),[memoryPick,setMemoryPick]=useState([]),[memoryMoves,setMemoryMoves]=useState(0),[memoryDone,setMemoryDone]=useState(false);
   const [rps,setRps]=useState(null),[rpsScore,setRpsScore]=useState({you:0,bot:0}),[rpsWinner,setRpsWinner]=useState('');
 
