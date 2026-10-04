@@ -681,8 +681,8 @@ function GameModal({game,close,notify}){
   const [forge,setForge]=useState({name:'',role:'Warrior',power:'',rarity:'RARE',stats:{STR:10,DEX:10,INT:10,VIT:10}});
   const [forgePoints,setForgePoints]=useState(20),[saved,setSaved]=useState(false);
   const [mini,setMini]=useState('menu');
-  const [numbers,setNumbers]=useState([]),[numberTarget,setNumberTarget]=useState([]),[numberStarted,setNumberStarted]=useState(false),[numberTime,setNumberTime]=useState(0),[numberRound,setNumberRound]=useState(1),[numberScore,setNumberScore]=useState(0);
-  const [reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0),[reactionBest,setReactionBest]=useState(null);
+  const [numbers,setNumbers]=useState([]),[numberTarget,setNumberTarget]=useState([]),[numberButtons,setNumberButtons]=useState([]),[numberStarted,setNumberStarted]=useState(false),[numberTime,setNumberTime]=useState(0),[numberRound,setNumberRound]=useState(1),[numberScore,setNumberScore]=useState(0);
+  const [reaction,setReaction]=useState('ready'),[reactionStart,setReactionStart]=useState(0),[reactionBest,setReactionBest]=useState(null);\n  const reactionTimer=React.useRef(null);
   const [memory,setMemory]=useState(()=>makeMemory()),[memoryPick,setMemoryPick]=useState([]),[memoryMoves,setMemoryMoves]=useState(0),[memoryDone,setMemoryDone]=useState(false);
   const [rps,setRps]=useState(null),[rpsScore,setRpsScore]=useState({you:0,bot:0}),[rpsWinner,setRpsWinner]=useState('');
 
@@ -691,7 +691,7 @@ function GameModal({game,close,notify}){
   }
   function resetAll(){
     setRound(0);setScore(0);setStreak(0);setQuizTime(12);setAnswered(false);setMessage('');
-    setNumberTarget([]);setNumbers([]);setNumberStarted(false);setNumberRound(1);setNumberScore(0);
+    setNumberTarget([]);setNumberButtons([]);setNumbers([]);setNumberStarted(false);setNumberRound(1);setNumberScore(0);
     setReaction('ready');setReactionStart(0);setMemory(makeMemory());setMemoryPick([]);setMemoryMoves(0);setMemoryDone(false);
     setRps(null);setRpsScore({you:0,bot:0});setRpsWinner('');setSaved(false);
   }
@@ -733,7 +733,7 @@ function GameModal({game,close,notify}){
     localStorage.setItem('lh-character-forge',JSON.stringify(data));setSaved(true);notify?.('Character saved on this device.');
   }
   function startNumber(){
-    setNumbers([]);setNumberTarget(shuffle([1,2,3,4,5,6,7,8,9]));setNumberStarted(true);setNumberTime(performance.now());setMessage('');
+    setNumbers([]);setNumberTarget(shuffle([1,2,3,4,5,6,7,8,9]));setNumberButtons(shuffle([1,2,3,4,5,6,7,8,9]));setNumberStarted(true);setNumberTime(performance.now());setMessage('');
   }
   function numberClick(n){
     if(!numberStarted)return;
@@ -811,7 +811,7 @@ function GameModal({game,close,notify}){
   }else if(mode==='browser'){
     body=<div className="browser-game">
       {mini==='menu'&&<div className="mini-menu"><span className="eyebrow">MINI-GAME HUB</span><h3>Pick a challenge</h3><p>Four quick games with scoring, restarts and actual win conditions.</p><button className="btn secondary" onClick={()=>setMini('number')}>Number Rush <small>3 rounds</small></button><button className="btn secondary" onClick={()=>setMini('memory')}>Memory Match <small>6 pairs</small></button><button className="btn secondary" onClick={()=>setMini('reaction')}>Reaction Test <small>Best time</small></button><button className="btn secondary" onClick={()=>setMini('rps')}>Rock Paper Scissors <small>First to 5</small></button></div>}
-      {mini==='number'&&<div className="number-rush"><span className="eyebrow">NUMBER RUSH • ROUND {numberRound}/3</span><h3>Tap 1 → 9 as fast as you can.</h3><p>The buttons shuffle every round. One mistake ends that round.</p><div className="game-options">{shuffle([1,2,3,4,5,6,7,8,9]).map(n=><button key={n} disabled={!numberStarted} onClick={()=>numberClick(n)}>{n}</button>)}</div>{!numberStarted&&<button className="btn primary" onClick={startNumber}>{numberRound===1?'Start challenge':'Start round'}</button>}<div className="game-message">{message}</div><b>Score: {numberScore}</b></div>}
+      {mini==='number'&&<div className="number-rush"><span className="eyebrow">NUMBER RUSH • ROUND {numberRound}/3</span><h3>Tap 1 → 9 as fast as you can.</h3><p>The buttons shuffle every round. One mistake ends that round.</p><div className="game-options">{numberButtons.map(n=><button key={n} disabled={!numberStarted} onClick={()=>numberClick(n)}>{n}</button>)}</div>{!numberStarted&&<button className="btn primary" onClick={startNumber}>{numberRound===1?'Start challenge':'Start round'}</button>}<div className="game-message">{message}</div><b>Score: {numberScore}</b></div>}
       {mini==='memory'&&<div><span className="eyebrow">MEMORY MATCH</span><h3>Match all 6 pairs.</h3><p>Moves: {memoryMoves} {memoryDone?'• COMPLETE':''}</p><div className="memory-grid">{memory.map(card=><button key={card.id} className={card.open||card.done?'flipped':''} onClick={()=>memoryClick(card.id)}>{card.open||card.done?card.v:'?'}</button>)}</div>{memoryDone&&<div className="game-message">Nice memory. You cleared the board.</div>}<button className="btn secondary" onClick={resetMemory}>New Board</button></div>}
       {mini==='reaction'&&<div className="reaction-game"><span className="eyebrow">REACTION TEST</span><h3>{reaction==='wait'?'Wait for the signal…':reaction==='go'?'TAP NOW!':reaction==='tooSoon'?'Too early!':reaction==='result'?message:'Test your reaction speed.'}</h3><button className={\`reaction-button reaction-\${reaction}\`} onClick={reaction==='wait'||reaction==='go'?reactionClick:startReaction}>{reaction==='wait'?'WAIT…':reaction==='go'?'TAP!':reaction==='result'||reaction==='tooSoon'?'TRY AGAIN':'START'}</button>{reactionBest!==null&&<p>Best: <b>{reactionBest} ms</b></p>}</div>}
       {mini==='rps'&&<div className="rps-game"><span className="eyebrow">ROCK PAPER SCISSORS</span><h3>First to 5 wins.</h3><div className="game-score"><span>You {rpsScore.you} • Bot {rpsScore.bot}</span><b>{rpsWinner||rps?.result||'Choose your move'}</b></div><div className="game-options">{['Rock','Paper','Scissors'].map(x=><button key={x} disabled={Boolean(rpsWinner)} onClick={()=>playRps(x)}>{x}</button>)}</div>{rps&&<p className="game-message">You chose {rps.you} • Bot chose {rps.bot}</p>}<button className="btn secondary" onClick={()=>{setRps(null);setRpsScore({you:0,bot:0});setRpsWinner('')}}>Reset Match</button></div>}
