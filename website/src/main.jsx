@@ -65,7 +65,7 @@ function App(){
     else if(authResult==='not-member') notify('Your Discord account is not a member of Log Horizon.');
     else if(authResult==='error') notify('Discord login could not be completed. Check the OAuth settings.');
     if(authResult){ window.history.replaceState({},'',window.location.pathname+window.location.hash); }
-    const h=()=>{const id=window.location.hash.replace('#',''); if(id && ['home','community','events','rpg','hall'].includes(id)) setView(id)};
+    const h=()=>{const id=window.location.hash.replace('#',''); if(id && ['home','community','events','hall'].includes(id)) setView(id)};
     window.addEventListener('hashchange',h);h();return()=>window.removeEventListener('hashchange',h);
   },[notify]);
 
@@ -181,7 +181,7 @@ function Home({navigate,openModal,openAI}){return <>
   <section className="section intro"><div><span className="eyebrow">01 / THE COMMUNITY</span><h2>One community.<br/><em>Many worlds.</em></h2></div><div className="intro-copy"><p>Log Horizon started with Anigame, but the destination is bigger than one game. Different games, anime interests, events, creativity, and conversations can share the same home.</p><LiveCommunityStats/><div className="stat-row"><Stat n="∞" t="Things to build"/><Stat n="1" t="Shared community world"/><Stat n="24/7" t="Horizon can be present"/></div></div></section>
   <section className="section ai-spotlight" id="horizon-ai"><div className="ai-spotlight-art"><div className="ai-spotlight-ring"/><div className="ai-spotlight-core"><Bot size={34}/><span>HORIZON</span></div><span className="ai-signal">SERVER SIGNAL • ONLINE WHEN CONNECTED</span></div><div className="ai-spotlight-copy"><span className="eyebrow">02 / HORIZON AI</span><h2>Talk to the guide<br/><em>behind the horizon.</em></h2><p>The website uses the Railway-hosted Horizon service instead of keeping a separate Gemini connection in the browser. Your conversation travels through the secure server bridge, then Horizon responds using its existing AI system.</p><div className="ai-spotlight-actions"><button className="btn primary" onClick={openAI}><Bot size={17}/> Talk to Horizon <ArrowRight size={17}/></button><span className="ai-security-note">Gemini key stays on Railway • browser never receives it</span></div></div></section>
   <section className="section section-dark"><div className="section-heading"><div><span className="eyebrow">03 / THE WORLD</span><h2>Find your world.</h2></div><p>Four doors into the community. More can be added without changing the foundation.</p></div><div className="feature-grid">
-    <Feature icon={<Gamepad2/>} tag="GAMES" title="Play together" text="Competitive battles, casual sessions and community challenges." onClick={()=>navigate('games')}/>
+    <Feature icon={<Users/>} tag="COMMUNITY" title="Find your people" text="Talk, create, compete and build the community together." onClick={()=>navigate('community')}/>
     <Feature icon={<Trophy/>} tag="EVENTS" title="Make it an event" text="Tournaments, creative competitions, game nights and more." onClick={()=>navigate('events','portal')}/>
     <Feature icon={<Sparkles/>} tag="ANIME" title="For the anime people" text="A working archive with search, genres, details and a personal watchlist." onClick={()=>{window.location.href='/anime'}}/>
     <Feature icon={<Bot/>} tag="HORIZON AI" title="Meet the guide" text="Horizon AI runs through the Log Horizon server. Ask the same Horizon intelligence that powers the community bot." special onClick={openAI}/>
@@ -326,6 +326,25 @@ const ANIME_GUESSES=[
 ];
 
 
+
+class WebsiteErrorBoundary extends React.Component{
+  constructor(props){super(props);this.state={error:null}}
+  static getDerivedStateFromError(error){return {error}}
+  componentDidCatch(error,info){console.error('Log Horizon website render error:',error,info)}
+  render(){
+    if(this.state.error){
+      return <div style={{minHeight:'100vh',background:'#070b10',color:'#eef6ff',display:'grid',placeItems:'center',padding:'32px',fontFamily:'system-ui,sans-serif'}}>
+        <div style={{maxWidth:'620px',width:'100%',border:'1px solid rgba(120,220,255,.2)',borderRadius:'18px',padding:'28px',background:'rgba(12,18,28,.96)'}}>
+          <div style={{fontSize:'12px',letterSpacing:'.18em',opacity:.65,marginBottom:'10px'}}>LOG HORIZON • RECOVERY MODE</div>
+          <h1 style={{margin:'0 0 10px'}}>The website hit a render error.</h1>
+          <p style={{opacity:.75,lineHeight:1.6,marginBottom:'20px'}}>The server is online, but the page failed while rendering. Reloading is safe and will not affect your Discord data.</p>
+          <button onClick={()=>window.location.reload()} style={{border:0,borderRadius:'10px',padding:'12px 18px',fontWeight:700,cursor:'pointer'}}>Reload website</button>
+        </div>
+      </div>
+    }
+    return this.props.children;
+  }
+}
 
 createRoot(document.getElementById('root')).render(
   window.location.pathname.replace(/\/$/, '') === '/anime' ? <AnimePage /> :
