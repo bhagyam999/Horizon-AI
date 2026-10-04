@@ -421,7 +421,17 @@ class Dashboard:
     async def website(self, request):
         index = self.dist_dir / "index.html"
         if index.exists():
-            return web.FileResponse(index)
+            # The SPA entry point must never be served from a stale browser cache.
+            # Vite assets are content-hashed, so the HTML should always point at the
+            # newest bundle after a Railway deployment.
+            return web.FileResponse(
+                index,
+                headers={
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
         # The source is kept in the ZIP; Railway's build phase creates dist.
         return web.Response(status=503, text="Log Horizon website is still building. Please refresh shortly.", content_type="text/plain")
 
