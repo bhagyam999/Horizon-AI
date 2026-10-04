@@ -750,10 +750,10 @@ function GameModal({game,close,notify}){
       const points=Math.max(100-Math.round(seconds*8),10);
       setNumberScore(s=>s+points);
       if(numberRound<3){
-        setNumberRound(r=>r+1);setMessage(\`Round cleared in \${seconds.toFixed(2)}s • +\${points} points\`);
+        setNumberRound(r=>r+1);setMessage(`Round cleared in ${seconds.toFixed(2)}s • +${points} points`);
         setTimeout(()=>startNumber(),700);
       }else{
-        setNumberStarted(false);setMessage(\`Challenge complete • \${numberScore+points} points\`);
+        setNumberStarted(false);setMessage(`Challenge complete • ${numberScore+points} points`);
       }
     }
   }
@@ -766,7 +766,7 @@ function GameModal({game,close,notify}){
   function reactionClick(){
     if(reaction==='wait'){setReaction('tooSoon');setMessage('Too early. Wait for the signal.');return;}
     if(reaction==='go'){
-      const ms=Math.round(performance.now()-reactionStart);setReaction('result');setMessage(\`\${ms} ms reaction time\`);
+      const ms=Math.round(performance.now()-reactionStart);setReaction('result');setMessage(`${ms} ms reaction time`);
       setReactionBest(best=>best===null?ms:Math.min(best,ms));
     }
   }
@@ -782,7 +782,7 @@ function GameModal({game,close,notify}){
       if(a.v===b.v){
         const finished=next.map(x=>x.id===a.id||x.id===b.id?{...x,done:true}:x);
         setMemory(finished);setMemoryPick([]);
-        if(finished.every(x=>x.done)){setMemoryDone(true);setMessage(\`Board cleared in \${memoryMoves+1} moves.\`);}
+        if(finished.every(x=>x.done)){setMemoryDone(true);setMessage(`Board cleared in ${memoryMoves+1} moves.`);}
       }else{
         setTimeout(()=>{setMemory(m=>m.map(x=>picks.includes(x.id)?{...x,open:false}:x));setMemoryPick([])},550);
       }
@@ -814,7 +814,7 @@ function GameModal({game,close,notify}){
       {mini==='menu'&&<div className="mini-menu"><span className="eyebrow">MINI-GAME HUB</span><h3>Pick a challenge</h3><p>Four quick games with scoring, restarts and actual win conditions.</p><button className="btn secondary" onClick={()=>setMini('number')}>Number Rush <small>3 rounds</small></button><button className="btn secondary" onClick={()=>setMini('memory')}>Memory Match <small>6 pairs</small></button><button className="btn secondary" onClick={()=>setMini('reaction')}>Reaction Test <small>Best time</small></button><button className="btn secondary" onClick={()=>setMini('rps')}>Rock Paper Scissors <small>First to 5</small></button></div>}
       {mini==='number'&&<div className="number-rush"><span className="eyebrow">NUMBER RUSH • ROUND {numberRound}/3</span><h3>Tap 1 → 9 as fast as you can.</h3><p>The buttons shuffle every round. One mistake ends that round.</p><div className="game-options">{numberButtons.map(n=><button key={n} disabled={!numberStarted} onClick={()=>numberClick(n)}>{n}</button>)}</div>{!numberStarted&&<button className="btn primary" onClick={startNumber}>{numberRound===1?'Start challenge':'Start round'}</button>}<div className="game-message">{message}</div><b>Score: {numberScore}</b></div>}
       {mini==='memory'&&<div><span className="eyebrow">MEMORY MATCH</span><h3>Match all 6 pairs.</h3><p>Moves: {memoryMoves} {memoryDone?'• COMPLETE':''}</p><div className="memory-grid">{memory.map(card=><button key={card.id} className={card.open||card.done?'flipped':''} onClick={()=>memoryClick(card.id)}>{card.open||card.done?card.v:'?'}</button>)}</div>{memoryDone&&<div className="game-message">Nice memory. You cleared the board.</div>}<button className="btn secondary" onClick={resetMemory}>New Board</button></div>}
-      {mini==='reaction'&&<div className="reaction-game"><span className="eyebrow">REACTION TEST</span><h3>{reaction==='wait'?'Wait for the signal…':reaction==='go'?'TAP NOW!':reaction==='tooSoon'?'Too early!':reaction==='result'?message:'Test your reaction speed.'}</h3><button className={\`reaction-button reaction-\${reaction}\`} onClick={reaction==='wait'||reaction==='go'?reactionClick:startReaction}>{reaction==='wait'?'WAIT…':reaction==='go'?'TAP!':reaction==='result'||reaction==='tooSoon'?'TRY AGAIN':'START'}</button>{reactionBest!==null&&<p>Best: <b>{reactionBest} ms</b></p>}</div>}
+      {mini==='reaction'&&<div className="reaction-game"><span className="eyebrow">REACTION TEST</span><h3>{reaction==='wait'?'Wait for the signal…':reaction==='go'?'TAP NOW!':reaction==='tooSoon'?'Too early!':reaction==='result'?message:'Test your reaction speed.'}</h3><button className={`reaction-button reaction-${reaction}`} onClick={reaction==='wait'||reaction==='go'?reactionClick:startReaction}>{reaction==='wait'?'WAIT…':reaction==='go'?'TAP!':reaction==='result'||reaction==='tooSoon'?'TRY AGAIN':'START'}</button>{reactionBest!==null&&<p>Best: <b>{reactionBest} ms</b></p>}</div>}
       {mini==='rps'&&<div className="rps-game"><span className="eyebrow">ROCK PAPER SCISSORS</span><h3>First to 5 wins.</h3><div className="game-score"><span>You {rpsScore.you} • Bot {rpsScore.bot}</span><b>{rpsWinner||rps?.result||'Choose your move'}</b></div><div className="game-options">{['Rock','Paper','Scissors'].map(x=><button key={x} disabled={Boolean(rpsWinner)} onClick={()=>playRps(x)}>{x}</button>)}</div>{rps&&<p className="game-message">You chose {rps.you} • Bot chose {rps.bot}</p>}<button className="btn secondary" onClick={()=>{setRps(null);setRpsScore({you:0,bot:0});setRpsWinner('')}}>Reset Match</button></div>}
     </div>;
   }else{
