@@ -88,7 +88,7 @@ function App(){
   return <div className="app"><div className="ambient ambient-cyan"/><div className="ambient ambient-violet"/><div className="grid"/>
     <header className="header">
       <button className="brand" onClick={()=>navigate('home')}><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></button>
-      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : id==='rpg' ? <a key={id} className="rpg-nav-link" href="/rpg">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}{session?.admin&&<a className="admin-nav" href="/admin">Admin</a>}</nav>
+      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : id==='rpg' ? <a key={id} className="rpg-nav-link" href="/rpg?v=20261004">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}{session?.admin&&<a className="admin-nav" href="/admin">Admin</a>}</nav>
       <div className="header-actions">
         <button className="horizon-ai-trigger" onClick={()=>setAiOpen(true)} aria-label="Open Horizon AI"><Bot size={15}/><span>HORIZON AI</span></button>
         {session ? <button className="profile-chip" onClick={()=>notify(`Connected as ${session.username}`)}><span className="profile-dot"/>{session.username}</button> : <button className="discord-login" onClick={()=>window.location.href='/api/site/auth-login'}><MessageCircle size={16}/> Continue with Discord</button>}
