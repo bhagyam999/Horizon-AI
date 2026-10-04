@@ -45,24 +45,14 @@ function randomScene(preferred){
   return pool[Math.floor(Math.random()*pool.length)] || scenes[0];
 }
 
-function LoadingScreen({scene,onDone}){
-  useEffect(()=>{const t=setTimeout(onDone,760);return()=>clearTimeout(t)},[onDone]);
-  return <div className={`loading-screen loading-${scene.type}`} role="status" aria-live="polite">
-    <div className="loading-grid"/><div className="loading-stars"/><div className="loading-orbit orbit-one"/><div className="loading-orbit orbit-two"/>
-    <div className="loading-core"><span>LH</span></div><div className="loading-scan"/>
-    <div className="loading-copy"><span className="eyebrow">{scene.eyebrow}</span><h1>{scene.title}</h1><p>{scene.text}</p></div>
-    <div className="loading-line"><span/></div><div className="loading-code">LH://{scene.type.toUpperCase()}_{String(Math.floor(Math.random()*9000+1000))}</div>
-  </div>
-}
-
 function App(){
-  const [loading,setLoading]=useState(true), [scene,setScene]=useState(()=>randomScene()), [view,setView]=useState('home');
+  const [view,setView]=useState('home');
   const [menu,setMenu]=useState(false), [modal,setModal]=useState(null), [notice,setNotice]=useState(''), [session,setSession]=useState(null);
   const [content,setContent]=useState({events:eventData,hall:champions,leaderboard:[{id:'community-leaderboard',name:'Community leaderboard',score:'—',status:'AWAITING DATA'},{id:'competitive-records',name:'Competitive records',score:'—',status:'AWAITING DATA'},{id:'event-achievements',name:'Event achievements',score:'—',status:'AWAITING DATA'}]});
   const [eventFilter,setEventFilter]=useState('ALL'), [query,setQuery]=useState(''); const [aiOpen,setAiOpen]=useState(false);
 
   const notify=useCallback((msg)=>{setNotice(msg);setTimeout(()=>setNotice(''),2200)},[]);
-  const navigate=useCallback((next,preferred)=>{setMenu(false);setView(next);setScene(randomScene(preferred));setLoading(true);window.history.replaceState({},'',next==='home'?'/':`/#${next}`)},[]);
+  const navigate=useCallback((next,preferred)=>{setMenu(false);setView(next);window.history.replaceState({},'',next==='home'?'/':`/#${next}`)},[]);
 
   useEffect(()=>{
     fetch('/api/site/auth-me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user ? {...data.user, admin:Boolean(data.admin)} : null)).catch(()=>{});
@@ -82,8 +72,6 @@ function App(){
   const eventFilters=['ALL','GAMING','TOURNAMENTS','ANIME','CREATIVE','SOCIAL','COMMUNITY'];
   const visibleEvents=useMemo(()=>content.events.filter(e=>eventFilter==='ALL'||e.category===eventFilter||String(e.sub||'').toUpperCase()===eventFilter),[eventFilter,content.events]);
   const searchEvents=useMemo(()=>content.events.filter(e=>(e.title+' '+e.category+' '+e.sub).toLowerCase().includes(query.toLowerCase())),[query,content.events]);
-
-  if(loading) return <LoadingScreen scene={scene} onDone={()=>setLoading(false)}/>;
 
   return <div className="app"><div className="ambient ambient-cyan"/><div className="ambient ambient-violet"/><div className="grid"/>
     <header className="header">
