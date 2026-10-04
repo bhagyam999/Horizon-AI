@@ -88,7 +88,7 @@ function App(){
   return <div className="app"><div className="ambient ambient-cyan"/><div className="ambient ambient-violet"/><div className="grid"/>
     <header className="header">
       <button className="brand" onClick={()=>navigate('home')}><span className="brand-mark">LH</span><span>LOG <b>HORIZON</b></span></button>
-      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : id==='rpg' ? <button key={id} className={view===id?'active':''} onClick={()=>navigate('rpg','portal')}>{label}</button> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}{session?.admin&&<a className="admin-nav" href="/admin">Admin</a>}</nav>
+      <nav className={menu?'nav open':'nav'}>{nav.map(([label,id])=>id==='anime' ? <a key={id} href="/anime">{label}</a> : id==='rpg' ? <a key={id} className="rpg-nav-link" href="/rpg">{label}</a> : <button key={id} className={view===id?'active':''} onClick={()=>navigate(id,id==='events'?'portal':id==='hall'?'archive':undefined)}>{label}</button>)}{session?.admin&&<a className="admin-nav" href="/admin">Admin</a>}</nav>
       <div className="header-actions">
         <button className="horizon-ai-trigger" onClick={()=>setAiOpen(true)} aria-label="Open Horizon AI"><Bot size={15}/><span>HORIZON AI</span></button>
         {session ? <button className="profile-chip" onClick={()=>notify(`Connected as ${session.username}`)}><span className="profile-dot"/>{session.username}</button> : <button className="discord-login" onClick={()=>window.location.href='/api/site/auth-login'}><MessageCircle size={16}/> Continue with Discord</button>}
@@ -100,7 +100,6 @@ function App(){
       {view==='home' && <Home navigate={navigate} openModal={setModal} openAI={()=>setAiOpen(true)}/>} 
       {view==='community' && <Community navigate={navigate} session={session}/>} 
       {view==='events' && <Events filters={eventFilters} filter={eventFilter} setFilter={setEventFilter} events={visibleEvents} allEvents={content.events} search={query} setSearch={setQuery} searchResults={searchEvents} openModal={setModal} navigate={navigate}/>} 
-      {view==='rpg' && <HorizonRPGPage/>} 
       {view==='hall' && <HallOfFame champions={content.hall} openModal={setModal} navigate={navigate}/>} 
     </main>
 
@@ -234,6 +233,79 @@ function Events({filters,filter,setFilter,events,allEvents,search,setSearch,sear
 </section>}
 
 function Modal({item,close,notify,session}){return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&close()}><div className="modal"><button className="modal-close" onClick={close}><X/></button><span className="eyebrow">{item.category||'LOG HORIZON'}</span><h2>{item.title}</h2><p>{item.description||item.text}</p>{item.date&&<div className="modal-meta"><span><CalendarDays/>{item.date}</span><span><Users/>{item.participants}</span></div>}<h3>Details</h3><ul>{(item.rules||['This feature is ready for the next integration step.']).map((r,i)=><li key={i}>{r}</li>)}</ul><div className="modal-actions">{item.status!=='PAST'&&<button className="btn primary" onClick={()=>notify(session?'Registration flow ready for backend.':'Connect Discord to register for member events.')}>{session?'Register interest':'Continue with Discord'} <ArrowRight/></button>}<button className="btn secondary" onClick={close}>Close</button></div></div></div>}
+
+function HorizonRPGPage(){
+  const [tab,setTab]=useState('WORLD');
+  const [selected,setSelected]=useState('Northreach');
+
+  const locations=[
+    {name:'Northreach',type:'CITY',text:'A frontier city where travelers, merchants and rumors meet.',state:'STABLE'},
+    {name:'Whispering Wilds',type:'WILDS',text:'A forest that changes when people disturb what sleeps beneath it.',state:'UNSTABLE'},
+    {name:'Sunken Ruins',type:'RUINS',text:'An old civilization left behind doors nobody fully understands.',state:'UNKNOWN'},
+    {name:'Ashen Pass',type:'PASS',text:'A dangerous mountain route watched by something enormous.',state:'DANGER'}
+  ];
+
+  return <div className="rpg-shell-v2">
+    <div className="rpg-v2-bg"/><div className="rpg-v2-grid"/>
+    <header className="rpg-v2-header">
+      <a className="rpg-v2-brand" href="/"><span>LH</span><div><b>HORIZON RPG</b><small>A WORLD THAT REMEMBERS</small></div></a>
+      <nav>
+        {['WORLD','CHARACTER','QUESTS','CODEX'].map(x=><button key={x} className={tab===x?'active':''} onClick={()=>setTab(x)}>{x}</button>)}
+      </nav>
+      <a className="rpg-v2-exit" href="/">EXIT RPG</a>
+    </header>
+
+    <main className="rpg-v2-main">
+      <section className="rpg-v2-hero">
+        <div className="rpg-v2-copy">
+          <span className="eyebrow">HORIZON RPG • WEBSITE WORLD</span>
+          <h1>A world that<br/><em>remembers.</em></h1>
+          <p>This is its own Horizon RPG experience — separate from the community website, while still belonging to the same universe. The shell comes first; the living systems will be added one at a time.</p>
+          <div className="rpg-v2-actions"><button onClick={()=>setTab('WORLD')}>ENTER THE WORLD <ArrowRight size={16}/></button><span>PHASE 1 • WORLD SHELL</span></div>
+        </div>
+        <div className="rpg-v2-map">
+          <div className="rpg-v2-moon"/><div className="rpg-v2-mountain m1"/><div className="rpg-v2-mountain m2"/>
+          <div className="rpg-v2-river"/><div className="rpg-v2-road road1"/><div className="rpg-v2-road road2"/>
+          <div className="rpg-v2-town"><b>NORTHREACH</b><small>SAFE HAVEN</small></div>
+          <div className="rpg-v2-player"><span>YOU</span></div>
+          <i className="rpg-v2-location l1"/><i className="rpg-v2-location l2"/><i className="rpg-v2-location l3"/>
+          <div className="rpg-v2-compass">N<br/><b>+</b><br/>S</div>
+          <div className="rpg-v2-map-label a">WHISPERING WILDS</div><div className="rpg-v2-map-label b">ASHEN PASS</div>
+        </div>
+      </section>
+
+      <section className="rpg-v2-section">
+        <div className="rpg-v2-heading"><div><span className="eyebrow">FOUNDATION</span><h2>Build the world<br/><em>before the systems.</em></h2></div><p>The first version is intentionally a shell. Nothing here needs to be final before we add movement, combat, NPC memory, quests and persistent consequences.</p></div>
+        <div className="rpg-v2-cards">
+          <button onClick={()=>setTab('WORLD')}><Compass/><span>01</span><b>WORLD</b><small>Map, locations, regions and a persistent world state.</small></button>
+          <button onClick={()=>setTab('CHARACTER')}><Users/><span>02</span><b>CHARACTER</b><small>Identity, stats, equipment and progression.</small></button>
+          <button onClick={()=>setTab('QUESTS')}><Sparkles/><span>03</span><b>QUESTS</b><small>Choices that can eventually change what happens around you.</small></button>
+          <button onClick={()=>setTab('CODEX')}><Trophy/><span>04</span><b>CODEX</b><small>People, creatures, discoveries and history worth remembering.</small></button>
+        </div>
+      </section>
+
+      <section className="rpg-v2-living">
+        <div><span className="eyebrow">THE LIVING WORLD</span><h2>Small actions should<br/><em>leave footprints.</em></h2><p>Help a merchant today. That merchant remembers. Return later and the conversation, price, quest or rumor can be different. The goal is a world where even small choices have somewhere to go.</p></div>
+        <div className="rpg-v2-chain"><article><span>PLAYER ACTION</span><b>You help a traveler reach Northreach.</b></article><i>↓</i><article><span>MEMORY</span><b>The traveler remembers your name.</b></article><i>↓</i><article><span>CONSEQUENCE</span><b>A future route or opportunity opens.</b></article></div>
+      </section>
+
+      <section className="rpg-v2-section">
+        <div className="rpg-v2-heading compact"><div><span className="eyebrow">WORLD PREVIEW</span><h2>There is already<br/><em>somewhere to go.</em></h2></div></div>
+        <div className="rpg-v2-location-grid">{locations.map(x=><button key={x.name} className={selected===x.name?'selected':''} onClick={()=>setSelected(x.name)}><span>{x.type}</span><b>{x.name}</b><small>{x.text}</small><em>{x.state}</em></button>)}</div>
+        <div className="rpg-v2-selected"><span>SELECTED LOCATION</span><b>{selected}</b><small>The location system is ready for the next layer of world-state logic.</small></div>
+      </section>
+
+      <section className="rpg-v2-roadmap">
+        <span className="eyebrow">ROADMAP</span>
+        <div><b>01</b><span>Playable foundation</span><small>World, movement, collision, save/load and basic interaction.</small></div>
+        <div><b>02</b><span>RPG depth</span><small>Combat, classes, skills, equipment, enemies and dungeons.</small></div>
+        <div><b>03</b><span>Living world</span><small>NPC schedules, memory, relationships, factions and consequences.</small></div>
+        <div><b>04</b><span>Shared world</span><small>Parties, trading, guilds, world events and multiplayer systems.</small></div>
+        <div><b>05</b><span>Endgame</span><small>Raids, seasons, legendary content and world-changing events.</small></div>
+      </section>
+    </main>
+  </div>
+}
 
 function shuffle(list){return [...list].sort(()=>Math.random()-0.5)}
 
