@@ -20,7 +20,7 @@ const scenes = [
 ];
 
 const nav = [
-  ['Home','home'], ['Community','community'], ['Anime','anime'], ['Events','events'], ['Games','games'], ['Horizon RPG','rpg'], ['Hall of Fame','hall']
+  ['Home','home'], ['Community','community'], ['Anime','anime'], ['Events','events'], ['Horizon RPG','rpg'], ['Hall of Fame','hall']
 ];
 
 const eventData = [
@@ -64,8 +64,8 @@ function LoadingScreen({scene,onDone}){
 function App(){
   const [loading,setLoading]=useState(true), [scene,setScene]=useState(()=>randomScene()), [view,setView]=useState('home');
   const [menu,setMenu]=useState(false), [modal,setModal]=useState(null), [notice,setNotice]=useState(''), [session,setSession]=useState(null);
-  const [content,setContent]=useState({events:eventData,games:gameData,hall:champions,leaderboard:[{id:'community-leaderboard',name:'Community leaderboard',score:'—',status:'AWAITING DATA'},{id:'competitive-records',name:'Competitive records',score:'—',status:'AWAITING DATA'},{id:'event-achievements',name:'Event achievements',score:'—',status:'AWAITING DATA'},{id:'game-scores',name:'Game scores',score:'—',status:'AWAITING DATA'}]});
-  const [eventFilter,setEventFilter]=useState('ALL'), [gameFilter,setGameFilter]=useState('ALL'), [query,setQuery]=useState(''); const [aiOpen,setAiOpen]=useState(false);
+  const [content,setContent]=useState({events:eventData,hall:champions,leaderboard:[{id:'community-leaderboard',name:'Community leaderboard',score:'—',status:'AWAITING DATA'},{id:'competitive-records',name:'Competitive records',score:'—',status:'AWAITING DATA'},{id:'event-achievements',name:'Event achievements',score:'—',status:'AWAITING DATA'}]});
+  const [eventFilter,setEventFilter]=useState('ALL'), [query,setQuery]=useState(''); const [aiOpen,setAiOpen]=useState(false);
 
   const notify=useCallback((msg)=>{setNotice(msg);setTimeout(()=>setNotice(''),2200)},[]);
   const navigate=useCallback((next,preferred)=>{setMenu(false);setView(next);setScene(randomScene(preferred));setLoading(true);window.history.replaceState({},'',next==='home'?'/':`/#${next}`)},[]);
@@ -73,7 +73,7 @@ function App(){
   useEffect(()=>{
     fetch('/api/site/auth-me', {credentials:'include'}).then(r=>r.ok?r.json():null).then(data=>setSession(data?.user ? {...data.user, admin:Boolean(data.admin)} : null)).catch(()=>{});
     fetch('/api/site/content', {credentials:'include',cache:'no-store'}).then(r=>r.ok?r.json():null).then(data=>{
-      if(data) setContent({events:Array.isArray(data.events)&&data.events.length?data.events:eventData,games:gameData,hall:Array.isArray(data.hall)&&data.hall.length?data.hall:champions,leaderboard:Array.isArray(data.leaderboard)&&data.leaderboard.length?data.leaderboard:[]});
+      if(data) setContent({events:Array.isArray(data.events)&&data.events.length?data.events:eventData,hall:Array.isArray(data.hall)&&data.hall.length?data.hall:champions,leaderboard:Array.isArray(data.leaderboard)&&data.leaderboard.length?data.leaderboard:[]});
     }).catch(()=>{});
     const params=new URLSearchParams(window.location.search);
     const authResult=params.get('discord');
@@ -81,14 +81,12 @@ function App(){
     else if(authResult==='not-member') notify('Your Discord account is not a member of Log Horizon.');
     else if(authResult==='error') notify('Discord login could not be completed. Check the OAuth settings.');
     if(authResult){ window.history.replaceState({},'',window.location.pathname+window.location.hash); }
-    const h=()=>{const id=window.location.hash.replace('#',''); if(id && ['home','community','events','games','rpg','hall'].includes(id)) setView(id)};
+    const h=()=>{const id=window.location.hash.replace('#',''); if(id && ['home','community','events','rpg','hall'].includes(id)) setView(id)};
     window.addEventListener('hashchange',h);h();return()=>window.removeEventListener('hashchange',h);
   },[notify]);
 
   const eventFilters=['ALL','GAMING','TOURNAMENTS','ANIME','CREATIVE','SOCIAL','COMMUNITY'];
-  const gameFilters=['ALL','COMPETITIVE','CASUAL','ANIME','CARD','QUIZ','CREATIVE'];
   const visibleEvents=useMemo(()=>content.events.filter(e=>eventFilter==='ALL'||e.category===eventFilter||String(e.sub||'').toUpperCase()===eventFilter),[eventFilter,content.events]);
-  const visibleGames=useMemo(()=>content.games.filter(g=>gameFilter==='ALL'||(Array.isArray(g.category)?g.category:[]).includes(gameFilter)),[gameFilter,content.games]);
   const searchEvents=useMemo(()=>content.events.filter(e=>(e.title+' '+e.category+' '+e.sub).toLowerCase().includes(query.toLowerCase())),[query,content.events]);
 
   if(loading) return <LoadingScreen scene={scene} onDone={()=>setLoading(false)}/>;
@@ -108,7 +106,6 @@ function App(){
       {view==='home' && <Home navigate={navigate} openModal={setModal} openAI={()=>setAiOpen(true)}/>} 
       {view==='community' && <Community navigate={navigate} session={session}/>} 
       {view==='events' && <Events filters={eventFilters} filter={eventFilter} setFilter={setEventFilter} events={visibleEvents} allEvents={content.events} search={query} setSearch={setQuery} searchResults={searchEvents} openModal={setModal} navigate={navigate}/>} 
-      {view==='games' && <Games filters={gameFilters} filter={gameFilter} setFilter={setGameFilter} games={visibleGames} leaderboard={content.leaderboard} openModal={setModal}/>} 
       {view==='rpg' && <HorizonRPGPage/>} 
       {view==='hall' && <HallOfFame champions={content.hall} openModal={setModal} navigate={navigate}/>} 
     </main>
@@ -208,7 +205,7 @@ function Home({navigate,openModal,openAI}){return <>
     <Feature icon={<Sparkles/>} tag="ANIME" title="For the anime people" text="A working archive with search, genres, details and a personal watchlist." onClick={()=>{window.location.href='/anime'}}/>
     <Feature icon={<Bot/>} tag="HORIZON AI" title="Meet the guide" text="Horizon AI runs through the Log Horizon server. Ask the same Horizon intelligence that powers the community bot." special onClick={openAI}/>
   </div></section>
-  <section className="section showcase"><div className="portal-large"><div className="portal-ring"/><span>WORLD GATE</span><b>HORIZON</b><i>ANIGAME → MANY WORLDS</i></div><div><span className="eyebrow">03 / ALWAYS MOVING</span><h2>Something is always <em>on the horizon.</em></h2><p>Events give the community reasons to come back. Games give people something to do. The Hall of Fame makes the history worth keeping.</p><div className="quick-links"><button onClick={()=>navigate('events')}><CalendarDays/> Upcoming events <ArrowRight/></button><button onClick={()=>navigate('hall')}><Crown/> Hall of Fame <ArrowRight/></button></div></div></section>
+  <section className="section showcase"><div className="portal-large"><div className="portal-ring"/><span>WORLD GATE</span><b>HORIZON</b><i>ANIGAME → MANY WORLDS</i></div><div><span className="eyebrow">03 / ALWAYS MOVING</span><h2>Something is always <em>on the horizon.</em></h2><p>Events give the community reasons to come back. The Hall of Fame makes the history worth keeping.</p><div className="quick-links"><button onClick={()=>navigate('events')}><CalendarDays/> Upcoming events <ArrowRight/></button><button onClick={()=>navigate('hall')}><Crown/> Hall of Fame <ArrowRight/></button></div></div></section>
   <section className="section cta"><span className="eyebrow">04 / YOUR INVITATION</span><h2>There's more beyond<br/><em>the horizon.</em></h2><p>Come for Anigame. Stay for the community.</p><a className="btn primary" href="https://discord.gg/D5aNgKg7Kx" target="_blank" rel="noreferrer">Join Log Horizon <ArrowRight size={18}/></a></section>
 </>}
 
@@ -228,7 +225,7 @@ function LiveCommunityStats(){
 
 function Community({navigate,session}){return <section className="page-shell"><PageHero eyebrow="COMMUNITY" title={<>One server.<br/><em>Many worlds.</em></>} text="Log Horizon is being built as a place to play, talk, create, compete and discover people with shared interests."/>
   <div className="community-grid"><InfoCard icon={<Users/>} title="Meet people" text="Find conversations and activities beyond a single game."/><InfoCard icon={<Trophy/>} title="Compete" text="Join tournaments and leave a record in the community archive."/><InfoCard icon={<Sparkles/>} title="Create" text="Character contests, creative challenges and community projects."/><InfoCard icon={<ShieldCheck/>} title="Connected" text={session?`Discord connected as ${session.username}.`:'Connect Discord when you are ready for member-only features.'}/></div>
-  <div className="community-banner"><div><span className="eyebrow">THE FOUNDATION</span><h2>Built for growth, not just traffic.</h2><p>The site is structured so future systems—Discord roles, member profiles, event registration, games and Horizon AI—can plug into the same experience.</p></div><button className="btn primary" onClick={()=>navigate('events')}>See what’s happening <ArrowRight/></button></div>
+  <div className="community-banner"><div><span className="eyebrow">THE FOUNDATION</span><h2>Built for growth, not just traffic.</h2><p>The site is structured so future systems—Discord roles, member profiles, event registration and Horizon AI—can plug into the same experience.</p></div><button className="btn primary" onClick={()=>navigate('events')}>See what’s happening <ArrowRight/></button></div>
 </section>}
 
 function Events({filters,filter,setFilter,events,allEvents,search,setSearch,searchResults,openModal,navigate}){return <section className="page-shell"><PageHero eyebrow="EVENTS" title={<>THE HORIZON<br/><em>AWAITS.</em></>} text="Tournaments, community challenges, game nights, creative competitions and more. Find your next event." actions={<><button className="btn primary" onClick={()=>document.getElementById('upcoming')?.scrollIntoView({behavior:'smooth'})}>View upcoming events <ArrowRight/></button><button className="btn secondary" onClick={()=>setFilter('ALL')}>Explore all</button></>}/>
@@ -604,7 +601,7 @@ function AdminPage(){
       <div className="admin-tabs">{tabs.map(([id,label,help])=><button className={section===id?'selected':''} key={id} onClick={()=>setSection(id)}><b>{label}</b><small>{help}</small></button>)}</div>
       <section className="admin-editor">
         <div className="admin-editor-head"><div><span className="eyebrow">{section.toUpperCase()}</span><h2>{items.length} {items.length===1?'item':'items'}</h2></div><div className="admin-actions"><button className="btn secondary" onClick={addItem}><Plus size={16}/> Add {section==='events'?'event':section==='hall'?'winner':'member'}</button><button className="btn primary" disabled={busy} onClick={save}>{busy?'Saving…':'Save changes'} <ArrowRight size={16}/></button></div></div>
-        <div className="admin-instructions"><b>How to use:</b> edit the information in each card, use the dropdowns and buttons, then press <b>Save changes</b>. Games are maintained by Horizon and are not editable here.</div>
+        <div className="admin-instructions"><b>How to use:</b> edit the information in each card, use the dropdowns and buttons, then press <b>Save changes</b>.</div>
         <div className="admin-list">{items.map((item,index)=><AdminEditorItem key={item.id||index} section={section} item={item} index={index} update={updateItem} remove={()=>removeItem(index)}/>)}</div>
         {!items.length&&<div className="admin-empty"><Plus size={24}/><b>No {section} yet</b><span>Press “Add {section==='hall'?'winner':section.slice(0,-1)}” to create one.</span></div>}
       </section>
