@@ -666,7 +666,7 @@ class Horizon(commands.Bot):
             earned = await self.apply_level_rewards(member, after_level) if member else []
             reward_text = ""
             if earned:
-                reward_text = " • Role unlocked: " + ", ".join(role.name for role in earned)
+                reward_text = " • Role unlocked: " + ", ".join(role.mention for role in earned)
             try:
                 await message.channel.send(
                     f"**{message.author.display_name}** reached **Level {after_level}**!"
