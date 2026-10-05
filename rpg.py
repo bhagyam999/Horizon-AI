@@ -9,6 +9,8 @@ import json
 import random
 import time
 import uuid
+import os
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Any
@@ -1762,7 +1764,21 @@ class RPGService:
                 created_at REAL NOT NULL,
                 expires_at REAL NOT NULL
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_google ON web_accounts(google_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_discord ON web_accounts(discord_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_facebook ON web_accounts(facebook_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_phone ON web_accounts(phone);
             CREATE INDEX IF NOT EXISTS idx_web_sessions_account ON web_sessions(account_id,expires_at);
+            CREATE TABLE IF NOT EXISTS web_oauth_states (
+                state TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS web_oauth_states (
+                state TEXT PRIMARY KEY,
+                provider TEXT NOT NULL,
+                created_at REAL NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS rpg_players (
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
                 name TEXT NOT NULL DEFAULT '', race TEXT NOT NULL DEFAULT 'human', class_name TEXT NOT NULL DEFAULT 'warrior',
@@ -2491,6 +2507,63 @@ class RPGService:
     def _web_password(password: str, salt: bytes) -> str:
         return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 210000).hex()
 
+    async def web_oauth_state(self, provider: str):
+        state=secrets.token_urlsafe(32)
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO web_oauth_states(state,provider,created_at) VALUES(?,?,?)",(state,provider,time.time()))
+            await db.execute("DELETE FROM web_oauth_states WHERE created_at<?",(time.time()-600,))
+            await db.commit()
+        return state
+
+    async def web_oauth_consume_state(self, state: str, provider: str):
+        if not state:return False
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT provider,created_at FROM web_oauth_states WHERE state=?",(state,))
+            row=await cur.fetchone()
+            if not row:return False
+            await db.execute("DELETE FROM web_oauth_states WHERE state=?",(state,))
+            await db.commit()
+        return row[0]==provider and time.time()-float(row[1])<600
+
+    async def _web_session(self, account_id: int):
+        token=secrets.token_urlsafe(48); now=time.time()
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("INSERT INTO web_sessions(token_hash,account_id,created_at,expires_at) VALUES(?,?,?,?)",(hashlib.sha256(token.encode()).hexdigest(),account_id,now,now+60*60*24*30))
+            await db.execute("UPDATE web_accounts SET last_login=? WHERE id=?",(now,account_id))
+            await db.commit()
+        return token
+
+    async def web_oauth_login(self, provider: str, provider_id: str, email: str="", display_name: str="", phone: str=""):
+        provider=str(provider).lower().strip()
+        provider_id=str(provider_id).strip()
+        columns={"google":"google_id","discord":"discord_id","facebook":"facebook_id","phone":"phone"}
+        col=columns.get(provider)
+        if not col or not provider_id:
+            return None,"Invalid sign-in provider."
+        email=(email or "").strip().lower()
+        display_name=(display_name or "").strip()[:80]
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute(f"SELECT id,email FROM web_accounts WHERE {col}=?",(provider_id,))
+            row=await cur.fetchone()
+            if row:
+                account_id=int(row["id"])
+                await db.execute("UPDATE web_accounts SET display_name=?,last_login=? WHERE id=?",(display_name,time.time(),account_id))
+            else:
+                account_id=None
+                if email and "@" in email:
+                    cur=await db.execute("SELECT id FROM web_accounts WHERE email=?",(email,))
+                    existing=await cur.fetchone()
+                    if existing: account_id=int(existing[0])
+                if account_id is None:
+                    synthetic=f"{provider}_{hashlib.sha256(provider_id.encode()).hexdigest()[:24]}@horizon.invalid"
+                    salt=secrets.token_bytes(24)
+                    cur=await db.execute("INSERT INTO web_accounts(email,password_hash,password_salt,created_at,last_login,display_name) VALUES(?,?,?,?,?,?)",(synthetic,self._web_password(secrets.token_urlsafe(32),salt),salt.hex(),time.time(),time.time(),display_name))
+                    account_id=cur.lastrowid
+                await db.execute(f"UPDATE web_accounts SET {col}=?,display_name=?,last_login=? WHERE id=?",(provider_id,display_name,time.time(),account_id))
+            await db.commit()
+        return await self._web_session(account_id),None
+
     async def web_register(self, email: str, password: str):
         email=(email or "").strip().lower()
         if len(email)<5 or "@" not in email or len(email)>160:
@@ -2501,7 +2574,7 @@ class RPGService:
         password_hash=self._web_password(password,salt)
         async with aiosqlite.connect(self.path) as db:
             try:
-                cur=await db.execute("INSERT INTO web_accounts(email,password_hash,password_salt,created_at) VALUES(?,?,?,?,?)",(email,password_hash,salt.hex(),time.time()))
+                cur=await db.execute("INSERT INTO web_accounts(email,password_hash,password_salt,created_at,display_name) VALUES(?,?,?,?,?)",(email,password_hash,salt.hex(),time.time(),email.split("@")[0][:80]))
             except Exception:
                 return None, "An account with that email already exists."
             account_id=cur.lastrowid
