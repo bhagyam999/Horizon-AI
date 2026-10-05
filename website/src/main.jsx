@@ -1,70 +1,29 @@
-import React, { useState } from 'react';
-import { createRoot } from 'react-dom/client';
-import './styles.css';
-
-const locations = [
-  {id:'northreach',name:'Northreach',type:'Settlement',desc:'A frontier town built around an old crystal gate.',x:25,y:35},
-  {id:'wilds',name:'Whispering Wilds',type:'Wilderness',desc:'A forest where paths shift after sunset.',x:63,y:24},
-  {id:'ruins',name:'Sunken Ruins',type:'Ancient Site',desc:'Broken towers beneath a flooded valley.',x:70,y:69},
-  {id:'pass',name:'Ashen Pass',type:'Mountain Route',desc:'A dangerous crossing watched by something unseen.',x:33,y:74},
-];
-
-function App(){
-  const [tab,setTab]=useState('world');
-  const [selected,setSelected]=useState(locations[0]);
-  const [events,setEvents]=useState([
-    'You arrived at the Northreach crossroads.',
-    'The world registered your first step into Horizon.',
-    'Mira noticed you and remembered your name.'
-  ]);
-  const act=(text)=>setEvents(e=>[text,...e].slice(0,5));
-  return <div className="app">
-    <header className="topbar">
-      <div className="brand"><div className="mark">H</div><div><b>HORIZON RPG</b><small>A WORLD THAT REMEMBERS</small></div></div>
-      <div className="online"><i/> WORLD ONLINE <span/> DAY 01 <span/> 18:00</div>
-      <button className="player-btn" onClick={()=>setTab('character')}>PLAYER</button>
-    </header>
-    <div className="layout">
-      <aside className="nav">
-        <small>HORIZON</small>
-        {[['world','01','WORLD'],['character','02','CHARACTER'],['quests','03','QUESTS'],['codex','04','CODEX']].map(x=>
-          <button key={x[0]} className={'nav-item '+(tab===x[0]?'active':'')} onClick={()=>setTab(x[0])}><em>{x[1]}</em>{x[2]}</button>
-        )}
-        <div className="build"><small>FOUNDATION BUILD</small><strong>0.1</strong><p>The shell is live. Systems will be added one layer at a time.</p></div>
-      </aside>
-      <main className="main">
-        {tab==='world' && <World selected={selected} setSelected={setSelected} events={events} act={act}/>}
-        {tab==='character' && <Character act={act}/>}
-        {tab==='quests' && <Quests act={act}/>}
-        {tab==='codex' && <Codex/>}
-      </main>
-      <aside className="rail">
-        <div className="card player-card">
-          <small>CURRENT HERO</small><div className="avatar">A</div><h2>Aeris</h2><label>ADVENTURER • LEVEL 1</label>
-          <div className="xp"><span>XP</span><span>120 / 500</span></div><div className="bar"><i/></div>
-          <div className="stats"><b>10<small>VIT</small></b><b>10<small>STR</small></b><b>10<small>AGI</small></b><b>10<small>INT</small></b></div>
-        </div>
-        <div className="card"><small>ACTIVE THREAD</small><h3>The First Footstep</h3><p>Explore Northreach and learn what the frontier remembers.</p><div className="bar"><i style={{width:'25%'}}/></div><footer><span>1 / 4</span><span>MAIN</span></footer></div>
-        <div className="card muted"><small>WORLD CLOCK</small><strong>18:00</strong><p>Weather: clear<br/>Moon: waxing crescent</p></div>
-      </aside>
-    </div>
-  </div>
-}
-
-function World({selected,setSelected,events,act}){
- return <><section className="hero"><div><small>THE FRONTIER • NORTHREACH REGION</small><h1>A world that <i>remembers.</i></h1><p>Every journey starts small. Your choices will eventually change places, people, factions and stories.</p></div><div className="actions"><button className="primary" onClick={()=>act('You set out toward '+selected.name+'.')}>SET OUT</button><button onClick={()=>act('Time advanced. The world continued without you.')}>ADVANCE TIME</button></div></section>
- <section className="panel"><header><div><small>LIVE WORLD MAP</small><h2>Northreach Frontier</h2></div><label>● PERSISTENT STATE</label></header>
- <div className="map"><div className="grid"/><div className="river"/><div className="mountain m1"/><div className="mountain m2"/>
- {locations.map(l=><button key={l.id} className={'loc '+(selected.id===l.id?'selected':'')} style={{left:l.x+'%',top:l.y+'%'}} onClick={()=>{setSelected(l);act('You focused on '+l.name+'.')}}><b/><span>{l.name}</span></button>)}
- <div className="you">YOU</div><div className="north">N</div><div className="scale">10 KM</div></div>
- <div className="detail"><div><small>SELECTED LOCATION</small><h3>{selected.name}</h3><label>{selected.type}</label><p>{selected.desc}</p></div><div className="actions"><button onClick={()=>act('You inspected '+selected.name+'.')}>INSPECT</button><button className="primary" onClick={()=>act('You entered '+selected.name+'.')}>ENTER</button></div></div></section>
- <section className="cards"><Info n="01" tag="NPC MEMORY" title="Mira remembers you." text="You helped carry a crate on your first visit. She may treat you differently next time."/><Info n="02" tag="WORLD STATE" title="Small actions matter." text="A locked gate, a missed meeting or a kind word can become part of the world's history."/><Info n="03" tag="NEXT LAYER" title="Living world systems." text="Schedules, factions, consequences and hidden interactions will be built on this foundation."/></section>
- <section className="panel activity"><header><div><small>WORLD ACTIVITY</small><h2>Recent changes</h2></div><label>LIVE</label></header>{events.map((e,i)=><div className="event" key={i}><time>{i?'Earlier':'Just now'}</time><p>{e}</p></div>)}</section></>
-}
-function Info({n,tag,title,text}){return <article className="info"><small>{n} • {tag}</small><h3>{title}</h3><p>{text}</p></article>}
-function Character({act}){return <Page title="Your character is more than stats." eyebrow="CHARACTER SYSTEM • FOUNDATION" lead="This page will hold progression, equipment, skills, traits and choices that shape how the world reacts to you."><div className="sheet"><div className="big-avatar">A</div><div><small>ADVENTURER</small><h2>Aeris</h2><p>Level 1 • Northreach</p></div></div><div className="systems">{['Attributes','Skills','Equipment','Traits'].map((x,i)=><article key={x}><small>0{i+1}</small><h3>{x}</h3><p>Foundation ready. The real system will be added here.</p></article>)}</div><button className="primary" onClick={()=>act('You reviewed your character sheet.')}>REVIEW CHARACTER</button></Page>}
-function Quests({act}){return <Page title="Not every quest starts with a marker." eyebrow="QUESTS • CONSEQUENCES" lead="Some objectives will emerge from what you do, who remembers you and what changes in the world."><div className="quests">{[['The First Footstep','Explore Northreach and learn the frontier.','1 / 4','MAIN'],['A Familiar Face','Speak with Mira again after helping her.','0 / 1','MEMORY'],['Unknown Road','Discover a route beyond the Ashen Pass.','LOCKED','HIDDEN']].map(q=><button key={q[0]} onClick={()=>act('You inspected the quest: '+q[0]+'.')}><div><small>{q[3]}</small><h3>{q[0]}</h3><p>{q[1]}</p></div><b>{q[2]}</b></button>)}</div></Page>}
-function Codex(){return <Page title="Things the world has learned." eyebrow="CODEX • WORLD MEMORY" lead="The Codex will become the persistent record of people, places, creatures, items, factions and events discovered by the player."><div className="systems codex">{['People','Places','Creatures','Factions','Items','Events'].map((x,i)=><article key={x}><small>0{i+1}</small><h3>{x}</h3><p>0 discoveries</p></article>)}</div></Page>}
-function Page({title,eyebrow,lead,children}){return <section className="page"><small>{eyebrow}</small><h1>{title}</h1><p className="lead">{lead}</p>{children}</section>}
-
+import React,{useEffect,useRef,useState}from'react';import{createRoot}from'react-dom/client';import'./styles.css';
+const W=3600,H=2400;
+const zones=[{id:'north',name:'Northreach',x:500,y:520,r:310},{id:'wild',name:'Whispering Wilds',x:1550,y:480,r:520},{id:'ashen',name:'Ashen Pass',x:2800,y:620,r:420},{id:'ruins',name:'Sunken Ruins',x:2850,y:1740,r:430},{id:'steppe',name:'Golden Steppe',x:1350,y:1760,r:470}];
+const foes=[{name:'Fang Wolf',x:920,y:820,lvl:3,hp:42,max:42},{name:'Moss Warden',x:1840,y:930,lvl:7,hp:88,max:88},{name:'Ash Drake',x:2960,y:840,lvl:11,hp:130,max:130},{name:'Ruin Sentinel',x:2470,y:1640,lvl:12,hp:160,max:160}];
+const npcs=[{name:'Mira',x:510,y:590,text:'The crystal gate reacted when you arrived.'},{name:'Kael',x:620,y:470,text:'Bring me ember ore. I can forge something worthy.'},{name:'Selene',x:1010,y:520,text:'The forest has started moving again. Watch the trees.'}];
+const loot=[{name:'Moonleaf',x:720,y:1040},{name:'Ember Ore',x:2550,y:510},{name:'Ancient Sigil',x:2720,y:1900},{name:'Sunsteel Shard',x:1470,y:2050}];
+const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+function App(){const[c,setC]=useState({x:500,y:640,hp:100,maxHp:100,mp:60,maxMp:60,lvl:1,xp:0,gold:120,atk:12,spd:235});const[k,setK]=useState({});const[paused,setPaused]=useState(false);const[combat,setCombat]=useState(null);const[tab,setTab]=useState('quest');const[log,setLog]=useState(['You woke beside the Northreach gate.','Mira noticed the gate respond to you.']);const[notice,setNotice]=useState('WASD to move • SHIFT to sprint • E to interact • SPACE to attack');const[map,setMap]=useState(false);const ref=useRef(null),kr=useRef({});
+useEffect(()=>{kr.current=k},[k]);useEffect(()=>{const down=e=>{if(['w','a','s','d','shift','arrowup','arrowdown','arrowleft','arrowright',' '].includes(e.key.toLowerCase()))e.preventDefault();setK(x=>({...x,[e.key.toLowerCase()]:1}))},up=e=>setK(x=>({...x,[e.key.toLowerCase()]:0}));addEventListener('keydown',down);addEventListener('keyup',up);return()=>{removeEventListener('keydown',down);removeEventListener('keyup',up)}},[]);
+useEffect(()=>{let last=performance.now(),id;const loop=t=>{const dt=Math.min(.035,(t-last)/1000);last=t;if(!paused&&!combat){let x=0,y=0,q=kr.current;if(q.w||q.arrowup)y--;if(q.s||q.arrowdown)y++;if(q.a||q.arrowleft)x--;if(q.d||q.arrowright)x++;if(x||y){let m=Math.hypot(x,y),sp=c.spd*(q.shift?1.65:1);setC(p=>({...p,x:cl(p.x+x/m*sp*dt,50,W-50),y:cl(p.y+y/m*sp*dt,50,H-50)}))}}id=requestAnimationFrame(loop)};id=requestAnimationFrame(loop);return()=>cancelAnimationFrame(id)},[paused,combat,c.spd]);
+useEffect(()=>{const f=foes.find(x=>d(c,x)<70&&x.hp>0);if(f&&!combat){setCombat({...f});setNotice(f.name+' engaged you.')}} ,[c.x,c.y]);
+useEffect(()=>{const n=npcs.find(x=>d(c,x)<80),l=loot.find(x=>d(c,x)<65);if(!combat)setNotice(n?n.name+' • press E to talk':l?l.name+' • press E to collect':'Explore the frontier freely.')},[c.x,c.y,combat]);
+useEffect(()=>{const h=e=>{if(e.key.toLowerCase()==='e'&&!combat){const n=npcs.find(x=>d(c,x)<80),l=loot.find(x=>d(c,x)<65);if(n){setLog(x=>(n.name+': “'+n.text+'”')? [n.name+': “'+n.text+'”',...x].slice(0,8):x);setC(p=>({...p,xp:p.xp+25}));return}if(l){setLog(x=>(['Collected '+l.name+'.',...x]).slice(0,8));setNotice(l.name+' added to your bag.');}}};addEventListener('keydown',h);return()=>removeEventListener('keydown',h)},[c,combat]);
+useEffect(()=>{const h=e=>{if(e.key===' '&&combat){setCombat(x=>({...x,hp:Math.max(0,x.hp-c.atk)}));setC(p=>({...p,mp:Math.max(0,p.mp-2),hp:Math.max(0,p.hp-(4+combat.lvl))}))}if(e.key.toLowerCase()==='1'&&combat&&c.mp>=15){setCombat(x=>({...x,hp:Math.max(0,x.hp-(c.atk+22))}));setC(p=>({...p,mp:p.mp-15}))}if(e.key==='Escape'&&combat){setCombat(null);setC(p=>({...p,x:p.x-90}));setNotice('You escaped the encounter.')}};addEventListener('keydown',h);return()=>removeEventListener('keydown',h)},[combat,c]);
+useEffect(()=>{if(combat&&combat.hp<=0){const r=30+combat.lvl*10;setC(p=>{const xp=p.xp+r,next=p.lvl*100;return{...p,xp:xp>=next?xp-next:xp,lvl:xp>=next?p.lvl+1:p.lvl,gold:p.gold+r,hp:Math.min(p.maxHp,p.hp+15)}});setLog(x=>(['Defeated '+combat.name+'. +'+r+' gold.',...x]).slice(0,8));setCombat(null);setNotice('Victory. The frontier is still waiting.')}},[combat]);
+useEffect(()=>{const cv=ref.current,ctx=cv.getContext('2d');let id;const draw=()=>{const w=cv.clientWidth,h=cv.clientHeight;ctx.clearRect(0,0,w,h);ctx.fillStyle='#102b22';ctx.fillRect(0,0,w,h);const sx=w/W,sy=h/H;
+ctx.fillStyle='#193c2d';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#2d708455';ctx.lineWidth=22;ctx.beginPath();ctx.moveTo(w*.32,0);ctx.bezierCurveTo(w*.28,h*.25,w*.46,h*.55,w*.28,h);ctx.stroke();
+zones.forEach((z,i)=>{ctx.beginPath();ctx.arc(z.x*sx,z.y*sy,z.r*sx,0,7);ctx.fillStyle=['#2b617044','#397b4b55','#594d7755','#295b7866','#846a3855'][i];ctx.fill();ctx.fillStyle='#e8f1f8';ctx.font='bold 14px system-ui';ctx.fillText(z.name,z.x*sx+14,z.y*sy-10)});
+for(let i=0;i<110;i++){let x=(i*137%W)*sx,y=(i*83%H)*sy;if(x>w*.25&&x<w*.55&&y<h*.55){ctx.fillStyle='#2f704d';ctx.beginPath();ctx.arc(x,y,4+(i%5),0,7);ctx.fill()}}
+npcs.forEach(n=>{ctx.fillStyle='#ffcb7b';ctx.beginPath();ctx.arc(n.x*sx,n.y*sy,7,0,7);ctx.fill();ctx.fillStyle='#fff';ctx.font='10px system-ui';ctx.fillText(n.name,n.x*sx+10,n.y*sy+3)});
+loot.forEach(l=>{ctx.fillStyle='#ffd36b';ctx.beginPath();ctx.arc(l.x*sx,l.y*sy,6,0,7);ctx.fill()});
+foes.forEach(f=>{if(f.hp<=0)return;ctx.fillStyle='#df6675';ctx.beginPath();ctx.arc(f.x*sx,f.y*sy,9,0,7);ctx.fill()});
+ctx.shadowBlur=22;ctx.shadowColor='#79e6ff';ctx.fillStyle='#effcff';ctx.beginPath();ctx.arc(c.x*sx,c.y*sy,9,0,7);ctx.fill();ctx.shadowBlur=0;ctx.strokeStyle='#79e6ff';ctx.lineWidth=2;ctx.beginPath();ctx.arc(c.x*sx,c.y*sy,17,0,7);ctx.stroke();id=requestAnimationFrame(draw)};id=requestAnimationFrame(draw);return()=>cancelAnimationFrame(id)},[c,combat]);
+return <div className="game"><canvas ref={ref}/><div className="top"><b>HORIZON <span>FRONTIER</span></b><div>● WORLD ONLINE　 DAY 01　18:00</div><aside><button onClick={()=>setPaused(!paused)}>{paused?'RESUME':'PAUSE'}</button><button onClick={()=>setMap(1)}>WORLD MAP</button></aside></div>
+<div className="hud left"><div className="avatar">A</div><h3>Aeris</h3><small>ADVENTURER • LEVEL {c.lvl}</small><label>HP {c.hp}/{c.maxHp}</label><i><em style={{width:c.hp/c.maxHp*100+'%'}}/></i><label>MP {c.mp}/{c.maxMp}</label><i><em className="mp" style={{width:c.mp/c.maxMp*100+'%'}}/></i><div className="stats"><span>ATK <b>{c.atk}</b></span><span>SPD <b>{c.spd}</b></span><span>G <b>{c.gold}</b></span></div></div>
+<div className="hud right"><nav><button className={tab==='quest'?'on':''} onClick={()=>setTab('quest')}>QUEST</button><button className={tab==='bag'?'on':''} onClick={()=>setTab('bag')}>BAG</button><button className={tab==='log'?'on':''} onClick={()=>setTab('log')}>LOG</button></nav>{tab==='quest'&&<section><small>MAIN QUEST</small><h2>The First Footstep</h2><p>Explore Northreach, meet the frontier and uncover what woke the gate.</p><div className="progress"><em style={{width:Math.min(100,c.xp/100*100)+'%'}}/></div></section>}{tab==='bag'&&<section>{['Rustbound Blade ×1','Small Potion ×3','Moonleaf ×1','Ember Ore ×1'].map(x=><p className="item" key={x}>{x}</p>)}</section>}{tab==='log'&&<section>{log.map((x,i)=><p className="entry" key={i}>{x}</p>)}</section>} </div>
+<div className="notice">{notice}</div>{combat&&<div className="combat"><small>ENCOUNTER • LEVEL {combat.lvl}</small><h2>{combat.name}</h2><div className="enemy"><em style={{width:combat.hp/combat.max*100+'%'}}/></div><p>SPACE attack　1 skill　ESC flee</p></div>}
+{paused&&<div className="pause">PAUSED</div>}{map&&<div className="modal" onClick={()=>setMap(false)}><div className="mapbox" onClick={e=>e.stopPropagation()}><header><h2>The Horizon Frontier</h2><button onClick={()=>setMap(false)}>CLOSE</button></header><div className="worldmap">{zones.map(z=><span key={z.id} style={{left:z.x/W*100+'%',top:z.y/H*100+'%'}}>{z.name}</span>)}<b style={{left:c.x/W*100+'%',top:c.y/H*100+'%'}}>YOU</b></div></div></div>}</div>}
 createRoot(document.getElementById('root')).render(<App/>);
