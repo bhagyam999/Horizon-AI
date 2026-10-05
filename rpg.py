@@ -1769,10 +1769,6 @@ class RPGService:
                 created_at REAL NOT NULL,
                 expires_at REAL NOT NULL
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_google ON web_accounts(google_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_discord ON web_accounts(discord_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_facebook ON web_accounts(facebook_id);
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_web_phone ON web_accounts(phone);
             CREATE INDEX IF NOT EXISTS idx_web_sessions_account ON web_sessions(account_id,expires_at);
             CREATE TABLE IF NOT EXISTS web_oauth_states (
                 state TEXT PRIMARY KEY,
