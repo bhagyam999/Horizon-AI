@@ -4,6 +4,7 @@ import hashlib
 import random
 import hmac
 import os
+import urllib.parse
 from pathlib import Path
 
 import aiohttp
@@ -34,6 +35,11 @@ class Dashboard:
             web.post("/api/game/auth/register", self.game_register),
             web.post("/api/game/auth/login", self.game_login),
             web.post("/api/game/auth/logout", self.game_logout),
+            web.get("/api/game/auth/providers", self.game_auth_providers),
+            web.get("/api/game/auth/{provider}/start", self.game_oauth_start),
+            web.get("/api/game/auth/{provider}/callback", self.game_oauth_callback),
+            web.post("/api/game/auth/phone/start", self.game_phone_start),
+            web.post("/api/game/auth/phone/verify", self.game_phone_verify),
             web.get("/api/game/me", self.game_me),
             web.get("/api/game/world", self.game_world),
             web.get("/api/game/state", self.game_state),
@@ -642,6 +648,132 @@ class Dashboard:
         account=await self.bot.rpg.web_account(self._game_token(request))
         if not account: raise web.HTTPUnauthorized(text="Please log in.")
         return account
+
+    def _game_public_url(self, request):
+        return os.getenv("HORIZON_PUBLIC_URL","").strip().rstrip("/") or f"{request.scheme}://{request.host}"
+
+    def _oauth_config(self, provider):
+        p=str(provider).lower()
+        return {
+            "google":{"client_id":os.getenv("HORIZON_GOOGLE_CLIENT_ID","").strip(),"client_secret":os.getenv("HORIZON_GOOGLE_CLIENT_SECRET","").strip()},
+            "discord":{"client_id":os.getenv("HORIZON_DISCORD_CLIENT_ID","").strip(),"client_secret":os.getenv("HORIZON_DISCORD_CLIENT_SECRET","").strip()},
+            "facebook":{"client_id":os.getenv("HORIZON_FACEBOOK_CLIENT_ID","").strip(),"client_secret":os.getenv("HORIZON_FACEBOOK_CLIENT_SECRET","").strip()},
+        }.get(p,{})
+
+    async def game_auth_providers(self, request):
+        return web.json_response({
+            "email":True,
+            "google":bool(self._oauth_config("google").get("client_id") and self._oauth_config("google").get("client_secret")),
+            "discord":bool(self._oauth_config("discord").get("client_id") and self._oauth_config("discord").get("client_secret")),
+            "facebook":bool(self._oauth_config("facebook").get("client_id") and self._oauth_config("facebook").get("client_secret")),
+            "phone":bool(os.getenv("TWILIO_ACCOUNT_SID") and os.getenv("TWILIO_AUTH_TOKEN") and os.getenv("TWILIO_VERIFY_SERVICE_SID")),
+        })
+
+    async def _game_oauth_redirect(self, request, provider, code):
+        cfg=self._oauth_config(provider)
+        if not cfg.get("client_id") or not cfg.get("client_secret"):
+            raise web.HTTPServiceUnavailable(text=f"{provider.title()} login is not configured yet.")
+        redirect=f"{self._game_public_url(request)}/api/game/auth/{provider}/callback"
+        data={"client_id":cfg["client_id"],"client_secret":cfg["client_secret"],"code":code,"grant_type":"authorization_code","redirect_uri":redirect}
+        token_url={"google":"https://oauth2.googleapis.com/token","discord":"https://discord.com/api/oauth2/token","facebook":"https://graph.facebook.com/oauth/access_token"}[provider]
+        async with aiohttp.ClientSession() as session:
+            async with session.post(token_url,data=data) as resp:
+                token_data=await resp.json(content_type=None)
+                if resp.status>=400 or not token_data.get("access_token"):
+                    raise web.HTTPBadRequest(text=f"{provider.title()} authorization failed.")
+            access=token_data["access_token"]
+            if provider=="google":
+                user_url="https://openidconnect.googleapis.com/v1/userinfo"
+                async with session.get(user_url,headers={"Authorization":f"Bearer {access}"}) as resp:
+                    user=await resp.json(content_type=None)
+                provider_id=str(user.get("sub","")); email=user.get("email",""); name=user.get("name","")
+            elif provider=="discord":
+                user_url="https://discord.com/api/v10/users/@me"
+                async with session.get(user_url,headers={"Authorization":f"Bearer {access}"}) as resp:
+                    user=await resp.json(content_type=None)
+                provider_id=str(user.get("id","")); email=user.get("email",""); name=user.get("global_name") or user.get("username") or ""
+            else:
+                version=os.getenv("HORIZON_FACEBOOK_GRAPH_VERSION","v24.0").strip()
+                user_url=f"https://graph.facebook.com/{version}/me?fields=id,name,email&access_token={urllib.parse.quote(access)}"
+                async with session.get(user_url) as resp:
+                    user=await resp.json(content_type=None)
+                provider_id=str(user.get("id","")); email=user.get("email",""); name=user.get("name","")
+        if not provider_id:
+            raise web.HTTPBadRequest(text=f"{provider.title()} did not return a user identity.")
+        return await self.bot.rpg.web_oauth_login(provider,provider_id,email,name)
+
+    async def game_oauth_start(self, request):
+        provider=request.match_info["provider"].lower()
+        cfg=self._oauth_config(provider)
+        if not cfg.get("client_id") or not cfg.get("client_secret"):
+            raise web.HTTPServiceUnavailable(text=f"{provider.title()} login is not configured yet.")
+        state=await self.bot.rpg.web_oauth_state(provider)
+        redirect=f"{self._game_public_url(request)}/api/game/auth/{provider}/callback"
+        if provider=="google":
+            base="https://accounts.google.com/o/oauth2/v2/auth"; scope="openid email profile"
+        elif provider=="discord":
+            base="https://discord.com/oauth2/authorize"; scope="identify email"
+        elif provider=="facebook":
+            version=os.getenv("HORIZON_FACEBOOK_GRAPH_VERSION","v24.0").strip(); base=f"https://www.facebook.com/{version}/dialog/oauth"; scope="email,public_profile"
+        else:
+            raise web.HTTPNotFound(text="Unknown login provider.")
+        params={"client_id":cfg["client_id"],"redirect_uri":redirect,"response_type":"code","scope":scope,"state":state}
+        raise web.HTTPFound(base+"?"+urllib.parse.urlencode(params))
+
+    async def game_oauth_callback(self, request):
+        provider=request.match_info["provider"].lower()
+        state=request.query.get("state",""); code=request.query.get("code","")
+        if not await self.bot.rpg.web_oauth_consume_state(state,provider):
+            raise web.HTTPBadRequest(text="Invalid or expired sign-in request. Please try again.")
+        if not code:
+            raise web.HTTPBadRequest(text="Sign-in was cancelled.")
+        try:
+            token,error=await self._game_oauth_redirect(request,provider,code)
+            if error: raise web.HTTPBadRequest(text=error)
+            response=web.HTTPFound("/")
+            response.set_cookie("horizon_session",token,httponly=True,secure=True,samesite="Lax",max_age=60*60*24*30,path="/")
+            return response
+        except web.HTTPException:
+            raise
+        except Exception:
+            log.exception("OAuth callback failed for %s",provider)
+            raise web.HTTPBadRequest(text="Could not complete that sign-in. Please try again.")
+
+    async def game_phone_start(self, request):
+        if not all(os.getenv(k,"").strip() for k in ("TWILIO_ACCOUNT_SID","TWILIO_AUTH_TOKEN","TWILIO_VERIFY_SERVICE_SID")):
+            raise web.HTTPServiceUnavailable(text="Phone login is not configured yet.")
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        phone=str(data.get("phone","")).strip()
+        if not phone.startswith("+") or len(phone)<8 or len(phone)>18:
+            raise web.HTTPBadRequest(text="Use your phone number in international format, e.g. +919876543210.")
+        sid=os.getenv("TWILIO_ACCOUNT_SID").strip(); token=os.getenv("TWILIO_AUTH_TOKEN").strip(); service=os.getenv("TWILIO_VERIFY_SERVICE_SID").strip()
+        url=f"https://verify.twilio.com/v2/Services/{service}/Verifications"
+        auth=aiohttp.BasicAuth(sid,token)
+        async with aiohttp.ClientSession(auth=auth) as session:
+            async with session.post(url,data={"To":phone,"Channel":"sms"}) as resp:
+                if resp.status>=400: raise web.HTTPBadRequest(text="We couldn't send the verification code.")
+        return web.json_response({"ok":True,"message":"Verification code sent."})
+
+    async def game_phone_verify(self, request):
+        if not all(os.getenv(k,"").strip() for k in ("TWILIO_ACCOUNT_SID","TWILIO_AUTH_TOKEN","TWILIO_VERIFY_SERVICE_SID")):
+            raise web.HTTPServiceUnavailable(text="Phone login is not configured yet.")
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        phone=str(data.get("phone","")).strip(); code=str(data.get("code","")).strip()
+        if not phone.startswith("+") or len(code)!=6 or not code.isdigit():
+            raise web.HTTPBadRequest(text="Enter the phone number and 6-digit code.")
+        sid=os.getenv("TWILIO_ACCOUNT_SID").strip(); token=os.getenv("TWILIO_AUTH_TOKEN").strip(); service=os.getenv("TWILIO_VERIFY_SERVICE_SID").strip()
+        url=f"https://verify.twilio.com/v2/Services/{service}/VerificationCheck"
+        async with aiohttp.ClientSession(auth=aiohttp.BasicAuth(sid,token)) as session:
+            async with session.post(url,data={"To":phone,"Code":code}) as resp:
+                result=await resp.json(content_type=None)
+                if resp.status>=400 or result.get("status")!="approved": raise web.HTTPUnauthorized(text="Invalid or expired verification code.")
+        session_token,error=await self.bot.rpg.web_oauth_login("phone",phone,"",phone)
+        if error: raise web.HTTPBadRequest(text=error)
+        response=web.json_response({"token":session_token})
+        response.set_cookie("horizon_session",session_token,httponly=True,secure=True,samesite="Lax",max_age=60*60*24*30,path="/")
+        return response
 
     async def game_register(self, request):
         try: data=await request.json()
