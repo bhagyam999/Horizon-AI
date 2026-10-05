@@ -1,5 +1,5 @@
-# Log Horizon — combined Railway deployment
-# Stage 1: build the React/Vite website.
+# Horizon — combined Railway deployment
+# Stage 1: build the Horizon RPG web client.
 FROM node:22-bookworm-slim AS website-build
 WORKDIR /site
 
@@ -9,7 +9,7 @@ RUN npm install --no-audit --no-fund
 COPY website/ ./
 RUN npm run build
 
-# Stage 2: run Horizon AI + the aiohttp website/dashboard together.
+# Stage 2: run Horizon AI + the aiohttp service together.
 FROM python:3.12-slim
 WORKDIR /app
 
