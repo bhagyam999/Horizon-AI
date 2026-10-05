@@ -63,3 +63,14 @@
   .panel{z-index:14}
   .notice{z-index:16}
 }
+
+/* Mobile menu controls */
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.panel-head h2{margin:0!important}
+.panel-close{flex:0 0 auto;width:34px;height:34px;border:1px solid #41675e;background:#10231e;color:#d9ece7;font-size:22px;line-height:1;border-radius:4px}
+.panel-close:active{transform:scale(.94)}
+@media(max-width:800px){
+  .panel.mobile-open{pointer-events:auto}
+  .panel-close{display:grid;place-items:center}
+  .touch-zone{will-change:transform}
+}
