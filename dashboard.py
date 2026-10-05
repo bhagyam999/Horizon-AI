@@ -1,13 +1,7 @@
-import base64
-import hashlib
-import hmac
 import json
 import logging
 import os
-import secrets
-import time
 from pathlib import Path
-from urllib.parse import urlencode
 
 import aiohttp
 import discord
@@ -17,7 +11,7 @@ log = logging.getLogger("horizon.dashboard")
 
 
 class Dashboard:
-    """Railway web service: health/API + the complete Log Horizon website."""
+    """Railway web/API service for Horizon and the Horizon RPG website."""
     def __init__(self, bot):
         self.bot = bot
         self.runner = None
@@ -30,27 +24,11 @@ class Dashboard:
         app = web.Application(client_max_size=5 * 1024 * 1024)
         app.add_routes([
             web.get("/", self.website),
-            web.get("/anime", self.website),
-            web.get("/admin", self.website),
             web.get("/rpg", self.website),
             web.get("/health", self.health),
             web.get("/api/overview", self.api_overview),
             web.get("/api/member", self.api_member),
             web.post("/api/ai", self.api_ai),
-            web.get("/api/site/auth-login", self.site_auth_login),
-            web.get("/api/site/auth-callback", self.site_auth_callback),
-            web.get("/api/site/auth-callback/", self.site_auth_callback),
-            web.get("/api/site/auth/callback", self.site_auth_callback),
-            # Compatibility with the old Netlify callback path, so a stale Discord
-            # OAuth redirect does not dead-end in a 404 after moving to Railway.
-            web.get("/.netlify/functions/auth-callback", self.site_auth_callback),
-            web.get("/.netlify/functions/auth-callback/", self.site_auth_callback),
-            web.get("/auth/callback", self.site_auth_callback),
-            web.get("/api/site/auth-me", self.site_auth_me),
-            web.get("/api/site/auth-logout", self.site_auth_logout),
-            web.get("/api/site/content", self.site_content),
-            web.get("/api/site/admin/content", self.site_admin_content),
-            web.put("/api/site/admin/content/{section}", self.site_admin_content_update),
             web.get("/api/dashboard/guilds", self.dashboard_guilds),
             web.get("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings),
             web.patch("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings_update),
@@ -64,8 +42,6 @@ class Dashboard:
             web.get("/api/dashboard/guild/{guild_id}/reaction-roles", self.dashboard_reaction_roles),
             web.post("/api/dashboard/guild/{guild_id}/reaction-roles", self.dashboard_reaction_role_add),
             web.delete("/api/dashboard/guild/{guild_id}/reaction-roles/{message_id}/{emoji}", self.dashboard_reaction_role_remove),
-            web.route("*", "/api/site/horizon-ai", self.site_horizon_ai),
-            web.get("/api/site/horizon-server", self.site_horizon_server),
             web.get("/api/rpg/art", self.rpg_art),
             web.get("/assets/{path:.*}", self.asset),
         ])
@@ -95,91 +71,6 @@ class Dashboard:
         if not expected:
             return False
         return hmac.compare_digest(request.headers.get("X-Horizon-API-Key", ""), expected)
-
-    def _base_url(self, request):
-        configured = os.getenv("SITE_URL", "").strip().rstrip("/")
-        if configured:
-            return configured
-        proto = request.headers.get("X-Forwarded-Proto", request.url.scheme)
-        host = request.headers.get("X-Forwarded-Host", request.host)
-        return f"{proto}://{host}"
-
-    def _redirect_uri(self, request):
-        configured = os.getenv("DISCORD_REDIRECT_URI", "").strip()
-        return configured or f"{self._base_url(request)}/api/site/auth-callback"
-
-    def _secret(self):
-        return os.getenv("SESSION_SECRET", "").strip()
-
-    def _sign(self, value):
-        return hmac.new(self._secret().encode(), value.encode(), hashlib.sha256).digest()
-
-    def _make_token(self, payload):
-        body = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).decode().rstrip("=")
-        sig = base64.urlsafe_b64encode(self._sign(body)).decode().rstrip("=")
-        return f"{body}.{sig}"
-
-    def _verify_token(self, token):
-        if not token or not self._secret():
-            return None
-        try:
-            body, signature = token.split(".", 1)
-            expected = base64.urlsafe_b64encode(self._sign(body)).decode().rstrip("=")
-            if not hmac.compare_digest(signature, expected):
-                return None
-            padded = body + "=" * (-len(body) % 4)
-            return json.loads(base64.urlsafe_b64decode(padded).decode())
-        except Exception:
-            return None
-
-    def _cookies(self, request):
-        return {part.split("=", 1)[0].strip(): part.split("=", 1)[1].strip() for part in request.headers.get("Cookie", "").split("; ") if "=" in part}
-
-    def _set_cookie(self, response, name, value, max_age, http_only=True):
-        response.set_cookie(name, value, max_age=max_age, path="/", secure=True, httponly=http_only, samesite="Lax")
-
-    def _session(self, request):
-        return self._verify_token(self._cookies(request).get("lh_session", ""))
-
-    async def _site_admin(self, request):
-        session = self._session(request)
-        if not session or not str(session.get("id", "")).isdigit():
-            raise web.HTTPUnauthorized(text="Discord login required")
-        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
-        if not guild_id.isdigit():
-            raise web.HTTPServiceUnavailable(text="Horizon guild is not configured")
-        guild = self.bot.get_guild(int(guild_id))
-        if guild is None:
-            raise web.HTTPServiceUnavailable(text="Horizon community is unavailable")
-        user_id = int(session["id"])
-        member = guild.get_member(user_id)
-        if member is None:
-            try:
-                member = await guild.fetch_member(user_id)
-            except Exception:
-                member = None
-        if member is None:
-            raise web.HTTPForbidden(text="You are not a member of Log Horizon")
-        if not member.guild_permissions.administrator and user_id != guild.owner_id:
-            raise web.HTTPForbidden(text="Administrator permission required")
-        return guild, member
-
-    async def _site_admin_status(self, request):
-        try:
-            await self._site_admin(request)
-            return True
-        except web.HTTPException:
-            return False
-
-    async def _discord(self, path, **kwargs):
-        timeout = aiohttp.ClientTimeout(total=15)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.request("GET", f"https://discord.com/api/v10{path}", **kwargs) as response:
-                data = await response.json(content_type=None)
-                if response.status >= 400:
-                    raise RuntimeError(f"Discord API {response.status}")
-                return data
-
 
     async def _dashboard_member(self, request):
         if not self._authorized(request):
@@ -432,7 +323,7 @@ class Dashboard:
                     "Expires": "0",
                 },
             )
-        # The source is kept in the ZIP; Railway's build phase creates dist.
+        # The website source is built into dist during deployment.
         return web.Response(status=503, text="Log Horizon website is still building. Please refresh shortly.", content_type="text/plain")
 
     async def asset(self, request):
@@ -731,11 +622,7 @@ class Dashboard:
             "provider": self.bot.ai.provider_name,
             "model": self.bot.ai.model,
             "ai_configured": self.bot.ai.enabled,
-            "website": self.dist_dir.exists(),
-            "discord_oauth_configured": bool(os.getenv("DISCORD_CLIENT_ID", "").strip() and os.getenv("DISCORD_CLIENT_SECRET", "").strip()),
-            "session_configured": bool(self._secret()),
-            "redirect_uri_configured": bool(os.getenv("DISCORD_REDIRECT_URI", "").strip()),
-            "site_url_configured": bool(os.getenv("SITE_URL", "").strip()),
+            "rpg_website": self.dist_dir.exists(),
         })
 
     async def api_overview(self, request):
@@ -828,197 +715,6 @@ class Dashboard:
             token=self._make_token({"id":response_cookie,"createdAt":int(time.time())})
             self._set_cookie(response,"lh_visitor",token,60*60*24*365,http_only=True)
         return response
-
-    async def site_horizon_ai(self, request):
-        if request.method == "GET":
-            try:
-                online, detail = await self.bot.ai.status()
-                return web.json_response({
-                    "online": bool(online),
-                    "serviceOnline": True,
-                    "aiConfigured": bool(self.bot.ai.enabled),
-                    "model": self.bot.ai.model,
-                    "provider": self.bot.ai.provider_name,
-                    "detail": detail,
-                })
-            except Exception as exc:
-                log.exception("Website Horizon AI status check failed")
-                return web.json_response({
-                    "online": False,
-                    "serviceOnline": True,
-                    "aiConfigured": bool(self.bot.ai.enabled),
-                    "model": self.bot.ai.model,
-                    "provider": self.bot.ai.provider_name,
-                    "error": "Horizon AI status check failed.",
-                }, status=503)
-        if request.method != "POST":
-            return web.json_response({"error":"Method not allowed."}, status=405)
-        try:
-            body=await request.json()
-        except Exception:
-            return web.json_response({"error":"Invalid JSON body"}, status=400)
-        message=body.get("message","") if isinstance(body,dict) else ""
-        if not isinstance(message,str) or not message.strip():
-            return web.json_response({"error":"Please enter a message."},status=400)
-        if len(message)>4000:
-            return web.json_response({"error":"Message is too long."},status=400)
-        guild_id=os.getenv("DISCORD_GUILD_ID","").strip()
-        if not guild_id.isdigit(): return web.json_response({"error":"Horizon guild is not configured."},status=503)
-        return await self._ai_response(request,int(guild_id),message.strip())
-
-    async def site_horizon_server(self, request):
-        guild_id=os.getenv("DISCORD_GUILD_ID","").strip()
-        if not guild_id.isdigit(): return web.json_response({"error":"Horizon guild is not configured."},status=503)
-        guild=self.bot.get_guild(int(guild_id))
-        if not guild: return web.json_response({"error":"Horizon community data is temporarily unavailable."},status=503)
-        rows=await self.bot.db.leaderboard(int(guild_id),10000)
-        events=await self.bot.db.events(int(guild_id))
-        return web.json_response({"online":True,"guild_name":guild.name,"member_count":guild.member_count,"tracked_players":len(rows),"event_count":len(events),"latency_ms":round(self.bot.latency*1000),"ai_online":bool(self.bot.ai.enabled),"ai_model":self.bot.ai.model})
-
-    async def site_auth_login(self, request):
-        if not self._secret(): return web.Response(status=503,text="SESSION_SECRET is not configured.")
-        client_id=os.getenv("DISCORD_CLIENT_ID","").strip()
-        if not client_id: return web.Response(status=503,text="DISCORD_CLIENT_ID is not configured.")
-        # Keep OAuth state self-contained instead of relying on a temporary
-        # browser cookie. Mobile/in-app browsers can drop that cookie while
-        # returning from Discord, which otherwise causes a false OAuth error.
-        state=self._make_token({
-            "nonce":secrets.token_urlsafe(24),
-            "exp":int(time.time())+600,
-        })
-        params=urlencode({"client_id":client_id,"response_type":"code","redirect_uri":self._redirect_uri(request),"scope":"identify guilds","state":state})
-        response=web.HTTPFound(f"https://discord.com/oauth2/authorize?{params}")
-        return response
-
-    async def site_auth_callback(self, request):
-        site=self._base_url(request)
-        try:
-            q=request.rel_url.query
-            code,state=q.get("code"),q.get("state")
-            saved=self._verify_token(state or "")
-            if not code or not state or not saved or int(saved.get("exp",0) or 0) < int(time.time()):
-                return web.HTTPFound(f"{site}/?discord=error")
-            data={"client_id":os.getenv("DISCORD_CLIENT_ID",""),"client_secret":os.getenv("DISCORD_CLIENT_SECRET",""),"grant_type":"authorization_code","code":code,"redirect_uri":self._redirect_uri(request)}
-            timeout=aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post("https://discord.com/api/v10/oauth2/token",data=data) as token_response:
-                    token=await token_response.json(content_type=None)
-                    if token_response.status>=400:
-                        # Keep the browser message generic, but record Discord's
-                        # non-secret error details so OAuth misconfiguration can
-                        # be diagnosed from Railway without exposing credentials.
-                        error_code = token.get("error") if isinstance(token, dict) else None
-                        error_description = token.get("error_description") if isinstance(token, dict) else None
-                        log.error(
-                            "Discord OAuth token exchange rejected: status=%s error=%s description=%s redirect_uri=%s client_id_present=%s client_secret_present=%s",
-                            token_response.status,
-                            error_code,
-                            error_description,
-                            self._redirect_uri(request),
-                            bool(os.getenv("DISCORD_CLIENT_ID", "").strip()),
-                            bool(os.getenv("DISCORD_CLIENT_SECRET", "").strip()),
-                        )
-                        raise RuntimeError("Discord OAuth token exchange failed")
-                headers={"Authorization":f"Bearer {token['access_token']}"}
-                async with session.get("https://discord.com/api/v10/users/@me",headers=headers) as user_response:
-                    user=await user_response.json(content_type=None)
-                    if user_response.status>=400: raise RuntimeError("Discord user lookup failed")
-                async with session.get("https://discord.com/api/v10/users/@me/guilds",headers=headers) as guild_response:
-                    guilds=await guild_response.json(content_type=None)
-                    if guild_response.status>=400: raise RuntimeError("Discord guild lookup failed")
-            guild_id=os.getenv("DISCORD_GUILD_ID","").strip()
-            if not any(str(g.get("id"))==guild_id for g in guilds if isinstance(g,dict)):
-                response=web.HTTPFound(f"{site}/?discord=not-member")
-            else:
-                payload={"id":str(user["id"]),"username":user.get("username"),"global_name":user.get("global_name") or user.get("username"),"avatar":user.get("avatar"),"loggedInAt":int(time.time()*1000)}
-                response=web.HTTPFound(f"{site}/?discord=success")
-                self._set_cookie(response,"lh_session",self._make_token(payload),60*60*24*7,http_only=True)
-            self._set_cookie(response,"lh_oauth_state","",0,http_only=True)
-            return response
-        except Exception as exc:
-            log.exception("Discord OAuth callback failed")
-            # Never expose Discord tokens or client secrets in the browser. The user
-            # gets a stable redirect back to the SPA while the detailed exception
-            # remains in Railway logs for diagnosis.
-            return web.HTTPFound(f"{site}/?discord=error")
-
-    SITE_DEFAULTS = {
-        "events": [
-            {"id":"fc-2026","title":"Fictional Character Tournament","category":"CREATIVE","sub":"Character Creation","date":"Thursday • 7:00 PM IST","status":"FEATURED","description":"Create an original fictional character and compete on creativity, presentation, concept and execution.","participants":"OPEN","rules":["Original character concept","Clear presentation","No changing your submitted character after the deadline","Judging criteria are published with the event"]},
-            {"id":"anigame-pvp","title":"Anigame PvP Tournament","category":"TOURNAMENTS","sub":"Anigame","date":"Schedule announced in Discord","status":"UPCOMING","description":"Build your team, enter the arena and prove yourself in the game where the community began.","participants":"REGISTRATION SOON","rules":["Follow the tournament announcement","Submit verification screenshots when requested","Staff decisions are final"]},
-            {"id":"game-night","title":"Community Game Night","category":"SOCIAL","sub":"Gaming","date":"Date announced in Discord","status":"UPCOMING","description":"Pick a game, bring your friends and spend an evening together.","participants":"OPEN","rules":["Be respectful","Join the voice/text channels for the selected game","Have fun"]},
-            {"id":"anime-trivia","title":"Anime Trivia Night","category":"ANIME","sub":"Quiz","date":"Date announced in Discord","status":"UPCOMING","description":"How deep does your anime knowledge go? Bring your fastest answers.","participants":"COMING SOON","rules":["No answer sharing during rounds","Follow the host timer","Tie-breakers may be used"]}
-        ],
-        "hall": [
-            {"id":"fc-champion","tournament":"Fictional Character Tournament","winner":"Champion to be recorded","place":"1ST","date":"Awaiting results"},
-            {"id":"anigame-champion","tournament":"Anigame PvP Tournament","winner":"Winner to be recorded","place":"1ST","date":"Awaiting results"},
-            {"id":"community-archive","tournament":"Community Tournament Archive","winner":"Record to be added","place":"1ST","date":"Archived"}
-        ],
-        "games": [
-            {"id":"anigame","title":"Anigame","category":["CARD","COMPETITIVE"],"status":"LIVE","text":"The game where the Log Horizon community began.","action":"Learn More"},
-            {"id":"quiz","title":"Horizon Quiz","category":["QUIZ","ANIME","CASUAL"],"status":"PLAYABLE","text":"Test your knowledge against other members.","action":"Play"},
-            {"id":"anime-guess","title":"Anime Guess","category":["ANIME","CASUAL"],"status":"COMING SOON","text":"Identify the anime before the timer runs out.","action":"Coming Soon"},
-            {"id":"forge","title":"Character Forge","category":["CREATIVE"],"status":"COMING SOON","text":"Build your own fictional character and share it with the community.","action":"Coming Soon"},
-            {"id":"arena","title":"Horizon Arena","category":["COMPETITIVE"],"status":"COMING SOON","text":"A small competitive arena built for Log Horizon members.","action":"Coming Soon"},
-            {"id":"browser","title":"Browser Game Hub","category":["CASUAL","COMMUNITY"],"status":"COMING SOON","text":"A rotating collection of lightweight games for community nights.","action":"Coming Soon"}
-        ],
-        "leaderboard": [
-            {"id":"community-leaderboard","name":"Community leaderboard","score":"—","status":"AWAITING DATA"},
-            {"id":"competitive-records","name":"Competitive records","score":"—","status":"AWAITING DATA"},
-            {"id":"event-achievements","name":"Event achievements","score":"—","status":"AWAITING DATA"},
-            {"id":"game-scores","name":"Game scores","score":"—","status":"AWAITING DATA"}
-        ]
-    }
-
-    async def site_content(self, request):
-        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
-        if not guild_id.isdigit():
-            return web.json_response({"error":"Horizon guild is not configured."}, status=503)
-        section = request.query.get("section", "").strip()
-        sections = [section] if section in self.SITE_DEFAULTS else list(self.SITE_DEFAULTS.keys())
-        result = {}
-        for name in sections:
-            result[name] = await self.bot.db.site_content(int(guild_id), name, self.SITE_DEFAULTS[name])
-        return web.json_response(result, headers={"Cache-Control":"no-store"})
-
-    async def site_admin_content(self, request):
-        guild, member = await self._site_admin(request)
-        result = {}
-        for name, default in self.SITE_DEFAULTS.items():
-            result[name] = await self.bot.db.site_content(guild.id, name, default)
-        return web.json_response({"admin":True,"user_id":str(member.id),"username":member.display_name,"content":result}, headers={"Cache-Control":"no-store"})
-
-    async def site_admin_content_update(self, request):
-        guild, member = await self._site_admin(request)
-        section = request.match_info.get("section", "").strip()
-        if section not in self.SITE_DEFAULTS:
-            raise web.HTTPNotFound(text="Unknown website content section")
-        try:
-            body = await request.json()
-        except Exception:
-            raise web.HTTPBadRequest(text="Invalid JSON body")
-        items = body.get("items") if isinstance(body, dict) else None
-        if not isinstance(items, list):
-            raise web.HTTPBadRequest(text="items must be an array")
-        if len(items) > 100:
-            raise web.HTTPBadRequest(text="Too many content entries")
-        cleaned = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            cleaned.append({str(k): v for k, v in item.items() if str(k) in {
-                "id","title","category","sub","date","status","description","participants","rules",
-                "tournament","winner","place","text","action","name","score"
-            }})
-        await self.bot.db.set_site_content(guild.id, section, cleaned, member.id)
-        return web.json_response({"ok":True,"section":section,"items":cleaned})
-
-    async def site_auth_me(self, request):
-        user = self._session(request)
-        is_admin = False
-        if user:
-            is_admin = await self._site_admin_status(request)
-        return web.json_response({"user":user, "admin":is_admin},headers={"Cache-Control":"no-store"})
 
     async def site_auth_logout(self, request):
         response=web.json_response({"ok":True})
