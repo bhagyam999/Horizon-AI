@@ -42,3 +42,40 @@ html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:#0508
   .joystick span{width:46px;height:46px}
   .action-pad{right:8px;bottom:10px;transform:scale(.9);transform-origin:bottom right}
 }
+
+/* Horizon pixel-RPG presentation */
+.game{background:#74a86b}
+.game canvas{image-rendering:pixelated}
+@media(max-width:720px){
+  .game{background:#74a86b}
+  .top{height:46px;background:linear-gradient(#17252ddd,#17252d66);border-bottom:2px solid #30434a;backdrop-filter:none}
+  .top b{font-size:11px;text-shadow:2px 2px #17252d}
+  .top aside{gap:5px}
+  .top button{background:#26363dcc;border:2px solid #40545a;padding:6px 8px;box-shadow:2px 2px #17252d;font-size:7px}
+  .top button:first-child{display:none}
+  .left,.right{display:none}
+  .notice{bottom:101px;left:50%;width:auto;max-width:68%;padding:7px 10px;background:#17252ddd;border:2px solid #40545a;box-shadow:3px 3px #17252d;color:#f3f0d6;font:8px monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mobile-controls{display:block;position:absolute;inset:0;z-index:8;pointer-events:none}
+  .joystick{position:absolute;left:18px;bottom:16px;width:112px;height:112px;border-radius:50%;background:#17252d99;border:3px solid #d9d1a655;box-shadow:4px 4px #17252d66;pointer-events:auto;touch-action:none}
+  .joystick span{width:48px;height:48px;background:#74a9bacc;border:3px solid #d9e9d8;box-shadow:3px 3px #17252d;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);border-radius:50%}
+  .action-pad{position:absolute;right:13px;bottom:13px;width:180px;height:155px;pointer-events:none}
+  .action-pad button{position:absolute;border:3px solid #d9d1a6;background:#26363dcc;box-shadow:3px 3px #17252d;color:#f7f2d8;border-radius:50%;width:57px;height:57px;font:bold 7px monospace;pointer-events:auto;touch-action:none}
+  .action-pad .attack{right:0;top:35px;width:75px;height:75px;background:#9b5960dd;border-color:#e0aaa0}
+  .action-pad button:nth-child(1){right:72px;top:0}
+  .action-pad button:nth-child(3){left:0;top:57px;background:#5c7091dd}
+  .action-pad button:nth-child(4){right:67px;bottom:0;background:#6b8d5ddd}
+  .combat{top:53px;width:75%;padding:9px;background:#17252df2;border:3px solid #a66b70;box-shadow:4px 4px #17252d}
+  .combat h2{font:900 14px monospace;margin:4px 0}
+  .combat small{font:7px monospace}.combat p{display:none}
+  .mobile-flee{background:#26363d;border:2px solid #d9d1a6;padding:6px;font:bold 7px monospace}
+  .modal{padding:8px;background:#17252dcc}
+  .mapbox{width:96vw;height:84vh;background:#263c31;border:3px solid #d9d1a6;box-shadow:6px 6px #17252d}
+  .mapbox header{height:52px}.mapbox header h2{font:bold 14px monospace}
+}
+@media(max-width:720px) and (orientation:portrait){
+  .game:after{content:'ROTATE YOUR PHONE';position:absolute;inset:46px 0 0;z-index:20;display:grid;place-items:center;background:#17252df5;color:#f3f0d6;font:bold 18px monospace;letter-spacing:.08em;text-align:center;padding:30px}
+}
+@media(max-width:720px) and (orientation:landscape){
+  .game:after{display:none}
+  .joystick{bottom:12px}.action-pad{bottom:9px}.notice{bottom:82px}
+}
