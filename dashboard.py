@@ -48,6 +48,8 @@ class Dashboard:
             web.post("/api/game/npc/talk", self.game_npc_talk),
             web.get("/api/game/shop", self.game_shop),
             web.post("/api/game/shop/buy", self.game_shop_buy),
+            web.post("/api/game/item/use", self.game_item_use),
+            web.post("/api/game/item/equip", self.game_item_equip),
             web.post("/api/game/adventure", self.game_adventure),
             web.post("/api/game/dungeon", self.game_dungeon),
             web.post("/api/game/pet/hatch", self.game_pet_hatch),
@@ -868,6 +870,25 @@ class Dashboard:
         shops=[x for x in SHOPS if not location or x["location"]==location]
         items={x["id"]:x for x in ITEMS}
         return web.json_response({"shops":[dict(x,products=[items[i] for i in x["items"] if i in items]) for x in shops]})
+
+    async def game_item_use(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        item=str(data.get("item","")).strip().lower()
+        quantity=max(1,min(10,int(data.get("quantity",1))))
+        ok,msg=await self.bot.rpg.use_item(0,account["id"],item,quantity)
+        if not ok: raise web.HTTPBadRequest(text=str(msg))
+        return web.json_response({"message":str(msg),"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_item_equip(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        item=str(data.get("item","")).strip().lower()
+        ok,msg=await self.bot.rpg.equip(0,account["id"],item)
+        if not ok: raise web.HTTPBadRequest(text=str(msg))
+        return web.json_response({"message":str(msg),"state":await self.bot.rpg.web_state(account["id"])})
 
     async def game_shop_buy(self, request):
         account=await self._game_auth(request)
