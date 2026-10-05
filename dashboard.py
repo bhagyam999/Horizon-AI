@@ -817,7 +817,10 @@ class Dashboard:
         except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
         name=str(data.get("name","")).strip()
         if not 2<=len(name)<=24: raise web.HTTPBadRequest(text="Hero name must be 2-24 characters.")
-        ok,msg=await self.bot.rpg.create_player(0,account["id"],name,data.get("race","human"),data.get("class_name","warrior"))
+        try:
+            ok,msg=await self.bot.rpg.create_player(0,account["id"],name,data.get("race","human"),data.get("class_name","warrior"))
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
         if not ok: raise web.HTTPConflict(text=msg)
         return web.json_response(await self.bot.rpg.web_state(account["id"]))
 
