@@ -3,3 +3,34 @@
 @media(max-width:520px){.hero-card{width:150px}.hero-card .stats{gap:7px}.quick-actions button:nth-child(1){display:none}.tabs{left:8px;right:8px}.panel{bottom:52px;max-height:48vh}.location-grid,.item-grid,.title-grid{grid-template-columns:1fr}.notice{max-width:70%}}
 @media(orientation:portrait){.gamebar{height:44px}.hero-card{top:54px}.quick-actions{top:53px}.panel{bottom:54px}.tabs{bottom:7px}.touch-zone{bottom:72px}.touch-actions{bottom:68px}}
 .provider-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:20px 0 14px}.provider{min-height:46px;border:1px solid #31534c;background:#101f1b;color:#e4f0ec;border-radius:5px;display:flex;align-items:center;justify-content:center;gap:7px;font-size:11px}.provider b{width:23px;height:23px;display:grid;place-items:center;border-radius:50%;background:#e8f3ef;color:#10201c;font-size:12px}.provider.google:hover,.provider.discord:hover,.provider.facebook:hover{border-color:#73d8ca;background:#17332d}.provider.disabled{opacity:.45;cursor:not-allowed}.provider.disabled b{background:#53625e;color:#15201d}.or{display:flex;align-items:center;gap:10px;color:#57716a;font:9px monospace;margin:10px 0}.or:before,.or:after{content:"";height:1px;background:#28443d;flex:1}.auth-links{display:flex;flex-direction:column;align-items:center}.auth-card{max-height:94vh;overflow:auto}@media(max-width:600px){.provider-grid{grid-template-columns:1fr}.provider{justify-content:flex-start;padding:0 16px}.auth-card{width:min(520px,94vw);padding:25px 20px}.auth{padding:12px}}
+
+/* Mobile gameplay: keep the actual game visible; menus are opt-in. */
+@media(max-width:800px),(orientation:landscape) and (max-height:700px){
+  .game{overflow:hidden;touch-action:none}
+  .game canvas{z-index:1}
+  .gamebar,.hero-card,.quick-actions,.notice,.touch-zone,.touch-actions{pointer-events:auto}
+  .hero-card{z-index:8;transform:scale(.88);transform-origin:top left}
+  .quick-actions{z-index:8}
+  .panel{display:none;z-index:15;pointer-events:auto}
+  .panel.mobile-open{display:block}
+  .tabs{z-index:14;pointer-events:auto}
+  .touch-zone{z-index:18;display:block;touch-action:none;user-select:none;-webkit-user-select:none}
+  .touch-actions{z-index:18;display:flex}
+  .touch-zone span{pointer-events:none}
+  .gamebar{z-index:12}
+  .notice{z-index:19;pointer-events:none}
+}
+@media(max-width:520px){
+  .hero-card{width:132px;padding:7px}
+  .hero-card .avatar{width:30px;height:30px;font-size:15px}
+  .hero-card b{font-size:12px}
+  .hero-card small{font-size:7px}
+  .bar-row{margin:5px 0;font-size:6px}
+  .stats{display:none}
+  .quick-actions{display:none}
+  .touch-zone{left:14px;bottom:78px;width:96px;height:96px}
+  .touch-actions{right:12px;bottom:74px;gap:6px}
+  .touch-actions button{width:50px;height:50px;font-size:18px}
+  .tabs{display:none}
+  .panel.mobile-open{left:7px;right:7px;width:auto;bottom:65px;max-height:60vh}
+}
