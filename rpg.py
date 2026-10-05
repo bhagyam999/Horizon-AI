@@ -2079,6 +2079,25 @@ class RPGService:
                 PRIMARY KEY(guild_id,user_id,challenge_key)
             );
             """)
+            # Web-account migrations must run immediately after the schema script.
+            # Older persistent databases were created before social-login columns
+            # existed, so CREATE TABLE IF NOT EXISTS alone cannot add them.
+            cur = await db.execute("PRAGMA table_info(web_accounts)")
+            web_account_columns = {row[1] for row in await cur.fetchall()}
+            web_account_migrations = {
+                "display_name": "TEXT NOT NULL DEFAULT ''",
+                "google_id": "TEXT",
+                "discord_id": "TEXT",
+                "facebook_id": "TEXT",
+                "phone": "TEXT",
+            }
+            for column, definition in web_account_migrations.items():
+                if column not in web_account_columns:
+                    await db.execute(f"ALTER TABLE web_accounts ADD COLUMN {column} {definition}")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_google ON web_accounts(google_id) WHERE google_id IS NOT NULL AND google_id!=''")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_discord ON web_accounts(discord_id) WHERE discord_id IS NOT NULL AND discord_id!=''")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_facebook ON web_accounts(facebook_id) WHERE facebook_id IS NOT NULL AND facebook_id!=''")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_phone ON web_accounts(phone) WHERE phone IS NOT NULL AND phone!=''")
             # Lightweight migrations for existing Horizon RPG databases.
             migrations = {
                 "gems": "INTEGER NOT NULL DEFAULT 500",
@@ -2633,7 +2652,7 @@ class RPGService:
     async def web_state(self, account_id: int):
         p=await self.player(0,account_id)
         if not p:return {"account":{"id":account_id},"character":None,"inventory":[],"pets":[],"titles":[],"achievements":[]}
-        inv=[dict(x) for x in await self.inventory(0,account_id)]
+        inv=[{"item_key": x[0], "quantity": x[1]} for x in await self.inventory(0,account_id)]
         pets=await self.pet_inventory(0,account_id)
         titles=[dict(x) for x in await self.title_list(0,account_id)]
         achievements=[dict(x) for x in await self.achievement_list(0,account_id)]
