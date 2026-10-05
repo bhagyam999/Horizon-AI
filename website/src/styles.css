@@ -81,3 +81,36 @@
 .item{width:100%;border-radius:0;cursor:pointer}
 .item em{display:block;margin-top:7px;color:#74d9e9;font:700 8px monospace}
 @media(max-width:520px){.mobile-menu-nav{grid-template-columns:repeat(2,1fr)}}
+
+/* Mobile control hardening */
+@media (max-width:800px){
+  .game{height:100dvh;min-height:100dvh;overscroll-behavior:none}
+  .touch-zone{
+    width:116px!important;height:116px!important;
+    left:16px!important;bottom:74px!important;
+    border:2px solid #8ad5d0!important;
+    background:rgba(8,25,20,.72)!important;
+    box-shadow:0 5px 18px rgba(0,0,0,.28),inset 0 0 0 8px rgba(110,220,215,.05);
+    touch-action:none!important;
+    -webkit-touch-callout:none;
+    -webkit-user-select:none;user-select:none;
+    cursor:pointer;
+  }
+  .touch-zone:before{
+    content:"";position:absolute;inset:24px;border:1px dashed rgba(138,213,208,.22);border-radius:50%;pointer-events:none
+  }
+  .touch-zone span{
+    width:48px!important;height:48px!important;
+    background:#276b70!important;border:2px solid #9beaf0!important;
+    box-shadow:0 3px 12px rgba(0,0,0,.35);
+    transition:none!important;
+  }
+  .touch-actions{bottom:70px!important;right:14px!important}
+  .touch-actions button{width:54px!important;height:54px!important;touch-action:manipulation}
+  .panel.mobile-open{max-height:min(52dvh,430px)!important}
+  .notice{bottom:calc(70px + env(safe-area-inset-bottom))!important;max-width:min(72vw,360px)!important;pointer-events:none!important}
+}
+@media(max-width:520px){
+  .touch-zone{left:14px!important;bottom:76px!important}
+  .touch-actions{right:10px!important;bottom:72px!important}
+}
