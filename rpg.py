@@ -2971,7 +2971,7 @@ class RPGService:
     async def adventure(self, guild_id, user_id):
         p = await self.player(guild_id,user_id)
         if not p: return {"error":"Start a character first with `!rpg start`."}
-        remaining = await self._cooldown(p,"last_adventure",45)
+        remaining = await self._cooldown(p,"last_adventure",5)
         if remaining > 0: return {"error":f"Your next adventure is ready in **{int(remaining)+1}s**."}
         enemy = random.choice([e for e in ENEMIES if e["level"] <= p["level"]+3])
         player_hp = p["hp"]; enemy_hp = enemy["hp"] + max(0,p["level"]-enemy["level"])*8
