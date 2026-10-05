@@ -74,3 +74,10 @@
   .panel-close{display:grid;place-items:center}
   .touch-zone{will-change:transform}
 }
+
+.mobile-menu-nav{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin:0 0 10px;padding-bottom:8px;border-bottom:1px solid #29443e}
+.mobile-menu-nav button{border:1px solid #29473f;background:#0b1b17;color:#86a19a;padding:8px 4px;font:700 8px monospace}
+.mobile-menu-nav button.active{background:#62d8e9;color:#071519;border-color:#62d8e9}
+.item{width:100%;border-radius:0;cursor:pointer}
+.item em{display:block;margin-top:7px;color:#74d9e9;font:700 8px monospace}
+@media(max-width:520px){.mobile-menu-nav{grid-template-columns:repeat(2,1fr)}}
