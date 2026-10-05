@@ -715,8 +715,3 @@ class Dashboard:
             token=self._make_token({"id":response_cookie,"createdAt":int(time.time())})
             self._set_cookie(response,"lh_visitor",token,60*60*24*365,http_only=True)
         return response
-
-    async def site_auth_logout(self, request):
-        response=web.json_response({"ok":True})
-        self._set_cookie(response,"lh_session","",0,http_only=True)
-        return response
