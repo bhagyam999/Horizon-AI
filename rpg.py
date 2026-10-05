@@ -1756,7 +1756,12 @@ class RPGService:
                 password_hash TEXT NOT NULL,
                 password_salt TEXT NOT NULL,
                 created_at REAL NOT NULL,
-                last_login REAL NOT NULL DEFAULT 0
+                last_login REAL NOT NULL DEFAULT 0,
+                display_name TEXT NOT NULL DEFAULT '',
+                google_id TEXT,
+                discord_id TEXT,
+                facebook_id TEXT,
+                phone TEXT
             );
             CREATE TABLE IF NOT EXISTS web_sessions (
                 token_hash TEXT PRIMARY KEY,
@@ -2338,6 +2343,21 @@ class RPGService:
                 claimed_at REAL NOT NULL DEFAULT 0
             )
             """)
+            cur=await db.execute("PRAGMA table_info(web_accounts)")
+            web_cols={row[1] for row in await cur.fetchall()}
+            for col,definition in [
+                ("display_name","TEXT NOT NULL DEFAULT ''"),
+                ("google_id","TEXT"),
+                ("discord_id","TEXT"),
+                ("facebook_id","TEXT"),
+                ("phone","TEXT"),
+            ]:
+                if col not in web_cols:
+                    await db.execute(f"ALTER TABLE web_accounts ADD COLUMN {col} {definition}")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_google ON web_accounts(google_id)")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_discord ON web_accounts(discord_id)")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_facebook ON web_accounts(facebook_id)")
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_web_phone ON web_accounts(phone)")
             await db.execute("CREATE INDEX IF NOT EXISTS idx_rpg_pending_rewards_user ON rpg_pending_rewards(guild_id,user_id,claimed_at,id)")
             await db.commit()
 
