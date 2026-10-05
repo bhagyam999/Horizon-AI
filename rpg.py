@@ -2663,8 +2663,11 @@ class RPGService:
             p=await self.player(0,account_id)
         inv=[{"item_key": x[0], "quantity": x[1]} for x in await self.inventory(0,account_id)]
         pets=await self.pet_inventory(0,account_id)
-        titles=[dict(x) for x in await self.title_list(0,account_id)]
-        achievements=[dict(x) for x in await self.achievement_list(0,account_id)]
+        # title_list/achievement_list return plain SQLite tuples, not Row objects.
+        # Keep the web state JSON-shaped without relying on dict(tuple), which
+        # raises ValueError and can turn an otherwise successful action into HTTP 500.
+        titles=[{"title_key": x[0], "unlocked_at": x[1]} for x in await self.title_list(0,account_id)]
+        achievements=[{"achievement_key": x[0], "unlocked_at": x[1]} for x in await self.achievement_list(0,account_id)]
         return {"account":{"id":account_id},"character":p,"inventory":inv,"pets":pets,"titles":titles,"achievements":achievements}
 
     async def player(self, guild_id: int, user_id: int):
