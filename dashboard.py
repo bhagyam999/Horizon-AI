@@ -652,6 +652,15 @@ class Dashboard:
     def _game_public_url(self, request):
         return os.getenv("HORIZON_PUBLIC_URL",os.getenv("SITE_URL","")).strip().rstrip("/") or f"{request.scheme}://{request.host}"
 
+    def _game_oauth_redirect_uri(self, request, provider):
+        # OAuth providers require an exact redirect URI. Keep it independent from
+        # the general SITE_URL so an old dashboard/bot URL cannot break game login.
+        env_key=f"HORIZON_{str(provider).upper()}_REDIRECT_URI"
+        configured=os.getenv(env_key,"").strip().rstrip("/")
+        if configured:
+            return configured
+        return f"{self._game_public_url(request)}/api/game/auth/{str(provider).lower()}/callback"
+
     def _oauth_config(self, provider):
         p=str(provider).lower()
         return {
@@ -673,7 +682,7 @@ class Dashboard:
         cfg=self._oauth_config(provider)
         if not cfg.get("client_id") or not cfg.get("client_secret"):
             raise web.HTTPServiceUnavailable(text=f"{provider.title()} login is not configured yet.")
-        redirect=f"{self._game_public_url(request)}/api/game/auth/{provider}/callback"
+        redirect=self._game_oauth_redirect_uri(request,provider)
         data={"client_id":cfg["client_id"],"client_secret":cfg["client_secret"],"code":code,"grant_type":"authorization_code","redirect_uri":redirect}
         token_url={"google":"https://oauth2.googleapis.com/token","discord":"https://discord.com/api/oauth2/token","facebook":"https://graph.facebook.com/oauth/access_token"}[provider]
         async with aiohttp.ClientSession() as session:
