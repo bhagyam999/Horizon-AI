@@ -16,11 +16,25 @@ async function api(path,opts={}){
 const fallbackWorld={locations:[],npcs:[],dungeons:[],titles:[],eggs:[],items:[],shops:[],races:{},classes:{}};
 
 function Auth({onLogin}){
-  const [register,setRegister]=useState(false),[email,setEmail]=useState(""),[password,setPassword]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  const [register,setRegister]=useState(false),[email,setEmail]=useState(""),[password,setPassword]=useState(""),[phone,setPhone]=useState(""),[code,setCode]=useState(""),[phoneMode,setPhoneMode]=useState(false),[codeSent,setCodeSent]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(""),[providers,setProviders]=useState({});
+  useEffect(()=>{api("/auth/providers").then(setProviders).catch(()=>{})},[]);
+  useEffect(()=>{const msg=new URLSearchParams(location.search).get("auth_error");if(msg)setError(msg)},[]);
   const submit=async e=>{e.preventDefault();setBusy(true);setError("");try{const r=await api(register?"/auth/register":"/auth/login",{method:"POST",body:JSON.stringify({email,password})});localStorage.setItem(tokenKey,r.token);onLogin()}catch(e){setError(e.message)}finally{setBusy(false)}};
-  return <div className="auth"><div className="auth-card"><div className="logo">HORIZON <span>FRONTIER</span></div><p className="eyebrow">A persistent open-world RPG</p><h1>{register?"Create your adventurer account":"Enter the frontier"}</h1><p className="muted">Your hero, inventory, pets, titles and progress are saved to your account.</p><form onSubmit={submit}><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="you@example.com"/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={8} placeholder="At least 8 characters"/></label>{error&&<div className="error">{error}</div>}<button className="primary wide" disabled={busy}>{busy?"Connecting…":register?"CREATE ACCOUNT":"LOGIN"}</button></form><button className="link" onClick={()=>{setRegister(!register);setError("")}}>{register?"Already have an account? Login":"New here? Create an account"}</button></div></div>
+  const sendCode=async()=>{setBusy(true);setError("");try{await api("/auth/phone/start",{method:"POST",body:JSON.stringify({phone})});setCodeSent(true)}catch(e){setError(e.message)}finally{setBusy(false)}};
+  const verify=async()=>{setBusy(true);setError("");try{const r=await api("/auth/phone/verify",{method:"POST",body:JSON.stringify({phone,code})});localStorage.setItem(tokenKey,r.token);onLogin()}catch(e){setError(e.message)}finally{setBusy(false)}};
+  const oauth=p=>{setError("");window.location.href=`/api/game/auth/${p}/start`};
+  const provider=(id,label,icon)=>providers[id]?<button type="button" className={"provider "+id} onClick={()=>oauth(id)}><b>{icon}</b><span>Continue with {label}</span></button>:<button type="button" className="provider disabled" disabled><b>{icon}</b><span>{label} login needs setup</span></button>;
+  return <div className="auth"><div className="auth-card">
+    <div className="logo">HORIZON <span>FRONTIER</span></div><p className="eyebrow">A persistent open-world RPG</p>
+    <h1>{phoneMode?"Verify your phone":register?"Create your adventurer account":"Enter the frontier"}</h1>
+    <p className="muted">One Horizon account for your hero, inventory, pets, titles and progress.</p>
+    {!phoneMode&&<div className="provider-grid">{provider("google","Google","G")} {provider("discord","Discord","D")} {provider("facebook","Facebook","f")}</div>}
+    {!phoneMode&&<div className="or"><span>OR</span></div>}
+    {!phoneMode?<form onSubmit={submit}><label>Email<input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="you@example.com"/></label><label>Password<input type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={8} placeholder="At least 8 characters"/></label>{error&&<div className="error">{error}</div>}<button className="primary wide" disabled={busy}>{busy?"Connecting…":register?"CREATE ACCOUNT":"LOGIN"}</button></form>:
+      <div><label>Phone number<input type="tel" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+91 9876543210" autoComplete="tel"/></label>{codeSent&&<label>Verification code<input inputMode="numeric" maxLength={6} value={code} onChange={e=>setCode(e.target.value.replace(/\D/g,""))} placeholder="6-digit code" autoComplete="one-time-code"/></label>}{error&&<div className="error">{error}</div>}{!codeSent?<button className="primary wide" disabled={busy||!phone} onClick={sendCode}>{busy?"SENDING…":"SEND SMS CODE"}</button>:<button className="primary wide" disabled={busy||code.length!==6} onClick={verify}>{busy?"VERIFYING…":"VERIFY & ENTER"}</button>}</div>}
+    <div className="auth-links">{!phoneMode&&<button className="link" onClick={()=>{setRegister(!register);setError("")}}>{register?"Already have an account? Login":"New here? Create an account"}</button>}<button className="link" onClick={()=>{setPhoneMode(!phoneMode);setCodeSent(false);setError("")}}>{phoneMode?"Use email or social login":"Use phone number instead"}</button></div>
+  </div></div>
 }
-
 function CharacterCreate({world,onDone}){
   const [name,setName]=useState(""),[race,setRace]=useState("human"),[cls,setCls]=useState("warrior"),[error,setError]=useState(""),[busy,setBusy]=useState(false);
   const submit=async()=>{setBusy(true);setError("");try{await api("/character",{method:"POST",body:JSON.stringify({name,race,class_name:cls})});onDone()}catch(e){setError(e.message)}finally{setBusy(false)}};
@@ -69,7 +83,7 @@ function Game({world,initial,onLogout}){
 
 function App(){
   const [auth,setAuth]=useState(!!getToken()),[world,setWorld]=useState(fallbackWorld),[state,setState]=useState(null),[loading,setLoading]=useState(true);
-  const load=async()=>{try{const w=await api("/world");setWorld(w);if(getToken()){const s=await api("/state");setState(s)}}catch(e){localStorage.removeItem(tokenKey);setAuth(false)}finally{setLoading(false)}};
+  const load=async()=>{try{const w=await api("/world");setWorld(w);try{const s=await api("/state");setState(s);setAuth(true)}catch{localStorage.removeItem(tokenKey);setAuth(false);setState(null)}}catch(e){setLoading(false)}finally{setLoading(false)}};
   useEffect(()=>{load()},[auth]);
   if(loading)return <div className="loading"><div className="logo">HORIZON <span>FRONTIER</span></div><p>Loading the frontier…</p></div>;
   if(!auth)return <Auth onLogin={()=>setAuth(true)}/>;
