@@ -650,13 +650,13 @@ class Dashboard:
         return account
 
     def _game_public_url(self, request):
-        return os.getenv("HORIZON_PUBLIC_URL","").strip().rstrip("/") or f"{request.scheme}://{request.host}"
+        return os.getenv("HORIZON_PUBLIC_URL",os.getenv("SITE_URL","")).strip().rstrip("/") or f"{request.scheme}://{request.host}"
 
     def _oauth_config(self, provider):
         p=str(provider).lower()
         return {
             "google":{"client_id":os.getenv("HORIZON_GOOGLE_CLIENT_ID","").strip(),"client_secret":os.getenv("HORIZON_GOOGLE_CLIENT_SECRET","").strip()},
-            "discord":{"client_id":os.getenv("HORIZON_DISCORD_CLIENT_ID","").strip(),"client_secret":os.getenv("HORIZON_DISCORD_CLIENT_SECRET","").strip()},
+            "discord":{"client_id":os.getenv("HORIZON_DISCORD_CLIENT_ID",os.getenv("DISCORD_CLIENT_ID","")).strip(),"client_secret":os.getenv("HORIZON_DISCORD_CLIENT_SECRET",os.getenv("DISCORD_CLIENT_SECRET","")).strip()},
             "facebook":{"client_id":os.getenv("HORIZON_FACEBOOK_CLIENT_ID","").strip(),"client_secret":os.getenv("HORIZON_FACEBOOK_CLIENT_SECRET","").strip()},
         }.get(p,{})
 
