@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import hashlib
+import secrets
 from functools import wraps
 import json
 import random
@@ -1746,6 +1748,21 @@ class RPGService:
     async def setup(self):
         async with aiosqlite.connect(self.path) as db:
             await db.executescript("""
+            CREATE TABLE IF NOT EXISTS web_accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                password_salt TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                last_login REAL NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS web_sessions (
+                token_hash TEXT PRIMARY KEY,
+                account_id INTEGER NOT NULL,
+                created_at REAL NOT NULL,
+                expires_at REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_web_sessions_account ON web_sessions(account_id,expires_at);
             CREATE TABLE IF NOT EXISTS rpg_players (
                 guild_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
                 name TEXT NOT NULL DEFAULT '', race TEXT NOT NULL DEFAULT 'human', class_name TEXT NOT NULL DEFAULT 'warrior',
@@ -2469,6 +2486,69 @@ class RPGService:
             "speed": 5 + race["spd"] + cls["spd"],
             "crit": 5 + race["crit"] + cls["crit"],
         }
+
+    @staticmethod
+    def _web_password(password: str, salt: bytes) -> str:
+        return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 210000).hex()
+
+    async def web_register(self, email: str, password: str):
+        email=(email or "").strip().lower()
+        if len(email)<5 or "@" not in email or len(email)>160:
+            return None, "Enter a valid email address."
+        if len(password or "")<8 or len(password)>200:
+            return None, "Password must be 8-200 characters."
+        salt=secrets.token_bytes(24)
+        password_hash=self._web_password(password,salt)
+        async with aiosqlite.connect(self.path) as db:
+            try:
+                cur=await db.execute("INSERT INTO web_accounts(email,password_hash,password_salt,created_at) VALUES(?,?,?,?,?)",(email,password_hash,salt.hex(),time.time()))
+            except Exception:
+                return None, "An account with that email already exists."
+            account_id=cur.lastrowid
+            await db.commit()
+        return await self.web_login(email,password)
+
+    async def web_login(self, email: str, password: str):
+        email=(email or "").strip().lower()
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute("SELECT * FROM web_accounts WHERE email=?",(email,))
+            row=await cur.fetchone()
+            if not row:return None,"Invalid email or password."
+            salt=bytes.fromhex(row["password_salt"])
+            if not secrets.compare_digest(self._web_password(password,salt),row["password_hash"]):
+                return None,"Invalid email or password."
+            token=secrets.token_urlsafe(48)
+            now=time.time()
+            await db.execute("INSERT INTO web_sessions(token_hash,account_id,created_at,expires_at) VALUES(?,?,?,?)",(hashlib.sha256(token.encode()).hexdigest(),row["id"],now,now+60*60*24*30))
+            await db.execute("UPDATE web_accounts SET last_login=? WHERE id=?",(now,row["id"]))
+            await db.commit()
+            return token,None
+
+    async def web_account(self, token: str):
+        if not token:return None
+        th=hashlib.sha256(token.encode()).hexdigest()
+        async with aiosqlite.connect(self.path) as db:
+            db.row_factory=aiosqlite.Row
+            cur=await db.execute("SELECT a.id,a.email FROM web_accounts a JOIN web_sessions s ON s.account_id=a.id WHERE s.token_hash=? AND s.expires_at>?",(th,time.time()))
+            row=await cur.fetchone()
+            return dict(row) if row else None
+
+    async def web_logout(self, token: str):
+        if not token:return
+        th=hashlib.sha256(token.encode()).hexdigest()
+        async with aiosqlite.connect(self.path) as db:
+            await db.execute("DELETE FROM web_sessions WHERE token_hash=?",(th,))
+            await db.commit()
+
+    async def web_state(self, account_id: int):
+        p=await self.player(0,account_id)
+        if not p:return {"account":{"id":account_id},"character":None,"inventory":[],"pets":[],"titles":[],"achievements":[]}
+        inv=[dict(x) for x in await self.inventory(0,account_id)]
+        pets=await self.pet_inventory(0,account_id)
+        titles=await self.title_list(0,account_id)
+        achievements=await self.achievement_list(0,account_id)
+        return {"account":{"id":account_id},"character":p,"inventory":inv,"pets":pets,"titles":titles,"achievements":achievements}
 
     async def player(self, guild_id: int, user_id: int):
         async with aiosqlite.connect(self.path) as db:
