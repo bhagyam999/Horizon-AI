@@ -155,14 +155,6 @@ class Database:
                 reason TEXT NOT NULL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
-            CREATE TABLE IF NOT EXISTS site_content (
-                guild_id INTEGER NOT NULL,
-                section TEXT NOT NULL,
-                content TEXT NOT NULL DEFAULT '[]',
-                updated_by INTEGER DEFAULT 0,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (guild_id, section)
-            );
             ''')
             # Existing persistent databases need the dashboard-configurable settings too.
             for column, definition in [
