@@ -11,7 +11,7 @@ log = logging.getLogger("horizon.dashboard")
 
 
 class Dashboard:
-    """Railway web/API service for Horizon and the Horizon RPG website."""
+    """Railway web service: Horizon RPG website + dashboard APIs."""
     def __init__(self, bot):
         self.bot = bot
         self.runner = None
@@ -28,7 +28,6 @@ class Dashboard:
             web.get("/health", self.health),
             web.get("/api/overview", self.api_overview),
             web.get("/api/member", self.api_member),
-            web.post("/api/ai", self.api_ai),
             web.get("/api/dashboard/guilds", self.dashboard_guilds),
             web.get("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings),
             web.patch("/api/dashboard/guild/{guild_id}/settings", self.dashboard_settings_update),
@@ -60,7 +59,7 @@ class Dashboard:
             site = web.TCPSite(self.runner, "0.0.0.0", requested_port)
             await site.start()
             self.port = requested_port
-            print(f"Dashboard listening on 0.0.0.0:{requested_port}; website={self.dist_dir}")
+            print(f"Dashboard listening on 0.0.0.0:{requested_port}; rpg_website={self.dist_dir}")
         except OSError as exc:
             self.port = None
             print(f"Dashboard failed to bind required port {requested_port}: {exc}")
@@ -324,7 +323,7 @@ class Dashboard:
                 },
             )
         # The website source is built into dist during deployment.
-        return web.Response(status=503, text="Log Horizon website is still building. Please refresh shortly.", content_type="text/plain")
+        return web.Response(status=503, text="Horizon RPG website is still building. Please refresh shortly.", content_type="text/plain")
 
     async def asset(self, request):
         path = (self.dist_dir / "assets" / request.match_info["path"]).resolve()
@@ -656,62 +655,3 @@ class Dashboard:
             return web.json_response({"error": "Member not found"}, status=404)
         profile = await self.bot.db.profile(int(guild_id), int(user_id))
         return web.json_response({"user_id": member.id, "username": member.display_name, "avatar": str(member.display_avatar.url), "roles": [r.name for r in member.roles if r.name != "@everyone"], "level": profile["xp"] // 100 + 1, "xp": profile["xp"], "coins": profile["coins"], "warnings": profile["warnings"]})
-
-    async def api_ai(self, request):
-        if not self._authorized(request):
-            return web.json_response({"error": "Unauthorized"}, status=401)
-        try:
-            body = await request.json()
-        except Exception:
-            return web.json_response({"error": "Invalid JSON body"}, status=400)
-        message = body.get("message", "") if isinstance(body, dict) else ""
-        if not isinstance(message, str) or not message.strip():
-            return web.json_response({"error": "Please enter a message."}, status=400)
-        guild_id = os.getenv("DISCORD_GUILD_ID", "").strip()
-        if not guild_id.isdigit():
-            return web.json_response({"error": "Horizon guild is not configured."}, status=503)
-        return await self._ai_response(request, int(guild_id), message.strip())
-
-    async def _ai_response(self, request, guild_id, message):
-        guild = self.bot.get_guild(guild_id)
-        if not guild:
-            return web.json_response({"error": "Horizon is not connected to the configured guild."}, status=503)
-        session = self._session(request)
-        if session and str(session.get("id", "")).isdigit():
-            scope_id = f"discord:{session['id']}"
-            name = session.get("global_name") or session.get("username") or "Discord member"
-            profile = await self.bot.db.profile(guild_id, int(session["id"]))
-            profile_text = f"nickname={profile['nickname'] or 'none'}; preferences={profile['preferences'] or 'none'}"
-        else:
-            cookies = self._cookies(request)
-            visitor = self._verify_token(cookies.get("lh_visitor", ""))
-            response_cookie = None
-            if visitor and visitor.get("id"):
-                visitor_id = visitor["id"]
-            else:
-                visitor_id = secrets.token_urlsafe(18)
-                response_cookie = visitor_id
-            scope_id = f"web:{visitor_id}"
-            name = "Website visitor"
-            profile_text = "(none)"
-
-        settings = await self.bot.db.settings(guild_id)
-        memories = await self.bot.db.memories(guild_id, 30)
-        rows = await self.bot.db.ai_conversation(guild_id, scope_id, 120)
-        context = self.bot.ai_context_from_rows(rows, message)
-        memory_text = "\n".join(f"- {row[1]}" for row in memories)
-        system = self.bot.build_ai_system(guild.name, name, memory_text, settings["personality"], profile_text, context, message)
-        system += "\n\nMemory rule: use private conversation memory only when it clearly helps the current request. Never bring up unrelated old topics and never reveal another member's conversation."
-        await self.bot.db.add_ai_message(guild_id, scope_id, "user", message)
-        try:
-            answer = await self.bot.ai.generate(system, message)
-        except Exception as exc:
-            await self.bot.db.remove_last_ai_message(guild_id, scope_id, "user")
-            log.exception("Website Horizon AI request failed")
-            return web.json_response({"error": "Horizon AI is temporarily unavailable."}, status=502)
-        await self.bot.db.add_ai_message(guild_id, scope_id, "model", answer)
-        response = web.json_response({"reply": answer, "model": self.bot.ai.model})
-        if not session and response_cookie:
-            token=self._make_token({"id":response_cookie,"createdAt":int(time.time())})
-            self._set_cookie(response,"lh_visitor",token,60*60*24*365,http_only=True)
-        return response
