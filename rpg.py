@@ -2652,6 +2652,15 @@ class RPGService:
     async def web_state(self, account_id: int):
         p=await self.player(0,account_id)
         if not p:return {"account":{"id":account_id},"character":None,"inventory":[],"pets":[],"titles":[],"achievements":[]}
+        # The web game has no persistent combat state yet. If a previous
+        # adventure left the hero at 1 HP, recover them instead of presenting
+        # a permanently "dead" character on the next login.
+        if int(p.get("hp", 1)) <= 1 and int(p.get("max_hp", 1)) > 1:
+            recovery=max(1,int(p["max_hp"]*0.5))
+            async with aiosqlite.connect(self.path) as db:
+                await db.execute("UPDATE rpg_players SET hp=? WHERE guild_id=0 AND user_id=?",(recovery,account_id))
+                await db.commit()
+            p=await self.player(0,account_id)
         inv=[{"item_key": x[0], "quantity": x[1]} for x in await self.inventory(0,account_id)]
         pets=await self.pet_inventory(0,account_id)
         titles=[dict(x) for x in await self.title_list(0,account_id)]
@@ -2977,7 +2986,7 @@ class RPGService:
             if crit: dmg*=2
             enemy_hp-=dmg; log.append(f"You dealt **{dmg}**{' critical damage' if crit else ''}.")
         async with aiosqlite.connect(self.path) as db:
-            await db.execute("UPDATE rpg_players SET last_adventure=?,hp=? WHERE guild_id=? AND user_id=?", (time.time(),max(1,player_hp),guild_id,user_id)); await db.commit()
+            await db.execute("UPDATE rpg_players SET last_adventure=?,hp=? WHERE guild_id=? AND user_id=?", (time.time(),max(1,int(p["max_hp"]*0.5) if player_hp<=0 else player_hp),guild_id,user_id)); await db.commit()
         if player_hp<=0:
             await self.add_item(guild_id,user_id,"life_potion",1)
             return {"win":False,"enemy":enemy,"log":log[-8:],"hp":1}
