@@ -26,10 +26,15 @@ LOCATIONS = [
 
 NPCS = [
  {"id":"mira","name":"Mira","location":"horizon_village","role":"Shopkeeper","portrait":"merchant","dialogues":[
-  {"text":"New face? Welcome to Horizon Village. The frontier rewards curiosity, but it punishes carelessness.","choices":["Show me your wares.","Tell me about the village.","Goodbye."]},
-  {"text":"The Gate opened three weeks ago. Since then, monsters have appeared where there used to be nothing.","choices":["What is behind the Gate?","I will investigate.","Goodbye."]}]},
+  {"text":"New face? Welcome to Horizon Village. The frontier rewards curiosity, but it punishes carelessness.","choices":["Show me your wares.","Tell me about the village.","Goodbye."],"next":[2,1,-1]},
+  {"text":"The Gate opened three weeks ago. Since then, monsters have appeared where there used to be nothing.","choices":["What is behind the Gate?","I will investigate.","Goodbye."],"next":[3,3,-1]},
+  {"text":"I keep potions, supplies and a few things travelers don't usually find in the wild. If you have the gold, I have the gear.","choices":["I'll look around.","Thanks, Mira.","Goodbye."],"next":[2,0,-1]},
+  {"text":"Beyond the Gate are the Whispering Wilds and the old roads. Something has been changing the creatures there.","choices":["I'll be careful.","What should I watch for?","Goodbye."],"next":[0,3,-1]}]},
  {"id":"kael","name":"Kael","location":"horizon_village","role":"Guild Scout","portrait":"scout","dialogues":[
-  {"text":"The Adventurer's Guild posts contracts every morning. If you want to grow stronger, take more than the safe jobs.","choices":["Give me a contract.","What lies beyond the village?","Goodbye."]}]},
+  {"text":"The Adventurer's Guild posts contracts every morning. If you want to grow stronger, take more than the safe jobs.","choices":["Give me a contract.","What lies beyond the village?","Goodbye."],"next":[1,2,-1]},
+  {"text":"A scouting contract: reach the edge of the village and return safely. Easy enough for a new adventurer, but the wilds have teeth.","choices":["I'll take it.","Tell me about the wilds.","Goodbye."],"next":[2,3,-1]},
+  {"text":"The frontier opens into forests, fields and ruins. Each road gets more dangerous, but better rewards wait farther out.","choices":["Which route should I take?","I'll get stronger first.","Goodbye."],"next":[3,1,-1]},
+  {"text":"Start with the Whispering Wilds. Watch for wolves, keep your potions ready, and don't wander too far from the road.","choices":["Got it.","Any other advice?","Goodbye."],"next":[0,2,-1]}]},
  {"id":"selene","name":"Selene","location":"sunvale_fields","role":"Wandering Mage","portrait":"mage","dialogues":[
   {"text":"Magic behaves strangely near the ruins. Something below the water is answering spells.","choices":["Can I help?","What are you searching for?","Goodbye."]}]},
  {"id":"orin","name":"Orin","location":"old_watchtower","role":"Watch Captain","portrait":"guard","dialogues":[
