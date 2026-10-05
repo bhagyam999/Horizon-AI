@@ -60,7 +60,7 @@ function CharacterCreate({world,onDone}){
 function Bar({label,value,max,type}){return <div className="bar-row"><span>{label} {value}/{max}</span><div><i className={type||""} style={{width:`${Math.max(0,Math.min(100,value/max*100))}%`}}/></div></div>}
 
 function Game({world,initial,onLogout}){
-  const [state,setState]=useState(initial),[tab,setTab]=useState("world"),[notice,setNotice]=useState("Explore the frontier."),[npc,setNpc]=useState(null),[shop,setShop]=useState(null),[dungeon,setDungeon]=useState(null),[adventure,setAdventure]=useState(null),[paused,setPaused]=useState(false),[mobileMenu,setMobileMenu]=useState(false),[pos,setPos]=useState({x:0,y:0}),[keys,setKeys]=useState({});
+  const [state,setState]=useState(initial),[tab,setTab]=useState("world"),[notice,setNotice]=useState("Explore the frontier."),[npc,setNpc]=useState(null),[shop,setShop]=useState(null),[dungeon,setDungeon]=useState(null),[adventure,setAdventure]=useState(null),[paused,setPaused]=useState(false),[mobileMenu,setMobileMenu]=useState(false),[keys,setKeys]=useState({});
   const canvas=useRef(null), touch=useRef({x:0,y:0,id:null}), pos=useRef({x:0,y:0}), player=state.character;
   const location=world.locations.find(x=>x.id===player?.area_key)||world.locations[0];
   const localNpcs=world.npcs.filter(x=>x.location===player?.area_key);
