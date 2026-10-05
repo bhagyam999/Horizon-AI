@@ -2546,8 +2546,8 @@ class RPGService:
         if not p:return {"account":{"id":account_id},"character":None,"inventory":[],"pets":[],"titles":[],"achievements":[]}
         inv=[dict(x) for x in await self.inventory(0,account_id)]
         pets=await self.pet_inventory(0,account_id)
-        titles=await self.title_list(0,account_id)
-        achievements=await self.achievement_list(0,account_id)
+        titles=[dict(x) for x in await self.title_list(0,account_id)]
+        achievements=[dict(x) for x in await self.achievement_list(0,account_id)]
         return {"account":{"id":account_id},"character":p,"inventory":inv,"pets":pets,"titles":titles,"achievements":achievements}
 
     async def player(self, guild_id: int, user_id: int):
@@ -2569,6 +2569,7 @@ class RPGService:
                              (guild_id,user_id,name[:32],race,class_name,s["max_hp"],s["max_hp"],s["max_mp"],s["max_mp"],s["atk"],s["defense"],s["speed"],s["crit"]))
             for item, qty in (("life_potion",3),("mana_potion",2),("iron_sword",1),("iron_armor",1)):
                 await db.execute("INSERT INTO rpg_inventory VALUES(?,?,?,?)", (guild_id,user_id,item,qty))
+            await db.execute("INSERT OR IGNORE INTO rpg_inventory VALUES(?,?,?,?)",(guild_id,user_id,"forest_egg",1))
             for slot,skill_key in enumerate(("skill_1","skill_2","skill_3"),1):
                 await db.execute("INSERT OR IGNORE INTO rpg_skill_loadout(guild_id,user_id,slot,skill_key) VALUES(?,?,?,?)",(guild_id,user_id,slot,skill_key))
             await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(guild_id,user_id,"horizon_village",time.time(),"starting_area"))
