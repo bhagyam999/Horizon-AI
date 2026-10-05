@@ -34,3 +34,32 @@
   .tabs{display:none}
   .panel.mobile-open{left:7px;right:7px;width:auto;bottom:65px;max-height:60vh}
 }
+
+/* Final mobile pass: the world is the game screen; menus are drawers, never full-screen overlays. */
+@media(max-width:800px){
+  .panel.mobile-open{
+    top:auto!important;
+    left:7px!important;
+    right:7px!important;
+    bottom:58px!important;
+    width:auto!important;
+    max-height:38vh!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain;
+    padding:10px!important;
+  }
+  .panel.mobile-open .location-grid,
+  .panel.mobile-open .item-grid,
+  .panel.mobile-open .title-grid{grid-template-columns:1fr}
+  .panel.mobile-open .list-card,
+  .panel.mobile-open .location-card,
+  .panel.mobile-open .dungeon-card{padding:8px}
+  .tabs{display:none!important}
+  .quick-actions{display:none!important}
+  .hero-card{pointer-events:none}
+  .game canvas{z-index:1}
+  .gamebar{z-index:8}
+  .touch-zone,.touch-actions{z-index:12}
+  .panel{z-index:14}
+  .notice{z-index:16}
+}
