@@ -9,8 +9,24 @@ async function api(path,opts={}){
   const headers={"Content-Type":"application/json",...(opts.headers||{})};
   const token=getToken(); if(token) headers.Authorization=`Bearer ${token}`;
   const r=await fetch(API+path,{...opts,headers});
-  if(!r.ok){let msg="Something went wrong.";try{msg=(await r.json()).error||await r.text()||msg}catch{};throw new Error(msg)}
-  return r.json();
+  if(!r.ok){
+    let msg="";
+    try{
+      const raw=await r.text();
+      if(raw){
+        try{
+          const data=JSON.parse(raw);
+          msg=data.error||data.message||data.detail||"";
+        }catch{
+          msg=raw.replace(/<[^>]*>/g," ").replace(/\\s+/g," ").trim();
+        }
+      }
+    }catch{}
+    throw new Error(msg||("Request failed ("+r.status+")."));
+  }
+  const raw=await r.text();
+  if(!raw)return {};
+  try{return JSON.parse(raw)}catch{throw new Error("The server returned an invalid response.")}
 }
 
 const fallbackWorld={locations:[],npcs:[],dungeons:[],titles:[],eggs:[],items:[],shops:[],races:{},classes:{}};
