@@ -780,18 +780,24 @@ class Dashboard:
         except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
         token,error=await self.bot.rpg.web_register(data.get("email",""),data.get("password",""))
         if error: raise web.HTTPBadRequest(text=error)
-        return web.json_response({"token":token,"message":"Account created."})
+        response=web.json_response({"token":token,"message":"Account created."})
+        response.set_cookie("horizon_session",token,httponly=True,secure=True,samesite="Lax",max_age=60*60*24*30,path="/")
+        return response
 
     async def game_login(self, request):
         try: data=await request.json()
         except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
         token,error=await self.bot.rpg.web_login(data.get("email",""),data.get("password",""))
         if error: raise web.HTTPUnauthorized(text=error)
-        return web.json_response({"token":token})
+        response=web.json_response({"token":token})
+        response.set_cookie("horizon_session",token,httponly=True,secure=True,samesite="Lax",max_age=60*60*24*30,path="/")
+        return response
 
     async def game_logout(self, request):
         await self.bot.rpg.web_logout(self._game_token(request))
-        return web.json_response({"ok":True})
+        response=web.json_response({"ok":True})
+        response.del_cookie("horizon_session",path="/")
+        return response
 
     async def game_me(self, request):
         account=await self._game_auth(request)
