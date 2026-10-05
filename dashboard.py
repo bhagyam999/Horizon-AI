@@ -1,11 +1,15 @@
 import json
 import logging
+import hashlib
+import random
 import os
 from pathlib import Path
 
 import aiohttp
 import discord
 from aiohttp import web
+from game_world import LOCATIONS, NPCS, DUNGEONS, TITLES, EGGS, ITEMS, SHOPS
+from rpg import RACES, CLASSES, PET_SPECIES
 
 log = logging.getLogger("horizon.dashboard")
 
@@ -26,6 +30,21 @@ class Dashboard:
             web.get("/", self.website),
             web.get("/rpg", self.website),
             web.get("/health", self.health),
+            web.post("/api/game/auth/register", self.game_register),
+            web.post("/api/game/auth/login", self.game_login),
+            web.post("/api/game/auth/logout", self.game_logout),
+            web.get("/api/game/me", self.game_me),
+            web.get("/api/game/world", self.game_world),
+            web.get("/api/game/state", self.game_state),
+            web.post("/api/game/character", self.game_character),
+            web.post("/api/game/travel", self.game_travel),
+            web.post("/api/game/npc/talk", self.game_npc_talk),
+            web.get("/api/game/shop", self.game_shop),
+            web.post("/api/game/shop/buy", self.game_shop_buy),
+            web.post("/api/game/adventure", self.game_adventure),
+            web.post("/api/game/dungeon", self.game_dungeon),
+            web.post("/api/game/pet/hatch", self.game_pet_hatch),
+            web.post("/api/game/rest", self.game_rest),
             web.get("/api/overview", self.api_overview),
             web.get("/api/member", self.api_member),
             web.get("/api/dashboard/guilds", self.dashboard_guilds),
@@ -613,6 +632,131 @@ class Dashboard:
 
         out=io.BytesIO(); im.convert("RGB").save(out,format="PNG",optimize=True)
         return web.Response(body=out.getvalue(),content_type="image/png",headers={"Cache-Control":"public, max-age=86400"})
+
+    def _game_token(self, request):
+        value=request.headers.get("Authorization","")
+        return value[7:].strip() if value.lower().startswith("bearer ") else request.cookies.get("horizon_session","")
+
+    async def _game_auth(self, request):
+        account=await self.bot.rpg.web_account(self._game_token(request))
+        if not account: raise web.HTTPUnauthorized(text="Please log in.")
+        return account
+
+    async def game_register(self, request):
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        token,error=await self.bot.rpg.web_register(data.get("email",""),data.get("password",""))
+        if error: raise web.HTTPBadRequest(text=error)
+        return web.json_response({"token":token,"message":"Account created."})
+
+    async def game_login(self, request):
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        token,error=await self.bot.rpg.web_login(data.get("email",""),data.get("password",""))
+        if error: raise web.HTTPUnauthorized(text=error)
+        return web.json_response({"token":token})
+
+    async def game_logout(self, request):
+        await self.bot.rpg.web_logout(self._game_token(request))
+        return web.json_response({"ok":True})
+
+    async def game_me(self, request):
+        account=await self._game_auth(request)
+        state=await self.bot.rpg.web_state(account["id"])
+        return web.json_response({"account":account,"character":state["character"]})
+
+    async def game_world(self, request):
+        return web.json_response({"locations":LOCATIONS,"npcs":NPCS,"dungeons":DUNGEONS,"titles":TITLES,"eggs":EGGS,"items":ITEMS,"shops":SHOPS,"races":RACES,"classes":CLASSES})
+
+    async def game_state(self, request):
+        account=await self._game_auth(request)
+        return web.json_response(await self.bot.rpg.web_state(account["id"]))
+
+    async def game_character(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        name=str(data.get("name","")).strip()
+        if not 2<=len(name)<=24: raise web.HTTPBadRequest(text="Hero name must be 2-24 characters.")
+        ok,msg=await self.bot.rpg.create_player(0,account["id"],name,data.get("race","human"),data.get("class_name","warrior"))
+        if not ok: raise web.HTTPConflict(text=msg)
+        return web.json_response(await self.bot.rpg.web_state(account["id"]))
+
+    async def game_travel(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        target=next((x for x in LOCATIONS if x["id"]==data.get("location")),None)
+        if not target: raise web.HTTPNotFound(text="Unknown location.")
+        p=await self.bot.rpg.player(0,account["id"])
+        if not p: raise web.HTTPBadRequest(text="Create a hero first.")
+        if target["id"] not in [x for x in LOCATIONS if x["id"]==p["area_key"]][0]["connections"] and target["id"]!=p["area_key"]:
+            raise web.HTTPBadRequest(text="That location is not connected to your current route.")
+        if int(p["level"])<int(target["level"]): raise web.HTTPForbidden(text=f"You need level {target['level']} to travel there.")
+        async with __import__("aiosqlite").connect(self.bot.rpg.path) as db:
+            await db.execute("UPDATE rpg_players SET location=?,area_key=? WHERE guild_id=0 AND user_id=?",(target["name"],target["id"],account["id"]))
+            await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(0,account["id"],target["id"],__import__("time").time(),"travel"))
+            await db.commit()
+        return web.json_response(await self.bot.rpg.web_state(account["id"]))
+
+    async def game_npc_talk(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        npc=next((x for x in NPCS if x["id"]==data.get("npc")),None)
+        if not npc: raise web.HTTPNotFound(text="NPC not found.")
+        p=await self.bot.rpg.player(0,account["id"])
+        if not p: raise web.HTTPBadRequest(text="Create a hero first.")
+        if p["area_key"]!=npc["location"]: raise web.HTTPBadRequest(text="That NPC is not in your current location.")
+        idx=max(0,min(int(data.get("dialogue",0)),len(npc["dialogues"])-1))
+        return web.json_response({"npc":npc,"dialogue":npc["dialogues"][idx],"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_shop(self, request):
+        await self._game_auth(request)
+        location=request.query.get("location","")
+        shops=[x for x in SHOPS if not location or x["location"]==location]
+        items={x["id"]:x for x in ITEMS}
+        return web.json_response({"shops":[dict(x,products=[items[i] for i in x["items"] if i in items]) for x in shops]})
+
+    async def game_shop_buy(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        ok,msg=await self.bot.rpg.buy(0,account["id"],str(data.get("item","")),max(1,min(99,int(data.get("quantity",1)))))
+        if isinstance(ok,str): msg=ok; ok=False
+        if not ok: raise web.HTTPBadRequest(text=str(msg))
+        return web.json_response({"message":str(msg),"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_adventure(self, request):
+        account=await self._game_auth(request)
+        result=await self.bot.rpg.adventure(0,account["id"])
+        return web.json_response({"result":result,"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_dungeon(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: data={}
+        result=await self.bot.rpg.dungeon(0,account["id"],data.get("dungeon"))
+        return web.json_response({"result":result,"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_pet_hatch(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: data={}
+        egg=str(data.get("egg","forest_egg"))
+        info=next((x for x in EGGS if x["id"]==egg),None)
+        if not info: raise web.HTTPNotFound(text="Unknown egg.")
+        inv=dict(await self.bot.rpg.inventory(0,account["id"]))
+        if inv.get(egg,0)<1: raise web.HTTPBadRequest(text="You don't own that egg.")
+        await self.bot.rpg.remove_item(0,account["id"],egg,1,event_type="egg_hatch")
+        species=random.choice(info["pool"])
+        pet_id=await self.bot.rpg._add_pet_to_inventory(0,account["id"],"New Companion",species,equipped=not bool(await self.bot.rpg.pet_inventory(0,account["id"])))
+        return web.json_response({"pet_id":pet_id,"species":species,"message":f"{species} hatched from the {info['name']}!","state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_rest(self, request):
+        account=await self._game_auth(request)
+        result=await self.bot.rpg.rest(0,account["id"])
+        return web.json_response({"result":result,"state":await self.bot.rpg.web_state(account["id"])})
 
     async def health(self, request):
         return web.json_response({
