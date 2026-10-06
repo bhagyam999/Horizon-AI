@@ -45,6 +45,7 @@ class Dashboard:
             web.get("/api/game/state", self.game_state),
             web.post("/api/game/character", self.game_character),
             web.post("/api/game/travel", self.game_travel),
+            web.post("/api/game/explore/arrive", self.game_explore_arrive),
             web.post("/api/game/npc/talk", self.game_npc_talk),
             web.get("/api/game/shop", self.game_shop),
             web.post("/api/game/shop/buy", self.game_shop_buy),
@@ -815,6 +816,13 @@ class Dashboard:
         state=await self.bot.rpg.web_state(account["id"])
         return web.json_response({"account":account,"character":state["character"]})
 
+
+    async def _game_area_data(self, account_id):
+        p=await self.bot.rpg.player(0,account_id)
+        if not p: return None,None
+        current=next((x for x in LOCATIONS if x["id"]==p["area_key"]),LOCATIONS[0])
+        return p,current
+
     async def game_world(self, request):
         return web.json_response({"locations":LOCATIONS,"npcs":NPCS,"dungeons":DUNGEONS,"titles":TITLES,"eggs":EGGS,"items":ITEMS,"shops":SHOPS,"races":RACES,"classes":CLASSES})
 
@@ -841,16 +849,38 @@ class Dashboard:
         except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
         target=next((x for x in LOCATIONS if x["id"]==data.get("location")),None)
         if not target: raise web.HTTPNotFound(text="Unknown location.")
-        p=await self.bot.rpg.player(0,account["id"])
+        p,current=await self._game_area_data(account["id"])
         if not p: raise web.HTTPBadRequest(text="Create a hero first.")
-        if target["id"] not in [x for x in LOCATIONS if x["id"]==p["area_key"]][0]["connections"] and target["id"]!=p["area_key"]:
-            raise web.HTTPBadRequest(text="That location is not connected to your current route.")
-        if int(p["level"])<int(target["level"]): raise web.HTTPForbidden(text=f"You need level {target['level']} to travel there.")
+        if target["id"]==current["id"]:
+            return web.json_response(await self.bot.rpg.web_state(account["id"]))
+        if target["id"] not in current.get("connections",[]):
+            raise web.HTTPBadRequest(text="That location is not directly connected to your current area.")
+        # Teleportation is a convenience unlocked by physical exploration. It
+        # never bypasses discovery and never requires the hero to meet the
+        # area's combat level just to visit it.
         async with __import__("aiosqlite").connect(self.bot.rpg.path) as db:
+            cur=await db.execute("SELECT 1 FROM rpg_area_discoveries WHERE guild_id=0 AND user_id=? AND area_key=?",(account["id"],target["id"]))
+            if not await cur.fetchone():
+                raise web.HTTPForbidden(text="You have not discovered that area yet. Walk there first to unlock its teleport point.")
             await db.execute("UPDATE rpg_players SET location=?,area_key=? WHERE guild_id=0 AND user_id=?",(target["name"],target["id"],account["id"]))
-            await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(0,account["id"],target["id"],__import__("time").time(),"travel"))
             await db.commit()
         return web.json_response(await self.bot.rpg.web_state(account["id"]))
+
+    async def game_explore_arrive(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        target=next((x for x in LOCATIONS if x["id"]==data.get("location")),None)
+        if not target: raise web.HTTPNotFound(text="Unknown location.")
+        p,current=await self._game_area_data(account["id"])
+        if not p: raise web.HTTPBadRequest(text="Create a hero first.")
+        if target["id"] not in current.get("connections",[]):
+            raise web.HTTPBadRequest(text="That destination is not connected to your current road.")
+        async with __import__("aiosqlite").connect(self.bot.rpg.path) as db:
+            await db.execute("UPDATE rpg_players SET location=?,area_key=? WHERE guild_id=0 AND user_id=?",(target["name"],target["id"],account["id"]))
+            await db.execute("INSERT OR IGNORE INTO rpg_area_discoveries(guild_id,user_id,area_key,discovered_at,source) VALUES(?,?,?,?,?)",(0,account["id"],target["id"],__import__("time").time(),"walking"))
+            await db.commit()
+        return web.json_response({"arrived":True,"area":target,"state":await self.bot.rpg.web_state(account["id"])})
 
     async def game_npc_talk(self, request):
         account=await self._game_auth(request)
@@ -861,6 +891,9 @@ class Dashboard:
         p=await self.bot.rpg.player(0,account["id"])
         if not p: raise web.HTTPBadRequest(text="Create a hero first.")
         if p["area_key"]!=npc["location"]: raise web.HTTPBadRequest(text="That NPC is not in your current location.")
+        area=next((x for x in LOCATIONS if x["id"]==p["area_key"]),None)
+        if area and int(p["level"])<int(area.get("level",1)):
+            raise web.HTTPForbidden(text=f"You can explore **{area['name']}**, but combat and NPC interaction unlock at level {area['level']}.")
         idx=max(0,min(int(data.get("dialogue",0)),len(npc["dialogues"])-1))
         return web.json_response({"npc":npc,"dialogue":npc["dialogues"][idx],"state":await self.bot.rpg.web_state(account["id"])})
 
@@ -901,14 +934,26 @@ class Dashboard:
 
     async def game_adventure(self, request):
         account=await self._game_auth(request)
-        result=await self.bot.rpg.adventure(0,account["id"])
+        p,area=await self._game_area_data(account["id"])
+        if not p: raise web.HTTPBadRequest(text="Create a hero first.")
+        if area and int(p["level"])<int(area.get("level",1)):
+            result={"error":f"This area is beyond your current combat level. You can keep exploring, but battles unlock at level {area['level']}."}
+        else:
+            result=await self.bot.rpg.adventure(0,account["id"])
         return web.json_response({"result":result,"state":await self.bot.rpg.web_state(account["id"])})
 
     async def game_dungeon(self, request):
         account=await self._game_auth(request)
         try: data=await request.json()
         except Exception: data={}
-        result=await self.bot.rpg.dungeon(0,account["id"],data.get("dungeon"))
+        p,area=await self._game_area_data(account["id"])
+        requested=next((x for x in DUNGEONS if x["id"]==data.get("dungeon")),None)
+        if requested and area and requested.get("location")==area.get("id") and int(p["level"])<int(requested.get("level",1)):
+            result={"error":f"This dungeon is sealed until level {requested['level']}."}
+        elif requested and area and requested.get("location")!=area.get("id"):
+            result={"error":"You must physically travel to this dungeon entrance before entering it."}
+        else:
+            result=await self.bot.rpg.dungeon(0,account["id"],requested["name"] if requested else data.get("dungeon"))
         return web.json_response({"result":result,"state":await self.bot.rpg.web_state(account["id"])})
 
     async def game_pet_hatch(self, request):
