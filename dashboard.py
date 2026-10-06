@@ -853,8 +853,8 @@ class Dashboard:
         if not p: raise web.HTTPBadRequest(text="Create a hero first.")
         if target["id"]==current["id"]:
             return web.json_response(await self.bot.rpg.web_state(account["id"]))
-        if target["id"] not in current.get("connections",[]):
-            raise web.HTTPBadRequest(text="That location is not directly connected to your current area.")
+        # Teleportation is global once an area has been physically discovered;
+        # the player does not need to walk the whole road again after unlocking it.
         # Teleportation is a convenience unlocked by physical exploration. It
         # never bypasses discovery and never requires the hero to meet the
         # area's combat level just to visit it.
