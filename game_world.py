@@ -24,6 +24,43 @@ LOCATIONS = [
  {"id":"frostspire","name":"Frostspire","region":"Endgame","level":25,"type":"endgame","description":"A frozen mountain where the oldest secrets of Horizon sleep.","connections":["frostbound_gate"],"shops":[]},
 ]
 
+# ---------------------------------------------------------------------------
+# Overworld metadata.  These values are consumed by the web client to make
+# every region feel like a real place rather than a button in a menu.
+# A normal road crossing is intentionally long: roughly 3-4 minutes of
+# uninterrupted walking at normal player speed.  Level requirements are NOT
+# movement requirements; they only gate combat, NPC interaction and dungeons.
+# ---------------------------------------------------------------------------
+_EXTRA_LOCATIONS = [
+ {"id":"mistwood","name":"Mistwood","region":"Wilds","level":6,"type":"forest","description":"A huge silver-leaf forest where the road disappears beneath fog.","connections":["frostspire","moonlit_grove","verdant_basin"],"shops":[]},
+ {"id":"verdant_basin","name":"Verdant Basin","region":"Wilds","level":8,"type":"fields","description":"A broad green basin crossed by streams, ruins and old caravan roads.","connections":["mistwood","ironroot_mines"],"shops":[]},
+ {"id":"ironroot_mines","name":"Ironroot Mines","region":"Frontier","level":11,"type":"caves","description":"Deep mining roads beneath roots that have grown through ancient stone.","connections":["verdant_basin","shattered_coast"],"shops":["Ironroot Depot"]},
+ {"id":"shattered_coast","name":"Shattered Coast","region":"Ancient","level":14,"type":"coast","description":"A vast broken coastline scattered with shipwrecks and sea caves.","connections":["ironroot_mines","aether_plains"],"shops":[]},
+ {"id":"aether_plains","name":"Aether Plains","region":"Mystic","level":18,"type":"plains","description":"Wide floating-grass plains where fragments of old magic drift through the air.","connections":["shattered_coast","moonrise_plateau"],"shops":[]},
+ {"id":"moonrise_plateau","name":"Moonrise Plateau","region":"Mystic","level":22,"type":"mountain","description":"A high plateau with an enormous view of the frontier below.","connections":["aether_plains","celestial_ruins"],"shops":[]},
+ {"id":"celestial_ruins","name":"Celestial Ruins","region":"Astral","level":27,"type":"ruins","description":"Broken observatories built around stones that fell from the stars.","connections":["moonrise_plateau","dragonbone_expanse"],"shops":[]},
+ {"id":"dragonbone_expanse","name":"Dragonbone Expanse","region":"Ancient","level":32,"type":"graveyard","description":"A continent-sized graveyard of colossal dragon bones.","connections":["celestial_ruins","eclipse_valley"],"shops":[]},
+ {"id":"eclipse_valley","name":"Eclipse Valley","region":"Cursed","level":38,"type":"cursed","description":"A valley caught beneath a permanent eclipse and strange red auroras.","connections":["dragonbone_expanse","void_marsh"],"shops":[]},
+ {"id":"void_marsh","name":"Void Marsh","region":"Void","level":45,"type":"void","description":"A black wetland where paths shift when nobody is looking.","connections":["eclipse_valley","astral_gate"],"shops":[]},
+ {"id":"astral_gate","name":"Astral Gate","region":"Astral","level":52,"type":"sky","description":"A colossal gate hanging in open air above the world.","connections":["void_marsh","worldroot_hollow"],"shops":[]},
+ {"id":"worldroot_hollow","name":"Worldroot Hollow","region":"Mythic","level":60,"type":"mythic","description":"A forest-sized hollow inside roots older than recorded history.","connections":["astral_gate","horizon_expanse"],"shops":[]},
+ {"id":"horizon_expanse","name":"Horizon Expanse","region":"Endgame","level":70,"type":"endgame","description":"A massive frontier where the horizon itself bends into impossible shapes.","connections":["worldroot_hollow","edge_of_reality"],"shops":[]},
+ {"id":"edge_of_reality","name":"Edge of Reality","region":"Endgame","level":82,"type":"void","description":"The final overland frontier before the world gives way to the unknown.","connections":["horizon_expanse","origin_sanctum"],"shops":[]},
+]
+LOCATIONS.extend(_EXTRA_LOCATIONS)
+
+_TERRAIN_BY_TYPE = {
+ "town":"village","wilds":"forest","fields":"meadow","landmark":"ruins","forest":"forest",
+ "mountain":"mountain","ruins":"ruins","steppe":"steppe","lake":"lake","dungeon_gate":"cave",
+ "hub":"road","caves":"cave","city":"city","volcano":"volcano","capital":"city","frontier":"mountain",
+ "endgame":"void","plains":"meadow","coast":"coast","graveyard":"bones","cursed":"eclipse","void":"void","sky":"sky","mythic":"worldroot"
+}
+for _i,_loc in enumerate(LOCATIONS):
+    _loc.setdefault("walk_minutes", 3 + (_i % 2))
+    _loc.setdefault("terrain", _TERRAIN_BY_TYPE.get(_loc.get("type"),"wild"))
+    _loc.setdefault("travel_note","Discovered by walking")
+    _loc.setdefault("teleport_note","Teleport unlocked after discovery")
+
 NPCS = [
  {"id":"mira","name":"Mira","location":"horizon_village","role":"Shopkeeper","portrait":"merchant","dialogues":[
   {"text":"New face? Welcome to Horizon Village. The frontier rewards curiosity, but it punishes carelessness.","choices":["Show me your wares.","Tell me about the village.","Goodbye."],"next":[2,1,-1]},
