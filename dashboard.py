@@ -981,6 +981,38 @@ class Dashboard:
         result=await self.bot.rpg.rest(0,account["id"])
         return web.json_response({"result":result,"state":await self.bot.rpg.web_state(account["id"])})
 
+    async def game_craft(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: raise web.HTTPBadRequest(text="Invalid JSON")
+        ok,msg=await self.bot.rpg.craft(0,account["id"],str(data.get("item","")),max(1,min(10,int(data.get("quantity",1)))))
+        if not ok: raise web.HTTPBadRequest(text=str(msg))
+        return web.json_response({"message":str(msg),"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_gather(self, request):
+        account=await self._game_auth(request)
+        try: data=await request.json()
+        except Exception: data={}
+        ok,msg=await self.bot.rpg.gather(0,account["id"],str(data.get("kind","gather")))
+        if not ok: raise web.HTTPBadRequest(text=str(msg))
+        return web.json_response({"message":str(msg),"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_quests(self, request):
+        account=await self._game_auth(request)
+        return web.json_response({"quests":await self.bot.rpg.quest2_categories(0,account["id"]),"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_skills(self, request):
+        account=await self._game_auth(request)
+        return web.json_response({"skills":await self.bot.rpg.skill_loadout(0,account["id"]),"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_equipment(self, request):
+        account=await self._game_auth(request)
+        return web.json_response({"equipment":await self.bot.rpg.equipment_details(0,account["id"]),"enchants":await self.bot.rpg.equipped_enchants(0,account["id"]),"state":await self.bot.rpg.web_state(account["id"])})
+
+    async def game_professions(self, request):
+        account=await self._game_auth(request)
+        return web.json_response({"professions":await self.bot.rpg.professions(0,account["id"]),"state":await self.bot.rpg.web_state(account["id"])})
+
     async def health(self, request):
         return web.json_response({
             "online": True,
