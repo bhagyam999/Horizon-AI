@@ -49,6 +49,32 @@ _EXTRA_LOCATIONS = [
 ]
 LOCATIONS.extend(_EXTRA_LOCATIONS)
 
+# Stable global coordinates for the overworld. The web client derives the
+# actual road direction from these coordinates instead of assuming connection
+# order is north/east/south/west.
+_WORLD_COORDS = {
+ "horizon_village":(0,0),"whispering_wilds":(140,-80),"sunvale_fields":(140,90),"old_watchtower":(-150,40),
+ "moonlit_grove":(300,-120),"thornwood":(300,-10),"ashen_pass":(300,90),"sunken_ruins":(300,170),
+ "golden_steppe":(470,120),"silverlake":(470,-20),"fae_village":(470,-125),"beast_den":(470,15),
+ "emberfall":(500,210),"drowned_temple":(620,-10),"caravan_crossroads":(650,110),"crystal_caverns":(650,-115),
+ "skyreach":(820,-60),"crimson_caldera":(720,260),"royal_capital":(970,80),"frostbound_gate":(1140,0),"frostspire":(1280,-50),
+ "mistwood":(700,-200),"verdant_basin":(820,-210),"ironroot_mines":(950,-220),"shattered_coast":(1080,-240),
+ "aether_plains":(1210,-230),"moonrise_plateau":(1320,-180),"celestial_ruins":(1420,-120),"dragonbone_expanse":(1510,-40),
+ "eclipse_valley":(1600,50),"void_marsh":(1680,150),"astral_gate":(1790,250),"worldroot_hollow":(1920,180),
+ "horizon_expanse":(2050,80),"edge_of_reality":(2180,-20),
+}
+for _i,_loc in enumerate(LOCATIONS):
+    _loc.setdefault("map_x", _WORLD_COORDS.get(_loc["id"], (_i*80, 0))[0])
+    _loc.setdefault("map_y", _WORLD_COORDS.get(_loc["id"], (_i*80, 0))[1])
+
+# Repair one-way roads introduced by world expansion. Every road is
+# intentionally traversable in both directions.
+_by_id = {x["id"]:x for x in LOCATIONS}
+for _loc in LOCATIONS:
+    for _target in list(_loc.get("connections", [])):
+        if _target in _by_id and _loc["id"] not in _by_id[_target].setdefault("connections", []):
+            _by_id[_target]["connections"].append(_loc["id"])
+
 _TERRAIN_BY_TYPE = {
  "town":"village","wilds":"forest","fields":"meadow","landmark":"ruins","forest":"forest",
  "mountain":"mountain","ruins":"ruins","steppe":"steppe","lake":"lake","dungeon_gate":"cave",
