@@ -10,7 +10,7 @@ from pathlib import Path
 import aiohttp
 import discord
 from aiohttp import web
-from game_world import LOCATIONS, NPCS, DUNGEONS, TITLES, EGGS, ITEMS, SHOPS
+from game_world import LOCATIONS, NPCS, DUNGEONS, TITLES, EGGS, ITEMS, SHOPS, WORLD_SCENES
 from rpg import RACES, CLASSES, PET_SPECIES
 
 log = logging.getLogger("horizon.dashboard")
@@ -830,7 +830,7 @@ class Dashboard:
         return p,current
 
     async def game_world(self, request):
-        return web.json_response({"locations":LOCATIONS,"npcs":NPCS,"dungeons":DUNGEONS,"titles":TITLES,"eggs":EGGS,"items":ITEMS,"shops":SHOPS,"races":RACES,"classes":CLASSES})
+        return web.json_response({"locations":LOCATIONS,"npcs":NPCS,"dungeons":DUNGEONS,"titles":TITLES,"eggs":EGGS,"items":ITEMS,"shops":SHOPS,"races":RACES,"classes":CLASSES,"scenes":WORLD_SCENES})
 
     async def game_state(self, request):
         account=await self._game_auth(request)
