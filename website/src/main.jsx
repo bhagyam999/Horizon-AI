@@ -166,6 +166,28 @@ function Game({world,initial,onLogout}){
     // Local scenery uses fixed WORLD coordinates so buildings and NPCs do not
     // follow the camera when the player walks away.
     const worldToScreen=(wx,wy)=>[w/2+wx-camX,h/2+wy-camY];
+
+    // A chunky pixel-art gateway makes the actual transition point obvious.
+    exits.forEach(e=>{
+      const [dx,dy]=directionVector(e.dir);
+      const [gx,gy]=worldToScreen(dx*7600,dy*7600);
+      const px=-dy,py=dx;
+      ctx.save();
+      ctx.translate(gx,gy);
+      ctx.fillStyle="#3b3028";
+      ctx.fillRect(px*34-dx*8,py*34-dy*8,16,44);
+      ctx.fillRect(-px*34-dx*8,-py*34-dy*8,16,44);
+      ctx.fillStyle="#6f5a43";
+      ctx.fillRect(px*34-dx*10,py*34-dy*10,20,8);
+      ctx.fillRect(-px*34-dx*10,-py*34-dy*10,20,8);
+      ctx.fillStyle="#d8bd72";
+      ctx.fillRect(-18,-8,36,16);
+      ctx.fillStyle="#17241f";
+      ctx.font="bold 7px monospace";
+      ctx.textAlign="center";
+      ctx.fillText((world.locations.find(z=>z.id===e.id)||{}).name||"EXIT",0,3);
+      ctx.restore();
+    });
     const drawBuildingAt=(wx,wy,s,roof)=>{const [x,y]=worldToScreen(wx,wy);drawBuilding(ctx,x,y,s,roof)};
     const drawRockAt=(wx,wy,s=1)=>{const [x,y]=worldToScreen(wx,wy);drawRock(ctx,x,y,s)};
 
@@ -191,11 +213,23 @@ function Game({world,initial,onLogout}){
       ctx.fillStyle="#efb47f";ctx.fillRect(x-7,y-25,14,14);ctx.fillStyle="#3e5368";ctx.fillRect(x-10,y-10,20,25);
       ctx.fillStyle="#eaf5ef";ctx.font="10px monospace";ctx.textAlign="center";ctx.fillText(n.name,x,y-32);
     }
-    // Player sprite with a tiny walking animation.
-    const bob=lastMove.current&&performance.now()-lastMove.current<220?Math.sin(performance.now()/55)*2:0,px=w/2,py=h/2+bob;
-    ctx.fillStyle="rgba(0,0,0,.28)";ctx.fillRect(px-14,py+27,28,5);
-    ctx.fillStyle="#17243b";ctx.fillRect(px-10,py+6,20,20);ctx.fillStyle="#3b9ac2";ctx.fillRect(px-12,py-10,24,18);ctx.fillStyle="#f0b583";ctx.fillRect(px-9,py-27,18,17);ctx.fillStyle="#252b3b";ctx.fillRect(px-10,py-30,20,7);ctx.fillStyle="#8be5ef";ctx.fillRect(px-14,py+27,28,3);
-    ctx.fillStyle="rgba(0,0,0,.45)";ctx.font="bold 11px monospace";ctx.textAlign="center";ctx.fillText(player.name,px,py+43);
+    // Player sprite: chunky pixel silhouette with directional face, limbs and
+    // a small two-frame walk bob so the character reads clearly on mobile.
+    const moving=lastMove.current&&performance.now()-lastMove.current<220;
+    const frame=moving?Math.floor(performance.now()/120)%2:0;
+    const bob=moving?Math.sin(performance.now()/55)*2:0,px=w/2,py=h/2+bob;
+    ctx.fillStyle="rgba(0,0,0,.30)";ctx.fillRect(px-15,py+27,30,6);
+    ctx.fillStyle="#17243b";ctx.fillRect(px-11,py+5,22,21);
+    ctx.fillStyle="#2d405e";ctx.fillRect(px-15,py+8+(frame?2:0),7,17);ctx.fillRect(px+8,py+8+(frame?0:2),7,17);
+    ctx.fillStyle="#3b9ac2";ctx.fillRect(px-13,py-11,26,18);
+    ctx.fillStyle="#f0b583";ctx.fillRect(px-9,py-28,18,17);
+    ctx.fillStyle="#252b3b";ctx.fillRect(px-11,py-31,22,7);
+    ctx.fillStyle="#8be5ef";ctx.fillRect(px-14,py+27,28,3);
+    ctx.fillStyle="#17202d";
+    if(facing.current==="left")ctx.fillRect(px-8,py-22,4,3);
+    else if(facing.current==="right")ctx.fillRect(px+4,py-22,4,3);
+    else ctx.fillRect(px-5,py-22,3,3);
+    ctx.fillStyle="rgba(0,0,0,.55)";ctx.font="bold 11px monospace";ctx.textAlign="center";ctx.fillText(player.name,px,py+43);
   };
   useEffect(()=>{let id,last=performance.now();const loop=t=>{const dt=Math.min(.05,(t-last)/1000);last=t;updateWorld(dt);drawCanvas();id=requestAnimationFrame(loop)};id=requestAnimationFrame(loop);return()=>cancelAnimationFrame(id)},[keys,paused,location?.id,player.name]);
   const travel=async id=>action(()=>api("/travel",{method:"POST",body:JSON.stringify({location:id})}),()=>{pos.current={x:0,y:0};setTab("world");setWorldMap(false);setMobileMenu(false)});
