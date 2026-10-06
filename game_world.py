@@ -53,15 +53,15 @@ LOCATIONS.extend(_EXTRA_LOCATIONS)
 # actual road direction from these coordinates instead of assuming connection
 # order is north/east/south/west.
 _WORLD_COORDS = {
- "horizon_village":(0,0),"whispering_wilds":(140,-80),"sunvale_fields":(140,90),"old_watchtower":(-150,40),
- "moonlit_grove":(300,-120),"thornwood":(300,-10),"ashen_pass":(300,90),"sunken_ruins":(300,170),
- "golden_steppe":(470,120),"silverlake":(470,-20),"fae_village":(470,-125),"beast_den":(470,15),
- "emberfall":(500,210),"drowned_temple":(620,-10),"caravan_crossroads":(650,110),"crystal_caverns":(650,-115),
- "skyreach":(820,-60),"crimson_caldera":(720,260),"royal_capital":(970,80),"frostbound_gate":(1140,0),"frostspire":(1280,-50),
- "mistwood":(700,-200),"verdant_basin":(820,-210),"ironroot_mines":(950,-220),"shattered_coast":(1080,-240),
- "aether_plains":(1210,-230),"moonrise_plateau":(1320,-180),"celestial_ruins":(1420,-120),"dragonbone_expanse":(1510,-40),
- "eclipse_valley":(1600,50),"void_marsh":(1680,150),"astral_gate":(1790,250),"worldroot_hollow":(1920,180),
- "horizon_expanse":(2050,80),"edge_of_reality":(2180,-20),
+ "horizon_village":(0,0),"whispering_wilds":(-1,-1),"sunvale_fields":(-1,1),"old_watchtower":(-2,0),
+ "moonlit_grove":(-2,-1),"thornwood":(-2,-2),"ashen_pass":(-2,1),"sunken_ruins":(-2,2),
+ "golden_steppe":(-3,2),"silverlake":(-3,0),"fae_village":(-3,-1),"beast_den":(-3,-2),
+ "emberfall":(-3,1),"drowned_temple":(-4,0),"caravan_crossroads":(-4,1),"crystal_caverns":(-4,-1),
+ "skyreach":(-5,-1),"crimson_caldera":(-4,2),"royal_capital":(-5,1),"frostbound_gate":(-6,1),"frostspire":(-7,1),
+ "mistwood":(-4,-2),"verdant_basin":(-5,-2),"ironroot_mines":(-6,-2),"shattered_coast":(-7,-2),
+ "aether_plains":(-7,-1),"moonrise_plateau":(-8,-1),"celestial_ruins":(-8,0),"dragonbone_expanse":(-9,0),
+ "eclipse_valley":(-9,1),"void_marsh":(-10,1),"astral_gate":(-11,1),"worldroot_hollow":(-12,1),
+ "horizon_expanse":(-13,1),"edge_of_reality":(-14,1),
 }
 for _i,_loc in enumerate(LOCATIONS):
     _loc.setdefault("map_x", _WORLD_COORDS.get(_loc["id"], (_i*80, 0))[0])
@@ -86,6 +86,45 @@ for _i,_loc in enumerate(LOCATIONS):
     _loc.setdefault("terrain", _TERRAIN_BY_TYPE.get(_loc.get("type"),"wild"))
     _loc.setdefault("travel_note","Discovered by walking")
     _loc.setdefault("teleport_note","Teleport unlocked after discovery")
+
+# Location-specific visual identity consumed by the web client.
+WORLD_SCENES = {
+ "horizon_village":{"biome":"village","weather":["clear","rain","fog"],"structures":["houses","inn","smithy","guild"],"landmarks":["village_square","windmill"],"road":"stone"},
+ "whispering_wilds":{"biome":"forest","weather":["fog","rain","clear"],"structures":["forest_shrine"],"landmarks":["ancient_trees","mossy_stones"],"road":"dirt"},
+ "sunvale_fields":{"biome":"farmland","weather":["clear","rain","fog"],"structures":["farmhouses","barn"],"landmarks":["windmill","haystacks"],"road":"dirt"},
+ "old_watchtower":{"biome":"watchtower","weather":["clear","fog","rain"],"structures":["watchtower","ruined_wall"],"landmarks":["signal_fire"],"road":"stone"},
+ "moonlit_grove":{"biome":"enchanted_forest","weather":["fog","clear","rain"],"structures":["fae_shrine"],"landmarks":["giant_moon_tree","fireflies"],"road":"root"},
+ "thornwood":{"biome":"thorn_forest","weather":["fog","rain"],"structures":["hunter_camp"],"landmarks":["thorn_brambles","fallen_logs"],"road":"dirt"},
+ "ashen_pass":{"biome":"mountain","weather":["fog","rain","clear"],"structures":["road_fort"],"landmarks":["cliffs","ash_pines"],"road":"stone"},
+ "sunken_ruins":{"biome":"ruins","weather":["rain","fog"],"structures":["sunken_arch"],"landmarks":["broken_columns","flooded_streets"],"road":"stone"},
+ "golden_steppe":{"biome":"steppe","weather":["clear","wind","rain"],"structures":["caravan_camp"],"landmarks":["grass_sea","stone_markers"],"road":"dirt"},
+ "silverlake":{"biome":"lake","weather":["fog","clear","rain"],"structures":["lake_houses","docks"],"landmarks":["lighthouse","fishing_boats"],"road":"stone"},
+ "fae_village":{"biome":"fae","weather":["fog","clear"],"structures":["fae_houses","glowing_gates"],"landmarks":["mushroom_rings","lantern_trees"],"road":"glow"},
+ "beast_den":{"biome":"cavern","weather":["fog"],"structures":["cave_gate"],"landmarks":["bones","claw_marks"],"road":"rock"},
+ "emberfall":{"biome":"volcanic_town","weather":["ash","clear"],"structures":["forge","lava_houses"],"landmarks":["lava_channel","smokestacks"],"road":"basalt"},
+ "drowned_temple":{"biome":"underwater_ruins","weather":["rain","fog"],"structures":["temple_gate"],"landmarks":["waterfall","statues"],"road":"stone"},
+ "caravan_crossroads":{"biome":"crossroads","weather":["clear","rain","wind"],"structures":["caravan_stalls","inn"],"landmarks":["road_marker","campfires"],"road":"cobble"},
+ "crystal_caverns":{"biome":"crystal_cave","weather":["fog"],"structures":["crystal_entrance"],"landmarks":["giant_crystals","ore_veins"],"road":"crystal"},
+ "skyreach":{"biome":"cliff_city","weather":["clear","fog","wind"],"structures":["cliff_houses","sky_docks"],"landmarks":["great_bridge","airships"],"road":"stone"},
+ "crimson_caldera":{"biome":"volcano","weather":["ash","clear"],"structures":["volcanic_gate"],"landmarks":["lava_lake","dragon_roost"],"road":"basalt"},
+ "royal_capital":{"biome":"kingdom","weather":["clear","rain","fog"],"structures":["castle","market","guildhall","residences"],"landmarks":["royal_palace","city_gate"],"road":"cobble"},
+ "frostbound_gate":{"biome":"snow_outpost","weather":["snow","fog"],"structures":["fortress_gate","inn"],"landmarks":["ice_barricades","beacon"],"road":"ice"},
+ "frostspire":{"biome":"frost_mountains","weather":["snow","fog"],"structures":["ice_fort"],"landmarks":["frozen_peaks","ancient_statues"],"road":"ice"},
+ "mistwood":{"biome":"mist_forest","weather":["fog","rain"],"structures":["ranger_camp"],"landmarks":["silver_trees","mist_pool"],"road":"root"},
+ "verdant_basin":{"biome":"verdant","weather":["clear","rain"],"structures":["ruined_bridge"],"landmarks":["waterfalls","giant_ferns"],"road":"dirt"},
+ "ironroot_mines":{"biome":"mine","weather":["fog"],"structures":["mine_entrance","ore_lifts"],"landmarks":["ironroot_tree","ore_veins"],"road":"rail"},
+ "shattered_coast":{"biome":"coast","weather":["rain","wind","clear"],"structures":["fishing_village","lighthouse"],"landmarks":["shipwrecks","sea_cliffs"],"road":"sand"},
+ "aether_plains":{"biome":"aether","weather":["clear","wind"],"structures":["sky_shrine"],"landmarks":["floating_islands","aether_rifts"],"road":"light"},
+ "moonrise_plateau":{"biome":"highlands","weather":["fog","clear","snow"],"structures":["mountain_camp"],"landmarks":["moonstone","cliffs"],"road":"stone"},
+ "celestial_ruins":{"biome":"celestial","weather":["fog","clear"],"structures":["observatory"],"landmarks":["fallen_stars","astral_arch"],"road":"marble"},
+ "dragonbone_expanse":{"biome":"dragon_graveyard","weather":["wind","fog"],"structures":["bone_camp"],"landmarks":["colossal_skulls","dragon_ribs"],"road":"bone"},
+ "eclipse_valley":{"biome":"eclipse","weather":["fog","ash"],"structures":["eclipse_shrine"],"landmarks":["black_sun","red_crystals"],"road":"dark"},
+ "void_marsh":{"biome":"void_marsh","weather":["fog","rain"],"structures":["marsh_camp"],"landmarks":["black_water","void_lilies"],"road":"wood"},
+ "astral_gate":{"biome":"astral","weather":["clear","fog"],"structures":["gate_platform"],"landmarks":["giant_portal","floating_stones"],"road":"light"},
+ "worldroot_hollow":{"biome":"worldroot","weather":["fog","rain"],"structures":["root_village"],"landmarks":["colossal_roots","glowing_sap"],"road":"root"},
+ "horizon_expanse":{"biome":"endgame","weather":["clear","fog","ash"],"structures":["frontier_camp"],"landmarks":["broken_horizon","monoliths"],"road":"stone"},
+ "edge_of_reality":{"biome":"reality_edge","weather":["fog","clear"],"structures":["last_outpost"],"landmarks":["reality_rift","floating_rocks"],"road":"void"}
+}
 
 NPCS = [
  {"id":"mira","name":"Mira","location":"horizon_village","role":"Shopkeeper","portrait":"merchant","dialogues":[
