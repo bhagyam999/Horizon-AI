@@ -102,17 +102,20 @@ function Game({world,initial,onLogout}){
     x/=m;y/=m;
     if(Math.abs(x)>Math.abs(y))facing.current=x>0?"right":"left";else facing.current=y>0?"down":"up";
     lastMove.current=performance.now();
-    // Roads are short enough to feel like actual traversal, not a loading screen.
-    // A full straight run takes roughly 50–60 seconds at normal speed.
+    // Reach the broad road gateway rather than a pixel-perfect coordinate.
+    // A straight road now takes roughly 45–55 seconds.
     const speed=165;
     const worldLimit=9000;
-    const exitTrigger=8400;
+    const exitTrigger=7600;
+    const roadHalfWidth=1900;
     pos.current.x=Math.max(-worldLimit,Math.min(worldLimit,pos.current.x+x*speed*dt));
     pos.current.y=Math.max(-worldLimit,Math.min(worldLimit,pos.current.y+y*speed*dt));
     const exits=exitDirections(location);
     const hit=exits.find(e=>{
       const [dx,dy]=directionVector(e.dir);
-      return (dx>0&&pos.current.x>=exitTrigger)||(dx<0&&pos.current.x<=-exitTrigger)||(dy>0&&pos.current.y>=exitTrigger)||(dy<0&&pos.current.y<=-exitTrigger);
+      const forward=pos.current.x*dx+pos.current.y*dy;
+      const lateral=Math.abs(pos.current.x*dy-pos.current.y*dx);
+      return forward>=exitTrigger && lateral<=roadHalfWidth;
     });
     if(hit)arrive(hit.id);
   };
@@ -155,7 +158,7 @@ function Game({world,initial,onLogout}){
       const roadLength=10000;
       ctx.strokeStyle="#b99b68";ctx.lineWidth=22;ctx.beginPath();ctx.moveTo(w/2-dx*roadLength-camX,h/2-dy*roadLength-camY);ctx.lineTo(w/2+dx*roadLength-camX,h/2+dy*roadLength-camY);ctx.stroke();
       ctx.strokeStyle="#d9c38d";ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(w/2-dx*roadLength-camX,h/2-dy*roadLength-camY);ctx.lineTo(w/2+dx*roadLength-camX,h/2+dy*roadLength-camY);ctx.stroke();
-      const gx=w/2+dx*8000-camX,gy=h/2+dy*8000-camY;
+      const gx=w/2+dx*7600-camX,gy=h/2+dy*7600-camY;
       ctx.fillStyle="#2b4439";ctx.fillRect(gx-18,gy-18,36,36);ctx.fillStyle="#e2cf91";ctx.fillRect(gx-7,gy-7,14,14);
       ctx.fillStyle="#f0ead0";ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.fillText((world.locations.find(z=>z.id===e.id)||{}).name||"Road",gx,gy-27);
     });
@@ -208,7 +211,8 @@ function Game({world,initial,onLogout}){
   const joystickMove=e=>{if(touch.current.id!==e.pointerId)return;e.preventDefault();updateStick(joyRef.current,e)};
   const stopTouch=e=>{if(touch.current.id!==null&&e.pointerId!==touch.current.id)return;e.preventDefault();touch.current.id=null;touch.current.x=0;touch.current.y=0;const k=joyRef.current?.querySelector("span");if(k)k.style.transform="translate(-50%,-50%)";joyRef.current=null};
 
-  const mapNodes=world.locations.map((l,i)=>({...l,mx:70+(i%6)*17,my:16+Math.floor(i/6)*20}));
+  const mapNodes=world.locations.map((l,i)=>({...l,mx:12+(i%4)*25.3,my:12+Math.floor(i/4)*21.5}));
+  const mapPoint=id=>mapNodes.find(n=>n.id===id);
   if(!player)return null;
   return <div className="game">
     <canvas ref={canvas}/>
@@ -217,7 +221,7 @@ function Game({world,initial,onLogout}){
     <div className="area-banner"><b>{location?.name}</b><span>Lv {location?.level} zone · {canFight?"Combat available":"Exploration only — combat locked"}</span></div>
     <nav className="tabs">{[["world","WORLD"],["quests","QUESTS"],["inventory","INVENTORY"],["pets","PETS"],["titles","TITLES"],["dungeons","DUNGEONS"]].map(([k,v])=><button className={tab===k?"active":""} onClick={()=>setTab(k)} key={k}>{v}</button>)}</nav>
     <section className={"panel "+(mobileMenu?"mobile-open":"")}><div className="panel-head"><h2>{tab==="world"?location?.name:tab.toUpperCase()}</h2><button className="panel-close" onClick={()=>setMobileMenu(false)} aria-label="Close menu">×</button></div><div className="mobile-menu-nav">{[["world","WORLD"],["quests","QUESTS"],["inventory","INVENTORY"],["pets","PETS"],["titles","TITLES"],["dungeons","DUNGEONS"]].map(([k,v])=><button className={tab===k?"active":""} onClick={()=>setTab(k)} key={k}>{v}</button>)}</div>
-      {tab==="world"&&<><p>{location?.description}</p><div className="world-status"><b>{canFight?"FULL ACCESS":"EXPLORATION MODE"}</b><span>Follow a road for about 1 minute to reach the next area. Reach it once to unlock teleport.</span></div><div className="npc-list"><h3>People here</h3>{localNpcs.map(n=><button disabled={!canFight} onClick={()=>talk(n)} className="list-card" key={n.id}><span className="npc-icon">{n.name[0]}</span><span><b>{n.name}</b><small>{n.role}</small></span><em>{canFight?"TALK":"LOCKED"}</em></button>)}</div><h3>Roads</h3><div className="location-grid">{exitDirections(location).map(e=>{const x=world.locations.find(z=>z.id===e.id);return x?<button className="location-card road-card" onClick={()=>setNotice("Follow the "+e.dir+" road — do not teleport yet. Walk there to unlock it.")} key={x.id}><b>{x.name}</b><small>{e.dir.toUpperCase()} · Lv {x.level} · ~1 min walk</small><em>{discovered.has(x.id)?"TELEPORT UNLOCKED":"WALK TO DISCOVER"}</em></button>:null})}</div><button className="map-open" onClick={()=>setWorldMap(true)}>OPEN WORLD MAP</button></>}
+      {tab==="world"&&<><p>{location?.description}</p><div className="world-status"><b>{canFight?"FULL ACCESS":"EXPLORATION MODE"}</b><span>Walk into the marked road gate (~45–55 sec). Reaching it unlocks teleport.</span></div><div className="npc-list"><h3>People here</h3>{localNpcs.map(n=><button disabled={!canFight} onClick={()=>talk(n)} className="list-card" key={n.id}><span className="npc-icon">{n.name[0]}</span><span><b>{n.name}</b><small>{n.role}</small></span><em>{canFight?"TALK":"LOCKED"}</em></button>)}</div><h3>Roads</h3><div className="location-grid">{exitDirections(location).map(e=>{const x=world.locations.find(z=>z.id===e.id);return x?<button className="location-card road-card" onClick={()=>setNotice("Follow the "+e.dir+" road — do not teleport yet. Walk there to unlock it.")} key={x.id}><b>{x.name}</b><small>{e.dir.toUpperCase()} · Lv {x.level} · ~45–55 sec walk</small><em>{discovered.has(x.id)?"TELEPORT UNLOCKED":"WALK TO DISCOVER"}</em></button>:null})}</div><button className="map-open" onClick={()=>setWorldMap(true)}>OPEN WORLD MAP</button></>}
       {tab==="inventory"&&<><h2>Inventory</h2><div className="item-grid">{state.inventory?.map(i=>{const x=(world.items?.[i.item_key]||world.items?.find?.(z=>z.id===i.item_key))||{id:i.item_key,name:i.item_key,rarity:"Common",slot:"material"};const slot=x.slot||x.category;const consumable=slot==="consumable"||slot==="food";const equippable=["weapon","armor","offhand","accessory","ring","amulet","relic"].includes(slot);return <button className="item" onClick={()=>consumable?useItem(i):equippable?equipItem(i):setNotice("That item is a material and cannot be used directly.")} key={i.item_key}><b>{x.name}</b><small>{x.rarity} · ×{i.quantity}</small><em>{consumable?"USE":equippable?"EQUIP":"MATERIAL"}</em></button>})}</div><h3>Equipment</h3><p className="muted">Gear, upgrades and intrinsic properties persist with your hero.</p></>}
       {tab==="pets"&&<><h2>Pets & Eggs</h2><div className="pet-list">{state.pets?.map(p=><div className="pet item" key={p.pet_id}><b>{p.name}</b><small>{p.species} · Lv {p.level}{p.equipped?" · EQUIPPED":""}</small></div>)}</div><h3>Eggs</h3><div className="item-grid">{world.eggs.map(e=>state.inventory?.find(i=>i.item_key===e.id)?.quantity?<button className="item" onClick={()=>hatch(e.id)} key={e.id}><b>{e.name}</b><small>{e.rarity} · HATCH</small></button>:null)}</div></>}
       {tab==="titles"&&<><h2>Titles & Achievements</h2><div className="title-grid">{world.titles.map(t=><div className="title-card" key={t.id}><b>{t.name}</b><small>{t.condition}</small></div>)}</div></>}
@@ -230,7 +234,25 @@ function Game({world,initial,onLogout}){
     {adventure&&<div className="modal"><div className="dialog"><button className="close" onClick={()=>setAdventure(null)}>×</button><h2>{adventure.win?"Adventure Complete":"Adventure Failed"}</h2><p className="muted">{adventure.enemy?.name||"Encounter"}</p><div className="run-log">{(adventure.log||[]).map((x,i)=><p key={i}>{clean(x)}</p>)}</div>{adventure.win?<div className="reward">Victory · +{adventure.xp||0} XP · +{adventure.gold||0} G · {adventure.drop||"loot"}</div>:<div className="reward">You survived and recovered. A Life Potion was added.</div>}</div></div>}
     {shop&&<div className="modal"><div className="dialog"><button className="close" onClick={()=>setShop(null)}>×</button><h2>{shop.name}</h2>{shop.products.map(i=><button className="shop-row" onClick={()=>buy(i.id)} key={i.id}><span><b>{i.name}</b><small>{i.rarity}</small></span><em>{i.price} G</em></button>)}</div></div>}
     {dungeon&&<div className="modal"><div className="dialog"><button className="close" onClick={()=>setDungeon(null)}>×</button><h2>{dungeon.result?.name||"Dungeon Run"}</h2><div className="run-log">{(dungeon.result?.log||[]).map((x,i)=><p key={i}>{clean(x)}</p>)}</div>{dungeon.result?.win&&<div className="reward">Victory · +{dungeon.result.xp} XP · +{dungeon.result.gold} G</div>}</div></div>}
-    {worldMap&&<div className="modal world-map-modal"><div className="world-map-dialog"><button className="close" onClick={()=>setWorldMap(false)}>×</button><div className="map-title"><div><p className="eyebrow">THE FRONTIER</p><h2>World Map</h2><small>{discovered.size}/{world.locations.length} areas discovered · discovered areas are teleportable</small></div></div><div className="map-canvas">{mapNodes.map((n,i)=>{const isDiscovered=discovered.has(n.id),isCurrent=n.id===location.id;return <React.Fragment key={n.id}><div className={"map-node "+(isDiscovered?"discovered ":"")+" "+(isCurrent?"current":"")} style={{left:n.mx+"%",top:n.my+"%"}} onClick={()=>isDiscovered?travel(n.id):setNotice("Undiscovered. Walk there first.")}><span>{isCurrent?"★":isDiscovered?"◆":"?"}</span><b>{n.name}</b><small>Lv {n.level}</small></div></React.Fragment>})}</div><div className="map-legend"><span>◆ Discovered / teleportable</span><span>★ Current area</span><span>? Unknown — walk there</span></div></div></div>}
+    {worldMap&&<div className="modal world-map-modal"><div className="world-map-dialog"><button className="close" onClick={()=>setWorldMap(false)}>×</button><div className="map-title"><div><p className="eyebrow">THE FRONTIER</p><h2>World Map</h2><small>{discovered.size}/{world.locations.length} areas discovered · discovered areas are teleportable</small></div></div><div className="map-canvas">
+  <svg className="map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+    {mapNodes.map(n=>(n.connections||[]).map(id=>{
+      const target=mapPoint(id);
+      if(!target || n.id>id)return null;
+      return <line key={n.id+"-"+id} x1={n.mx} y1={n.my} x2={target.mx} y2={target.my}
+        className={(discovered.has(n.id)&&discovered.has(id))?"known-link":"unknown-link"}/>;
+    }))}
+  </svg>
+  {mapNodes.map(n=>{
+    const isDiscovered=discovered.has(n.id),isCurrent=n.id===location.id;
+    return <button type="button" key={n.id}
+      className={"map-node "+(isDiscovered?"discovered ":"")+(isCurrent?"current ":"")+(isDiscovered?"":"unknown")}
+      style={{left:n.mx+"%",top:n.my+"%"}}
+      onClick={()=>isDiscovered?travel(n.id):setNotice(n.name+" is undiscovered. Walk there first to unlock it.")}>
+      <span>{isCurrent?"★":isDiscovered?"◆":"?"}</span><b>{n.name}</b><small>Lv {n.level}</small>
+    </button>;
+  })}
+</div><div className="map-legend"><span>◆ Discovered / teleportable</span><span>★ Current area</span><span>? Unknown — walk there</span></div></div></div>}
     <div className="notice">{notice}</div>
     {paused&&<div className="pause-screen"><h1>PAUSED</h1><button className="primary" onClick={()=>setPaused(false)}>CONTINUE</button></div>}
   </div>
