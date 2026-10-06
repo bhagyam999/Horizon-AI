@@ -46,6 +46,8 @@ _EXTRA_LOCATIONS = [
  {"id":"worldroot_hollow","name":"Worldroot Hollow","region":"Mythic","level":60,"type":"mythic","description":"A forest-sized hollow inside roots older than recorded history.","connections":["astral_gate","horizon_expanse"],"shops":[]},
  {"id":"horizon_expanse","name":"Horizon Expanse","region":"Endgame","level":70,"type":"endgame","description":"A massive frontier where the horizon itself bends into impossible shapes.","connections":["worldroot_hollow","edge_of_reality"],"shops":[]},
  {"id":"edge_of_reality","name":"Edge of Reality","region":"Endgame","level":82,"type":"void","description":"The final overland frontier before the world gives way to the unknown.","connections":["horizon_expanse","origin_sanctum"],"shops":[]},
+ {"id":"sunscorch_desert","name":"Sunscorch Desert","region":"Frontier","level":9,"type":"desert","description":"A blazing desert crossed by buried roads, nomad camps and ancient stone gates.","connections":["golden_steppe","caravan_crossroads"],"shops":["Sunscorch Caravan"]},
+
 ]
 LOCATIONS.extend(_EXTRA_LOCATIONS)
 
@@ -61,7 +63,7 @@ _WORLD_COORDS = {
  "mistwood":(-4,-2),"verdant_basin":(-5,-2),"ironroot_mines":(-6,-2),"shattered_coast":(-7,-2),
  "aether_plains":(-7,-1),"moonrise_plateau":(-8,-1),"celestial_ruins":(-8,0),"dragonbone_expanse":(-9,0),
  "eclipse_valley":(-9,1),"void_marsh":(-10,1),"astral_gate":(-11,1),"worldroot_hollow":(-12,1),
- "horizon_expanse":(-13,1),"edge_of_reality":(-14,1),
+ "horizon_expanse":(-13,1),"edge_of_reality":(-14,1),"sunscorch_desert":(-3,3),
 }
 for _i,_loc in enumerate(LOCATIONS):
     _loc.setdefault("map_x", _WORLD_COORDS.get(_loc["id"], (_i*80, 0))[0])
@@ -123,7 +125,8 @@ WORLD_SCENES = {
  "astral_gate":{"biome":"astral","weather":["clear","fog"],"structures":["gate_platform"],"landmarks":["giant_portal","floating_stones"],"road":"light"},
  "worldroot_hollow":{"biome":"worldroot","weather":["fog","rain"],"structures":["root_village"],"landmarks":["colossal_roots","glowing_sap"],"road":"root"},
  "horizon_expanse":{"biome":"endgame","weather":["clear","fog","ash"],"structures":["frontier_camp"],"landmarks":["broken_horizon","monoliths"],"road":"stone"},
- "edge_of_reality":{"biome":"reality_edge","weather":["fog","clear"],"structures":["last_outpost"],"landmarks":["reality_rift","floating_rocks"],"road":"void"}
+ "edge_of_reality":{"biome":"reality_edge","weather":["fog","clear"],"structures":["last_outpost"],"landmarks":["reality_rift","floating_rocks"],"road":"void"},
+ "sunscorch_desert":{"biome":"desert","weather":["clear","wind","ash"],"structures":["nomad_camp","desert_gate"],"landmarks":["giant_dunes","buried_ruins","oasis"],"road":"sand"}
 }
 
 NPCS = [
@@ -155,6 +158,13 @@ NPCS = [
   {"text":"Something enormous moved under the lake last night. I didn't sleep after that.","choices":["What did you see?","Need any help?","Goodbye."]}]},
  {"id":"sera","name":"Sera","location":"skyreach","role":"Arena Master","portrait":"warrior","dialogues":[
   {"text":"Strength isn't enough up here. Build a style that can survive when everything goes wrong.","choices":["Enter the arena.","Teach me.","Goodbye."]}]},
+ {"id":"tarek","name":"Tarek","location":"sunscorch_desert","role":"Desert Guide","portrait":"scout","dialogues":[{"text":"Follow the stone markers. The dunes move, but the old road does not.","choices":["Guide me.","Where is the oasis?","Goodbye."}] ]},
+ {"id":"vesa","name":"Vesa","location":"crystal_caverns","role":"Crystal Miner","portrait":"miner","dialogues":[{"text":"Every color of crystal has a different resonance. Blue ones hum when monsters are near.","choices":["Show me the mine.","What should I collect?","Goodbye."}] ]},
+ {"id":"rowan","name":"Rowan","location":"old_watchtower","role":"Ranger","portrait":"scout","dialogues":[{"text":"This tower used to guard three kingdoms. Now I mostly watch monsters cross the valley.","choices":["What kingdoms?","Need help?","Goodbye."}] ]},
+ {"id":"maris","name":"Maris","location":"royal_capital","role":"Royal Guard","portrait":"guard","dialogues":[{"text":"Aurelia is more than a capital. It is the last city where every road still has a name.","choices":["Tell me about the kingdom.","Where is the royal district?","Goodbye."}] ]},
+ {"id":"dorin","name":"Dorin","location":"ironroot_mines","role":"Mine Foreman","portrait":"miner","dialogues":[{"text":"The roots down here are older than the mine. Don't cut anything that glows.","choices":["What can I mine?","Why are the roots moving?","Goodbye."}] ]},
+ {"id":"lyra","name":"Lyra","location":"shattered_coast","role":"Harbor Master","portrait":"villager","dialogues":[{"text":"The tide has been carrying strange crystals onto the shore. Somebody is waking up beneath the sea.","choices":["What did you find?","Show me the harbor.","Goodbye."}] ]},
+ {"id":"kaia","name":"Kaia","location":"frostspire","role":"Ice Oracle","portrait":"mage","dialogues":[{"text":"The mountain does not want visitors. The mountain remembers them.","choices":["What is at the summit?","Can I survive the climb?","Goodbye."}] ]},
  {"id":"eldra","name":"Eldra","location":"frostbound_gate","role":"Gatekeeper","portrait":"guard","dialogues":[
   {"text":"Few travelers return from Frostspire. Those who do never describe what they found the same way twice.","choices":["I'm going north.","What is in Frostspire?","Goodbye."]}]},
 ]
