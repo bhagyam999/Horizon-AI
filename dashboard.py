@@ -10,7 +10,7 @@ from pathlib import Path
 import aiohttp
 import discord
 from aiohttp import web
-from game_world import LOCATIONS, NPCS, DUNGEONS, TITLES, EGGS, ITEMS, SHOPS
+from game_world import LOCATIONS, NPCS, DUNGEONS, TITLES, EGGS, ITEMS, SHOPS, WORLD_LANDMARKS
 from rpg import RACES, CLASSES, PET_SPECIES
 
 log = logging.getLogger("horizon.dashboard")
