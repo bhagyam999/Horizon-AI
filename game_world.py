@@ -27,8 +27,8 @@ LOCATIONS = [
 # ---------------------------------------------------------------------------
 # Overworld metadata.  These values are consumed by the web client to make
 # every region feel like a real place rather than a button in a menu.
-# A normal road crossing is intentionally long: roughly 3-4 minutes of
-# uninterrupted walking at normal player speed.  Level requirements are NOT
+# A normal road crossing is intentionally short: roughly 1 minute of
+# uninterrupted walking at normal player speed. Level requirements are NOT
 # movement requirements; they only gate combat, NPC interaction and dungeons.
 # ---------------------------------------------------------------------------
 _EXTRA_LOCATIONS = [
@@ -56,7 +56,7 @@ _TERRAIN_BY_TYPE = {
  "endgame":"void","plains":"meadow","coast":"coast","graveyard":"bones","cursed":"eclipse","void":"void","sky":"sky","mythic":"worldroot"
 }
 for _i,_loc in enumerate(LOCATIONS):
-    _loc.setdefault("walk_minutes", 3 + (_i % 2))
+    _loc.setdefault("walk_minutes", 1)
     _loc.setdefault("terrain", _TERRAIN_BY_TYPE.get(_loc.get("type"),"wild"))
     _loc.setdefault("travel_note","Discovered by walking")
     _loc.setdefault("teleport_note","Teleport unlocked after discovery")
