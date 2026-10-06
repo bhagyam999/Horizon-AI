@@ -2662,13 +2662,16 @@ class RPGService:
                 await db.commit()
             p=await self.player(0,account_id)
         inv=[{"item_key": x[0], "quantity": x[1]} for x in await self.inventory(0,account_id)]
+        async with aiosqlite.connect(self.path) as db:
+            cur=await db.execute("SELECT area_key FROM rpg_area_discoveries WHERE guild_id=0 AND user_id=? ORDER BY discovered_at",(account_id,))
+            discovered=[row[0] for row in await cur.fetchall()]
         pets=await self.pet_inventory(0,account_id)
         # title_list/achievement_list return plain SQLite tuples, not Row objects.
         # Keep the web state JSON-shaped without relying on dict(tuple), which
         # raises ValueError and can turn an otherwise successful action into HTTP 500.
         titles=[{"title_key": x[0], "unlocked_at": x[1]} for x in await self.title_list(0,account_id)]
         achievements=[{"achievement_key": x[0], "unlocked_at": x[1]} for x in await self.achievement_list(0,account_id)]
-        return {"account":{"id":account_id},"character":p,"inventory":inv,"pets":pets,"titles":titles,"achievements":achievements}
+        return {"account":{"id":account_id},"character":p,"inventory":inv,"pets":pets,"titles":titles,"achievements":achievements,"discovered_areas":discovered}
 
     async def player(self, guild_id: int, user_id: int):
         async with aiosqlite.connect(self.path) as db:
