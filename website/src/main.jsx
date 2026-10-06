@@ -102,13 +102,17 @@ function Game({world,initial,onLogout}){
     x/=m;y/=m;
     if(Math.abs(x)>Math.abs(y))facing.current=x>0?"right":"left";else facing.current=y>0?"down":"up";
     lastMove.current=performance.now();
-    const speed=145;
-    pos.current.x=Math.max(-26000,Math.min(26000,pos.current.x+x*speed*dt));
-    pos.current.y=Math.max(-26000,Math.min(26000,pos.current.y+y*speed*dt));
+    // Roads are short enough to feel like actual traversal, not a loading screen.
+    // A full straight run takes roughly 50–60 seconds at normal speed.
+    const speed=165;
+    const worldLimit=9000;
+    const exitTrigger=8400;
+    pos.current.x=Math.max(-worldLimit,Math.min(worldLimit,pos.current.x+x*speed*dt));
+    pos.current.y=Math.max(-worldLimit,Math.min(worldLimit,pos.current.y+y*speed*dt));
     const exits=exitDirections(location);
     const hit=exits.find(e=>{
       const [dx,dy]=directionVector(e.dir);
-      return (dx>0&&pos.current.x>=25500)||(dx<0&&pos.current.x<=-25500)||(dy>0&&pos.current.y>=25500)||(dy<0&&pos.current.y<=-25500);
+      return (dx>0&&pos.current.x>=exitTrigger)||(dx<0&&pos.current.x<=-exitTrigger)||(dy>0&&pos.current.y>=exitTrigger)||(dy<0&&pos.current.y<=-exitTrigger);
     });
     if(hit)arrive(hit.id);
   };
@@ -148,25 +152,49 @@ function Game({world,initial,onLogout}){
     const exits=exitDirections(location);
     exits.forEach((e,i)=>{
       const [dx,dy]=directionVector(e.dir);
-      ctx.strokeStyle="#b99b68";ctx.lineWidth=22;ctx.beginPath();ctx.moveTo(w/2-dx*30000-camX*0.0,h/2-dy*30000-camY*0.0);ctx.lineTo(w/2+dx*30000-camX,h/2+dy*30000-camY);ctx.stroke();
-      ctx.strokeStyle="#d9c38d";ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(w/2-dx*30000-camX,h/2-dy*30000-camY);ctx.lineTo(w/2+dx*30000-camX,h/2+dy*30000-camY);ctx.stroke();
-      const gx=w/2+dx*24500-camX,gy=h/2+dy*24500-camY;
+      const roadLength=10000;
+      ctx.strokeStyle="#b99b68";ctx.lineWidth=22;ctx.beginPath();ctx.moveTo(w/2-dx*roadLength-camX,h/2-dy*roadLength-camY);ctx.lineTo(w/2+dx*roadLength-camX,h/2+dy*roadLength-camY);ctx.stroke();
+      ctx.strokeStyle="#d9c38d";ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(w/2-dx*roadLength-camX,h/2-dy*roadLength-camY);ctx.lineTo(w/2+dx*roadLength-camX,h/2+dy*roadLength-camY);ctx.stroke();
+      const gx=w/2+dx*8000-camX,gy=h/2+dy*8000-camY;
       ctx.fillStyle="#2b4439";ctx.fillRect(gx-18,gy-18,36,36);ctx.fillStyle="#e2cf91";ctx.fillRect(gx-7,gy-7,14,14);
       ctx.fillStyle="#f0ead0";ctx.font="bold 10px monospace";ctx.textAlign="center";ctx.fillText((world.locations.find(z=>z.id===e.id)||{}).name||"Road",gx,gy-27);
     });
-    // Local points of interest.
-    if(terrain==="lake"||terrain==="coast")drawWater(ctx,w*.62,h*.10,Math.max(160,w*.32),Math.max(110,h*.25));
-    if(terrain==="village"||terrain==="city"){drawBuilding(ctx,w*.30,h*.42,1);drawBuilding(ctx,w*.68,h*.34,.85,"#596c84");drawBuilding(ctx,w*.52,h*.62,.7,"#80613d")}
-    if(terrain==="ruins"){for(let i=0;i<7;i++)drawRock(ctx,w*.2+i*70,h*.36+(i%2)*65,1.2)}
-    if(terrain==="mountain"){for(let i=0;i<6;i++){ctx.fillStyle="#75817b";ctx.fillRect(w*.12+i*110,h*.22+(i%3)*35,70,55);ctx.fillStyle="#aab3a9";ctx.fillRect(w*.12+i*110+15,h*.22+(i%3)*35,40,10)}}
-    for(const n of localNpcs){const idx=localNpcs.indexOf(n),x=w*.38+(idx%3)*105-camX*.04,y=h*.45+Math.floor(idx/3)*90-camY*.04;ctx.fillStyle="#efb47f";ctx.fillRect(x-7,y-25,14,14);ctx.fillStyle="#3e5368";ctx.fillRect(x-10,y-10,20,25);ctx.fillStyle="#eaf5ef";ctx.font="10px monospace";ctx.textAlign="center";ctx.fillText(n.name,x,y-32)}
+
+    // Local scenery uses fixed WORLD coordinates so buildings and NPCs do not
+    // follow the camera when the player walks away.
+    const worldToScreen=(wx,wy)=>[w/2+wx-camX,h/2+wy-camY];
+    const drawBuildingAt=(wx,wy,s,roof)=>{const [x,y]=worldToScreen(wx,wy);drawBuilding(ctx,x,y,s,roof)};
+    const drawRockAt=(wx,wy,s=1)=>{const [x,y]=worldToScreen(wx,wy);drawRock(ctx,x,y,s)};
+
+    if(terrain==="lake"||terrain==="coast"){
+      const [x,y]=worldToScreen(2100,-1800);drawWater(ctx,x,y,2600,1900);
+    }
+    if(terrain==="village"||terrain==="city"){
+      drawBuildingAt(-2200,-1100,1);
+      drawBuildingAt(1700,-1450,.85,"#596c84");
+      drawBuildingAt(350,2100,.7,"#80613d");
+      drawBuildingAt(-1300,1700,.75,"#745342");
+    }
+    if(terrain==="ruins"){for(let i=0;i<7;i++)drawRockAt(-2600+i*900,-900+(i%2)*800,1.2)}
+    if(terrain==="mountain"){
+      for(let i=0;i<6;i++){
+        const [x,y]=worldToScreen(-3000+i*1200,-1700+(i%3)*700);
+        ctx.fillStyle="#75817b";ctx.fillRect(x,y,70,55);ctx.fillStyle="#aab3a9";ctx.fillRect(x+15,y,40,10);
+      }
+    }
+    for(let i=0;i<localNpcs.length;i++){
+      const n=localNpcs[i],wx=-1900+(i%3)*1500,wy=-650+Math.floor(i/3)*1250,[x,y]=worldToScreen(wx,wy);
+      if(x<-120||x>w+120||y<-120||y>h+120)continue;
+      ctx.fillStyle="#efb47f";ctx.fillRect(x-7,y-25,14,14);ctx.fillStyle="#3e5368";ctx.fillRect(x-10,y-10,20,25);
+      ctx.fillStyle="#eaf5ef";ctx.font="10px monospace";ctx.textAlign="center";ctx.fillText(n.name,x,y-32);
+    }
     // Player sprite with a tiny walking animation.
     const bob=lastMove.current&&performance.now()-lastMove.current<220?Math.sin(performance.now()/55)*2:0,px=w/2,py=h/2+bob;
     ctx.fillStyle="rgba(0,0,0,.28)";ctx.fillRect(px-14,py+27,28,5);
     ctx.fillStyle="#17243b";ctx.fillRect(px-10,py+6,20,20);ctx.fillStyle="#3b9ac2";ctx.fillRect(px-12,py-10,24,18);ctx.fillStyle="#f0b583";ctx.fillRect(px-9,py-27,18,17);ctx.fillStyle="#252b3b";ctx.fillRect(px-10,py-30,20,7);ctx.fillStyle="#8be5ef";ctx.fillRect(px-14,py+27,28,3);
     ctx.fillStyle="rgba(0,0,0,.45)";ctx.font="bold 11px monospace";ctx.textAlign="center";ctx.fillText(player.name,px,py+43);
   };
-  useEffect(()=>{let id,last=performance.now();const loop=t=>{const dt=Math.min(.05,(t-last)/1000);last=t;updateWorld(dt);drawCanvas();id=requestAnimationFrame(loop)};id=requestAnimationFrame(loop);return()=>cancelAnimationFrame(id)},[keys,paused,location,localNpcs,player.name]);
+  useEffect(()=>{let id,last=performance.now();const loop=t=>{const dt=Math.min(.05,(t-last)/1000);last=t;updateWorld(dt);drawCanvas();id=requestAnimationFrame(loop)};id=requestAnimationFrame(loop);return()=>cancelAnimationFrame(id)},[keys,paused,location?.id,player.name]);
   const travel=async id=>action(()=>api("/travel",{method:"POST",body:JSON.stringify({location:id})}),()=>{pos.current={x:0,y:0};setTab("world");setWorldMap(false);setMobileMenu(false)});
   const talk=(n,dialogue=0)=>action(()=>api("/npc/talk",{method:"POST",body:JSON.stringify({npc:n.id,dialogue})}),r=>setNpc(r));
   const buy=item=>action(()=>api("/shop/buy",{method:"POST",body:JSON.stringify({item,quantity:1})}),()=>setShop(null));
@@ -189,7 +217,7 @@ function Game({world,initial,onLogout}){
     <div className="area-banner"><b>{location?.name}</b><span>Lv {location?.level} zone · {canFight?"Combat available":"Exploration only — combat locked"}</span></div>
     <nav className="tabs">{[["world","WORLD"],["quests","QUESTS"],["inventory","INVENTORY"],["pets","PETS"],["titles","TITLES"],["dungeons","DUNGEONS"]].map(([k,v])=><button className={tab===k?"active":""} onClick={()=>setTab(k)} key={k}>{v}</button>)}</nav>
     <section className={"panel "+(mobileMenu?"mobile-open":"")}><div className="panel-head"><h2>{tab==="world"?location?.name:tab.toUpperCase()}</h2><button className="panel-close" onClick={()=>setMobileMenu(false)} aria-label="Close menu">×</button></div><div className="mobile-menu-nav">{[["world","WORLD"],["quests","QUESTS"],["inventory","INVENTORY"],["pets","PETS"],["titles","TITLES"],["dungeons","DUNGEONS"]].map(([k,v])=><button className={tab===k?"active":""} onClick={()=>setTab(k)} key={k}>{v}</button>)}</div>
-      {tab==="world"&&<><p>{location?.description}</p><div className="world-status"><b>{canFight?"FULL ACCESS":"EXPLORATION MODE"}</b><span>Walk to a road marker for roughly {location?.walk_minutes||3}–4 minutes to reach the next area.</span></div><div className="npc-list"><h3>People here</h3>{localNpcs.map(n=><button disabled={!canFight} onClick={()=>talk(n)} className="list-card" key={n.id}><span className="npc-icon">{n.name[0]}</span><span><b>{n.name}</b><small>{n.role}</small></span><em>{canFight?"TALK":"LOCKED"}</em></button>)}</div><h3>Roads</h3><div className="location-grid">{exitDirections(location).map(e=>{const x=world.locations.find(z=>z.id===e.id);return x?<button className="location-card road-card" onClick={()=>setNotice("Follow the "+e.dir+" road — do not teleport yet. Walk there to unlock it.")} key={x.id}><b>{x.name}</b><small>{e.dir.toUpperCase()} · Lv {x.level} · {x.walk_minutes||3}–4 min walk</small><em>{discovered.has(x.id)?"TELEPORT UNLOCKED":"WALK TO DISCOVER"}</em></button>:null})}</div><button className="map-open" onClick={()=>setWorldMap(true)}>OPEN WORLD MAP</button></>}
+      {tab==="world"&&<><p>{location?.description}</p><div className="world-status"><b>{canFight?"FULL ACCESS":"EXPLORATION MODE"}</b><span>Follow a road for about 1 minute to reach the next area. Reach it once to unlock teleport.</span></div><div className="npc-list"><h3>People here</h3>{localNpcs.map(n=><button disabled={!canFight} onClick={()=>talk(n)} className="list-card" key={n.id}><span className="npc-icon">{n.name[0]}</span><span><b>{n.name}</b><small>{n.role}</small></span><em>{canFight?"TALK":"LOCKED"}</em></button>)}</div><h3>Roads</h3><div className="location-grid">{exitDirections(location).map(e=>{const x=world.locations.find(z=>z.id===e.id);return x?<button className="location-card road-card" onClick={()=>setNotice("Follow the "+e.dir+" road — do not teleport yet. Walk there to unlock it.")} key={x.id}><b>{x.name}</b><small>{e.dir.toUpperCase()} · Lv {x.level} · ~1 min walk</small><em>{discovered.has(x.id)?"TELEPORT UNLOCKED":"WALK TO DISCOVER"}</em></button>:null})}</div><button className="map-open" onClick={()=>setWorldMap(true)}>OPEN WORLD MAP</button></>}
       {tab==="inventory"&&<><h2>Inventory</h2><div className="item-grid">{state.inventory?.map(i=>{const x=(world.items?.[i.item_key]||world.items?.find?.(z=>z.id===i.item_key))||{id:i.item_key,name:i.item_key,rarity:"Common",slot:"material"};const slot=x.slot||x.category;const consumable=slot==="consumable"||slot==="food";const equippable=["weapon","armor","offhand","accessory","ring","amulet","relic"].includes(slot);return <button className="item" onClick={()=>consumable?useItem(i):equippable?equipItem(i):setNotice("That item is a material and cannot be used directly.")} key={i.item_key}><b>{x.name}</b><small>{x.rarity} · ×{i.quantity}</small><em>{consumable?"USE":equippable?"EQUIP":"MATERIAL"}</em></button>})}</div><h3>Equipment</h3><p className="muted">Gear, upgrades and intrinsic properties persist with your hero.</p></>}
       {tab==="pets"&&<><h2>Pets & Eggs</h2><div className="pet-list">{state.pets?.map(p=><div className="pet item" key={p.pet_id}><b>{p.name}</b><small>{p.species} · Lv {p.level}{p.equipped?" · EQUIPPED":""}</small></div>)}</div><h3>Eggs</h3><div className="item-grid">{world.eggs.map(e=>state.inventory?.find(i=>i.item_key===e.id)?.quantity?<button className="item" onClick={()=>hatch(e.id)} key={e.id}><b>{e.name}</b><small>{e.rarity} · HATCH</small></button>:null)}</div></>}
       {tab==="titles"&&<><h2>Titles & Achievements</h2><div className="title-grid">{world.titles.map(t=><div className="title-card" key={t.id}><b>{t.name}</b><small>{t.condition}</small></div>)}</div></>}
