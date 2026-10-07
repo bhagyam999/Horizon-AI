@@ -225,7 +225,7 @@ function Game({world,initial,onLogout}){
 }
 function App(){
   const [auth,setAuth]=useState(!!getToken()),[world,setWorld]=useState(fallbackWorld),[state,setState]=useState(null),[loading,setLoading]=useState(true);
-  const [bootError,setBootError]=useState(""); const load=async()=>{setBootError("");try{const w=await api("/world");setWorld(w);if(getToken()){try{const s=await api("/state");setState(s);setAuth(true)}catch{localStorage.removeItem(tokenKey);setAuth(false);setState(null)}}else{setAuth(false);setState(null)}}catch(e){setBootError(e.message||"Could not reach the Horizon server.")}finally{setLoading(false)}};
+  const [bootError,setBootError]=useState(""); const load=async()=>{setBootError("");try{const w=await api("/world");setWorld(w);try{const s=await api("/state");setState(s);setAuth(true)}catch{localStorage.removeItem(tokenKey);setAuth(false);setState(null)}}catch(e){setBootError(e.message||"Could not reach the Horizon server.")}finally{setLoading(false)}};
   useEffect(()=>{load()},[auth]);
   if(loading)return <div className="loading"><div className="logo">HORIZON <span>FRONTIER</span></div><p>Loading the frontier…</p></div>;
   if(bootError)return <div className="loading"><div className="logo">HORIZON <span>FRONTIER</span></div><p className="error">{bootError}</p><button className="primary" onClick={()=>{setLoading(true);load()}}>RETRY</button></div>;
