@@ -59,6 +59,8 @@ function Auth({onLogin}){
       {error&&<div className="error">{error}</div>}
       <button className="primary wide" disabled={busy||!email||!password}>{busy?"Connecting…":register?"CREATE ACCOUNT":"LOGIN"}</button>
     </form>
+    <div className="auth-divider"><span>OR</span></div>
+    <a className="discord-login" href={API+"/auth/discord/start"}>CONTINUE WITH DISCORD</a>
     <div className="auth-links">
       <button className="link" onClick={()=>{setRegister(!register);setError("")}}>
         {register?"Already have an account? Login":"New here? Create an account"}
