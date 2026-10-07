@@ -78,7 +78,7 @@ function Bar({label,value,max,type}){return <div className="bar-row"><span>{labe
 
 function Game({world,initial,onLogout}){
   const [state,setState]=useState(initial),[tab,setTab]=useState("world"),[mapZoom,setMapZoom]=useState(1),[mapPan,setMapPan]=useState({x:0,y:0}),[mapTarget,setMapTarget]=useState(null),[notice,setNotice]=useState("Explore the frontier. Find roads, resources, people and secrets."),[npc,setNpc]=useState(null),[shop,setShop]=useState(null),[dungeon,setDungeon]=useState(null),[adventure,setAdventure]=useState(null),[paused,setPaused]=useState(false),[mobileMenu,setMobileMenu]=useState(false),[worldMap,setWorldMap]=useState(false),[keys,setKeys]=useState({}),[timeOfDay,setTimeOfDay]=useState(1),[weather,setWeather]=useState("clear"),[craftOpen,setCraftOpen]=useState(false),[skills,setSkills]=useState([]),[equipment,setEquipment]=useState([]),[quests,setQuests]=useState(null),[professions,setProfessions]=useState([]);
-  const canvas=useRef(null),joyRef=useRef(null),touch=useRef({x:0,y:0,id:null}),pos=useRef({x:0,y:0}),transition=useRef(false),facing=useRef("down"),lastMove=useRef(0),objectsRef=useRef([]),mapDrag=useRef({active:false,id:null,x:0,y:0,ox:0,oy:0});
+  const canvas=useRef(null),joyRef=useRef(null),touch=useRef({x:0,y:0,id:null}),pos=useRef({x:0,y:0,ready:false}),transition=useRef(false),facing=useRef("down"),lastMove=useRef(0),objectsRef=useRef([]),mapDrag=useRef({active:false,id:null,x:0,y:0,ox:0,oy:0});
   const player=state.character;
   const location=world.locations.find(x=>x.id===player?.area_key)||world.locations[0];
   const discovered=new Set(state.discovered_areas||[location?.id]);
@@ -92,7 +92,7 @@ function Game({world,initial,onLogout}){
   const cycleTime=()=>setTimeOfDay(v=>(v+1)%4),rerollWeather=()=>{const choices=scene.weather?.length?scene.weather:["clear","fog","rain","snow"];setWeather(choices[Math.floor(Math.random()*choices.length)])};
   const exitDirections=loc=>{const byId=new Map((world.locations||[]).map(x=>[x.id,x]));return (loc?.connections||[]).map(id=>{const t=byId.get(id);if(!t)return null;const dx=(t.map_x||0)-(loc.map_x||0),dy=(t.map_y||0)-(loc.map_y||0);return {id,dir:Math.abs(dx)>=Math.abs(dy)?(dx>=0?"east":"west"):(dy>=0?"south":"north")}}).filter(Boolean)};
   const directionVector=dir=>({north:[0,-1],east:[1,0],south:[0,1],west:[-1,0]}[dir]||[0,1]);
-  const arrive=async id=>{if(transition.current)return;transition.current=true;try{const r=await api("/explore/arrive",{method:"POST",body:JSON.stringify({location:id})});setState(r.state||await api("/state"));pos.current={x:0,y:0};setNotice("Arrived at "+(r.area?.name||"a new area")+" — teleport unlocked.")}catch(e){setNotice(e.message||"The road ends here.")}finally{transition.current=false}};
+  const WORLD_SCALE=1150;\n  const worldPoint=loc=>({x:Number(loc?.map_x||0)*WORLD_SCALE,y:Number(loc?.map_y||0)*WORLD_SCALE});\n  const ensurePosition=()=>{if(!pos.current.ready&&location)Object.assign(pos.current,worldPoint(location),{ready:true})};\n  const arrive=async id=>{if(transition.current)return;transition.current=true;try{const r=await api("/explore/arrive",{method:"POST",body:JSON.stringify({location:id})});setState(r.state||await api("/state"));setNotice("You reached "+(r.area?.name||"the next region")+" — keep walking.")}catch(e){setNotice(e.message||"The road ends here.")}finally{transition.current=false}};
   const tileSize=64;
   const localLayout=()=>{
     const t=(scene.biome||location?.terrain||location?.type||"forest").toLowerCase();
@@ -119,25 +119,14 @@ function Game({world,initial,onLogout}){
     ];
     return obstacles.some(([ox,oy])=>Math.abs(tx-ox)<=.25&&Math.abs(ty-oy)<=.25);
   };
+  const nearestLocation=(x,y)=>{let best=null,bd=Infinity;for(const l of world.locations||[]){const p=worldPoint(l),d=Math.hypot(x-p.x,y-p.y);if(d<bd){bd=d;best=l}}return {location:best,distance:bd}};
+  const blockedAt=(x,y)=>Math.abs(x)>WORLD_SCALE*15.5||Math.abs(y)>WORLD_SCALE*5.5;
   const updateWorld=dt=>{
-    if(paused||transition.current)return;
-    let x=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0)+touch.current.x;
-    let y=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0)+touch.current.y;
-    const m=Math.hypot(x,y);
-    if(!m){lastMove.current=0;return}
-    x/=m;y/=m;
-    facing.current=Math.abs(x)>Math.abs(y)?(x>0?"right":"left"):(y>0?"down":"up");
-    lastMove.current=performance.now();
-    const speed=205;
-    const nx=Math.max(-1120,Math.min(1120,pos.current.x+x*speed*dt));
-    const ny=Math.max(-880,Math.min(880,pos.current.y+y*speed*dt));
-    if(!blockedAt(nx,pos.current.y))pos.current.x=nx;
-    if(!blockedAt(pos.current.x,ny))pos.current.y=ny;
-    const hit=exitDirections(location).find(e=>{
-      const [dx,dy]=directionVector(e.dir),forward=pos.current.x*dx+pos.current.y*dy,lateral=Math.abs(pos.current.x*dy-pos.current.y*dx);
-      return forward>=820&&lateral<=150
-    });
-    if(hit)arrive(hit.id);
+    ensurePosition();if(paused||transition.current)return;
+    let x=(keys.d||keys.arrowright?1:0)-(keys.a||keys.arrowleft?1:0)+touch.current.x,y=(keys.s||keys.arrowdown?1:0)-(keys.w||keys.arrowup?1:0)+touch.current.y;
+    const m=Math.hypot(x,y);if(!m){lastMove.current=0;return}x/=m;y/=m;facing.current=Math.abs(x)>Math.abs(y)?(x>0?"right":"left"):(y>0?"down":"up");lastMove.current=performance.now();
+    const speed=230,nx=pos.current.x+x*speed*dt,ny=pos.current.y+y*speed*dt;if(!blockedAt(nx,pos.current.y))pos.current.x=nx;if(!blockedAt(pos.current.x,ny))pos.current.y=ny;
+    for(const id of location?.connections||[]){const target=world.locations.find(l=>l.id===id);if(target){const p=worldPoint(target);if(Math.hypot(pos.current.x-p.x,pos.current.y-p.y)<430){arrive(id);break}}}
   };
   const hash=(x,y)=>{const n=Math.sin(x*12.9898+y*78.233+(location?.id||"").length*31.7)*43758.5453;return n-Math.floor(n)};
   const drawTree=(ctx,x,y,s=1)=>{ctx.fillStyle="#6f472e";ctx.fillRect(x-3*s,y+8*s,6*s,14*s);ctx.fillStyle="#183f32";ctx.fillRect(x-13*s,y-5*s,26*s,17*s);ctx.fillRect(x-8*s,y-15*s,16*s,12*s);ctx.fillStyle="#286247";ctx.fillRect(x-10*s,y-7*s,20*s,9*s);ctx.fillStyle="#3c8053";ctx.fillRect(x-4*s,y-13*s,9*s,7*s)};
@@ -161,148 +150,56 @@ function Game({world,initial,onLogout}){
   const drawResource=(ctx,x,y,s=1,kind="herb")=>{ctx.fillStyle=kind==="ore"?"#8f8eaa":"#65a95a";ctx.fillRect(x-6*s,y-2*s,12*s,8*s);ctx.fillStyle="#b4df76";ctx.fillRect(x-2*s,y-8*s,5*s,8*s)};
   const drawEnemy=(ctx,x,y,s=1)=>{ctx.fillStyle="#a64d50";ctx.fillRect(x-9*s,y-9*s,18*s,18*s);ctx.fillStyle="#f1d17d";ctx.fillRect(x-5*s,y-5*s,3*s,3*s);ctx.fillRect(x+2*s,y-5*s,3*s,3*s);ctx.fillStyle="#6f2d38";ctx.fillRect(x-12*s,y+8*s,24*s,6*s)};
   const drawCanvas=()=>{
-    const c=canvas.current;if(!c)return;
-    const dpr=Math.min(2,devicePixelRatio||1),w=c.clientWidth,h=c.clientHeight;
-    if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr}
-    const ctx=c.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=true;
-    const t=performance.now()/1000,L=localLayout(),camX=pos.current.x,camY=pos.current.y;
-    const zoom=Math.min(1.28,Math.max(.92,Math.min(w/430,h/760)));
-    const sx=x=>w/2+(x-camX)*zoom,sy=y=>h/2+(y-camY)*zoom;
-    const seed=(x,y,k=0)=>{const n=Math.sin(x*127.1+y*311.7+k*74.3+(location?.id||"").length*19.7)*43758.5453;return n-Math.floor(n)};
-    const poly=(pts,fill,stroke=null,lw=1)=>{ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(sx(p[0]),sy(p[1])):ctx.moveTo(sx(p[0]),sy(p[1])));ctx.closePath();ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw*zoom;ctx.stroke()}};
-    const ellipse=(x,y,rx,ry,fill)=>{ctx.fillStyle=fill;ctx.beginPath();ctx.ellipse(sx(x),sy(y),rx*zoom,ry*zoom,0,0,Math.PI*2);ctx.fill()};
-    const line=(pts,color,width,dash=[])=>{ctx.save();ctx.strokeStyle=color;ctx.lineWidth=width*zoom;ctx.lineCap="round";ctx.lineJoin="round";ctx.setLineDash(dash.map(v=>v*zoom));ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(sx(p[0]),sy(p[1])):ctx.moveTo(sx(p[0]),sy(p[1])));ctx.stroke();ctx.restore()};
-    const shadow=(x,y,rx,ry)=>ellipse(x,y,rx,ry,"rgba(0,0,0,.24)");
-    const base=L.snow?"#aebdb9":L.desert?"#c9aa68":L.water?"#477e82":L.mountain?"#718079":"#47724d";
-    ctx.fillStyle=base;ctx.fillRect(0,0,w,h);
-
-    const palette=L.snow?["#b9c7c3","#9dadab","#7f9390"]:L.desert?["#d6b875","#c5a15e","#ae884d"]:["#4f7d52","#416c49","#345b42"];
-    for(let gy=Math.floor((camY-h/zoom/2)/180)-2;gy<=Math.ceil((camY+h/zoom/2)/180)+2;gy++){
-      for(let gx=Math.floor((camX-w/zoom/2)/220)-2;gx<=Math.ceil((camX+w/zoom/2)/220)+2;gx++){
-        const x=gx*220+seed(gx,gy,1)*90-45,y=gy*180+seed(gx,gy,2)*70-35;
-        const rx=135+seed(gx,gy,3)*100,ry=105+seed(gx,gy,4)*85;
-        ellipse(x,y,rx,ry,palette[Math.floor(seed(gx,gy,5)*palette.length)]);
-      }
+    const c=canvas.current;if(!c)return;ensurePosition();
+    const dpr=Math.min(2,devicePixelRatio||1),w=c.clientWidth,h=c.clientHeight;if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr}
+    const ctx=c.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
+    const t=performance.now()/1000,camX=pos.current.x,camY=pos.current.y,zoom=Math.min(1.12,Math.max(.78,Math.min(w/470,h/820))),sx=x=>Math.round(w/2+(x-camX)*zoom),sy=y=>Math.round(h/2+(y-camY)*zoom);
+    const seed=(x,y,k=0)=>{const n=Math.sin(x*127.1+y*311.7+k*74.3)*43758.5453;return n-Math.floor(n)};
+    const line=(pts,color,width,dash=[])=>{ctx.save();ctx.strokeStyle=color;ctx.lineWidth=Math.max(1,Math.round(width*zoom));ctx.lineCap="square";ctx.lineJoin="round";ctx.setLineDash(dash.map(v=>Math.round(v*zoom)));ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(sx(p[0]),sy(p[1])):ctx.moveTo(sx(p[0]),sy(p[1])));ctx.stroke();ctx.restore()};
+    const poly=(pts,color)=>{ctx.fillStyle=color;ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(sx(p[0]),sy(p[1])):ctx.moveTo(sx(p[0]),sy(p[1])));ctx.closePath();ctx.fill()};
+    const blob=(x,y,rx,ry,color)=>{ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(sx(x),sy(y),rx*zoom,ry*zoom,0,0,Math.PI*2);ctx.fill()};
+    const shadow=(x,y,rx,ry)=>blob(x,y,rx,ry,"rgba(0,0,0,.28)");
+    const nearest=(x,y)=>{let best=world.locations[0],bd=Infinity;for(const l of world.locations||[]){const p=worldPoint(l),d=Math.hypot(x-p.x,y-p.y);if(d<bd){bd=d;best=l}}return best};
+    const biome=l=>{const b=String(world.scenes?.[l?.id]?.biome||l?.terrain||l?.type||"forest").toLowerCase();if(/desert|steppe/.test(b))return ["#c9aa69","#b9985a"];if(/snow|frost/.test(b))return ["#aebdb8","#d2ddda"];if(/mountain|highland|cliff/.test(b))return ["#687a72","#87958b"];if(/lake|coast|underwater/.test(b))return ["#4a7f82","#6a9998"];if(/volcano|ash/.test(b))return ["#66564e","#8b5b48"];if(/void|eclipse/.test(b))return ["#303e3c","#4a4d54"];if(/cave|mine/.test(b))return ["#5a635d","#737b70"];if(/fae|enchanted/.test(b))return ["#467052","#5d8660"];if(/field|meadow|verdant|plains/.test(b))return ["#648451","#84945a"];return ["#4b704c","#365c43"]};
+    ctx.fillStyle="#365d47";ctx.fillRect(0,0,w,h);
+    const view=Math.max(w,h)/zoom*.78,visible=(world.locations||[]).filter(l=>{const p=worldPoint(l);return Math.hypot(p.x-camX,p.y-camY)<view+1300});
+    // Large overlapping biome regions create one continuous landmass.
+    for(const l of visible){const p=worldPoint(l),col=biome(l),pts=[];for(let i=0;i<16;i++){const a=i*Math.PI*2/16,r=720+seed(l.map_x||0,l.map_y||0,i)*230;pts.push([p.x+Math.cos(a)*r,p.y+Math.sin(a)*r*.78])}poly(pts,col[0]);blob(p.x+(seed(l.map_x||0,1,9)-.5)*420,p.y+(seed(2,l.map_y||0,10)-.5)*340,300,220,col[1])}
+    // One persistent river crosses the continent.
+    const river=[];for(let x=-17500;x<=3000;x+=220)river.push([x,760+Math.sin(x*.00048)*620+Math.sin(x*.0012)*180]);line(river,"#294f59",148);line(river,"#4e8d92",126);
+    // Roads use the exact same coordinates as the world-map nodes.
+    const road=(a,b)=>{const A=worldPoint(a),B=worldPoint(b),dx=B.x-A.x,dy=B.y-A.y,len=Math.hypot(dx,dy)||1,nx=-dy/len,ny=dx/len,m=(seed(a.map_x||0,b.map_y||0,51)-.5)*130,p=[[A.x,A.y],[A.x+dx*.34+nx*m,A.y+dy*.34+ny*m],[A.x+dx*.68-nx*m,A.y+dy*.68-ny*m],[B.x,B.y]];line(p,"rgba(48,42,31,.55)",92);line(p,"#aa9161",72);line(p,"#d6bd7c",4,[18,24])};
+    const seen=new Set();for(const a of world.locations||[])for(const id of a.connections||[]){const b=world.locations.find(x=>x.id===id),k=[a.id,id].sort().join("|");if(b&&!seen.has(k)){seen.add(k);road(a,b)}}
+    // Global pixel props are anchored to world coordinates and never regenerate when crossing a region.
+    const minX=Math.floor((camX-w/zoom/2)/95)-2,maxX=Math.ceil((camX+w/zoom/2)/95)+2,minY=Math.floor((camY-h/zoom/2)/95)-2,maxY=Math.ceil((camY+h/zoom/2)/95)+2;
+    for(let gy=minY;gy<=maxY;gy++)for(let gx=minX;gx<=maxX;gx++){const l=nearest(gx*95,gy*95),b=String(world.scenes?.[l?.id]?.biome||"forest").toLowerCase(),r=seed(gx,gy,70),x=gx*95+seed(gx,gy,71)*50-25,y=gy*95+seed(gx,gy,72)*50-25,nearRoad=Math.abs((x+y*0.17)%140)<45;if(nearRoad||/lake|coast|underwater/.test(b))continue;if(/desert|steppe/.test(b)){if(r>.62){ctx.fillStyle="#a9874d";ctx.fillRect(sx(x-17),sy(y-5),34*zoom,9*zoom);ctx.fillStyle="#d6ba70";ctx.fillRect(sx(x-9),sy(y-10),18*zoom,5*zoom)}}else if(/snow|frost/.test(b)){if(r>.58){ctx.fillStyle="#385849";ctx.fillRect(sx(x-3),sy(y),6*zoom,20*zoom);ctx.fillStyle="#dce7e3";ctx.fillRect(sx(x-14),sy(y-22),28*zoom,22*zoom)}}else if(r>.70){shadow(x,y+17,18,6);ctx.fillStyle=r>.86?"#315f40":"#3f7148";ctx.fillRect(sx(x-16),sy(y-25),32*zoom,25*zoom);ctx.fillStyle="#67452f";ctx.fillRect(sx(x-3),sy(y-4),6*zoom,22*zoom)}else if(r<.08){shadow(x,y+8,12,4);ctx.fillStyle="#6d756f";ctx.fillRect(sx(x-12),sy(y-5),24*zoom,10*zoom)}}
+    // Towns and landmarks remain physically present at their global positions.
+    for(const l of visible){const p=worldPoint(l),b=String(world.scenes?.[l.id]?.biome||l.type||"").toLowerCase(),d=Math.hypot(p.x-camX,p.y-camY);if(d>1150)continue;const z=.85+Math.max(0,1-d/1150)*.15;shadow(p.x,p.y+78,90,18);
+      if(/village|kingdom|city|town/.test(b)||l.type==="capital"){blob(p.x,p.y,270,205,"#718857");for(let i=0;i<6;i++){const a=i*Math.PI/3+.2,x=p.x+Math.cos(a)*175,y=p.y+Math.sin(a)*130;shadow(x,y+30*z,35*z,8*z);ctx.fillStyle="#d0b67d";ctx.fillRect(sx(x-25*z),sy(y-4*z),50*z*zoom,34*z*zoom);poly([[x-32*z,y-4*z],[x,y-36*z],[x+32*z,y-4*z]],l.type==="capital"?"#6d5a48":"#81463f");ctx.fillStyle="#4b342b";ctx.fillRect(sx(x-6*z),sy(y+11*z),12*z*zoom,23*z*zoom);ctx.fillStyle="#a9d9d2";ctx.fillRect(sx(x-19*z),sy(y+3*z),9*z*zoom,9*z*zoom);ctx.fillRect(sx(x+10*z),sy(y+3*z),9*z*zoom,9*z*zoom)}ctx.fillStyle="#777064";ctx.fillRect(sx(p.x-42),sy(p.y-17),84*zoom,42*zoom);ctx.fillStyle="#b8955d";ctx.fillRect(sx(p.x-8),sy(p.y+2),16*zoom,23*zoom)}
+      else if(/mountain|cliff/.test(b)){ctx.fillStyle="#566761";poly([[p.x-120,p.y+60],[p.x-35,p.y-80],[p.x+15,p.y-15],[p.x+70,p.y-105],[p.x+145,p.y+60]],"#566761");poly([[p.x-35,p.y-80],[p.x+15,p.y-15],[p.x+70,p.y-105],[p.x+88,p.y-52]],"#c5d0cc")}
+      else if(/ruin|graveyard/.test(b)){ctx.fillStyle="#77766e";ctx.fillRect(sx(p.x-32),sy(p.y-55),15*zoom,85*zoom);ctx.fillRect(sx(p.x+10),sy(p.y-35),15*zoom,65*zoom);ctx.fillStyle="#555852";ctx.fillRect(sx(p.x-32),sy(p.y-44),57*zoom,10*zoom)}
+      else if(/cave|mine/.test(b)){ctx.fillStyle="#394448";ctx.beginPath();ctx.arc(sx(p.x),sy(p.y),55*zoom,Math.PI,0);ctx.lineTo(sx(p.x+55),sy(p.y+35));ctx.lineTo(sx(p.x-55),sy(p.y+35));ctx.fill();ctx.fillStyle="#11191b";ctx.beginPath();ctx.arc(sx(p.x),sy(p.y+5),29*zoom,Math.PI,0);ctx.lineTo(sx(p.x+29),sy(p.y+35));ctx.lineTo(sx(p.x-29),sy(p.y+35));ctx.fill()}
+      else if(/desert/.test(b)){ctx.fillStyle="#b99550";ctx.beginPath();ctx.arc(sx(p.x),sy(p.y+18),80*zoom,Math.PI,0);ctx.fill()}
+      ctx.fillStyle="#efe1b2";ctx.font=Math.max(9,Math.round(11*zoom))+"px monospace";ctx.textAlign="center";ctx.fillText(l.name.toUpperCase(),sx(p.x),sy(p.y-92))}
+    // Active NPCs/resources stay tied to the settlement the player is physically near.
+    const active=nearest(camX,camY),ap=worldPoint(active),nearby=[];
+    for(const lm of landmarks){const x=ap.x+Number(lm.x||0),y=ap.y+Number(lm.y||0);if(Math.hypot(x-camX,y-camY)>700)continue;if(lm.type==="chest"){ctx.fillStyle="#704626";ctx.fillRect(sx(x-14),sy(y-11),28*zoom,20*zoom);ctx.fillStyle="#d4a74d";ctx.fillRect(sx(x-14),sy(y-14),28*zoom,6*zoom);nearby.push({type:"resource",x:sx(x),y:sy(y),label:"Chest"})}else if(lm.type==="resource"){ctx.fillStyle="#67a85a";ctx.fillRect(sx(x-6),sy(y),12*zoom,8*zoom);ctx.fillStyle="#b7df76";ctx.fillRect(sx(x-2),sy(y-9),5*zoom,9*zoom);nearby.push({type:"resource",x:sx(x),y:sy(y),label:lm.name||"Herb"})}
     }
-
-    if(L.mountain||L.snow){
-      for(let i=-5;i<=5;i++){
-        const x=i*260+seed(i,2,7)*80;
-        poly([[x-180,-880],[x-70,-1050-seed(i,3)*100],[x+35,-910],[x+120,-1020-seed(i,4)*90],[x+220,-880]],L.snow?"#778b8b":"#566761");
-        poly([[x-70,-1050-seed(i,3)*100],[x+35,-910],[x+120,-1020-seed(i,4)*90],[x+65,-900]],L.snow?"#dce6e2":"#9da9a0");
-      }
-    }
-
-    const riverPts=[[-1600,250],[-1050,180],[-600,250],[-260,140],[0,205],[330,125],[700,180],[1100,80],[1600,130]];
-    if(L.water||!L.desert){
-      line(riverPts,"rgba(23,56,60,.38)",128);line(riverPts,L.snow?"#67979a":"#4b9298",108);
-      for(let i=-1200;i<1500;i+=150)line([[i,170+Math.sin(i*.004)*50],[i+55,165+Math.sin((i+55)*.004)*50]],"rgba(206,239,230,.25)",3);
-    }
-
-    const pathColor=L.snow?"#c0ae83":L.desert?"#d8bd7b":"#b59a6a";
-    const paths=[
-      [[0,0],[-90,-85],[-190,-150],[-310,-210],[-460,-255],[-650,-300],[-860,-370]],
-      [[0,0],[80,90],[145,190],[210,300],[260,430],[320,610],[350,820]],
-      [[0,0],[105,-15],[220,20],[340,85],[470,105],[620,70],[800,20]],
-      [[0,0],[-110,70],[-220,150],[-360,210],[-510,220],[-680,185]]
-    ];
-    for(const p of paths){line(p,"rgba(61,46,32,.28)",78);line(p,pathColor,62);line(p,"rgba(235,214,165,.22)",3,[18,22])}
-
-    const drawTree=(x,y,s=1,pine=false)=>{
-      shadow(x,y+23*s,24*s,7*s);ctx.fillStyle="#65452e";ctx.fillRect(sx(x)-4*s*zoom,sy(y-3*s),8*s*zoom,27*s*zoom);
-      if(pine){poly([[x,y-62*s],[x-31*s,y+17*s],[x+31*s,y+17*s]],"#244c39");poly([[x,y-45*s],[x-23*s,y+7*s],[x+23*s,y+7*s]],"#34684a")}
-      else{ellipse(x-16*s,y-13*s,21*s,19*s,"#28553c");ellipse(x+14*s,y-14*s,23*s,20*s,"#2e6042");ellipse(x,y-31*s,23*s,22*s,"#376d49");ellipse(x-7*s,y-37*s,9*s,8*s,"#56815a")}
-    };
-    const drawRock=(x,y,s=1)=>{shadow(x,y+9*s,16*s,5*s);ellipse(x,y,18*s,11*s,"#626e68");ellipse(x-5*s,y-5*s,9*s,6*s,"#82908a")};
-    const drawHouse=(x,y,s=1,roof="#794843")=>{
-      shadow(x,y+38*s,48*s,10*s);ctx.fillStyle="#d0b67d";ctx.fillRect(sx(x-34*s),sy(y-8*s),68*s*zoom,43*s*zoom);
-      poly([[x-43*s,y-8*s],[x,y-48*s],[x+43*s,y-8*s]],roof);
-      ctx.fillStyle="#4b342b";ctx.fillRect(sx(x-9*s),sy(y+10*s),18*s*zoom,25*s*zoom);
-      ctx.fillStyle="#a9d9d2";ctx.fillRect(sx(x-27*s),sy(y+1*s),12*s*zoom,11*s*zoom);ctx.fillRect(sx(x+15*s),sy(y+1*s),12*s*zoom,11*s*zoom);
-      ctx.fillStyle="#f1d06b";ctx.fillRect(sx(x-4*s),sy(y+19*s),3*s*zoom,3*s*zoom);
-    };
-    const drawWell=(x,y)=>{
-      ellipse(x,y+13,26,8,"rgba(0,0,0,.22)");ellipse(x,y,25,15,"#6c7067");ellipse(x,y-2,18,9,"#274d4d");
-      line([[x-22,y-4],[x-22,y-32]],"#704c33",5);line([[x+22,y-4],[x+22,y-32]],"#704c33",5);line([[x-23,y-30],[x+23,y-30]],"#704c33",5);
-    };
-    const drawSign=(x,y,text)=>{
-      shadow(x,y+16,13,4);ctx.fillStyle="#6b4930";ctx.fillRect(sx(x-3),sy(y),6*zoom,22*zoom);ctx.fillStyle="#b8955b";ctx.fillRect(sx(x-24),sy(y-19),48*zoom,22*zoom);
-      ctx.fillStyle="#3b2b20";ctx.font=(Math.max(8,10*zoom))+"px monospace";ctx.textAlign="center";ctx.fillText(text,sx(x),sy(y-4));
-    };
-    const drawRuin=(x,y,s=1)=>{
-      shadow(x,y+30*s,35*s,8*s);ctx.fillStyle="#77766e";ctx.fillRect(sx(x-30*s),sy(y-25*s),13*s*zoom,58*s*zoom);ctx.fillRect(sx(x+9*s),sy(y-40*s),13*s*zoom,73*s*zoom);ctx.fillStyle="#555852";ctx.fillRect(sx(x-30*s),sy(y-35*s),52*s*zoom,10*s*zoom);
-    };
-
-    const minGX=Math.floor((camX-w/zoom/2)/100)-2,maxGX=Math.ceil((camX+w/zoom/2)/100)+2;
-    const minGY=Math.floor((camY-h/zoom/2)/100)-2,maxGY=Math.ceil((camY+h/zoom/2)/100)+2;
-    if(!L.desert){
-      for(let gy=minGY;gy<=maxGY;gy++)for(let gx=minGX;gx<=maxGX;gx++){
-        const r=seed(gx,gy,14),x=gx*100+seed(gx,gy,15)*55-27,y=gy*100+seed(gx,gy,16)*55-27;
-        const nearRoad=Math.abs(y)<120||Math.abs(x)<110;
-        if(r>.70&&!nearRoad)drawTree(x,y,.55+seed(gx,gy,17)*.45,L.snow);
-        else if(r>.93&&!nearRoad)drawRock(x,y,.65+seed(gx,gy,18)*.5);
-      }
-    }
-
-    if(L.village){
-      ellipse(0,0,210,150,"#5b814f");ellipse(0,0,145,105,"#6b8e56");
-      line([[-170,0],[-90,0],[0,0],[90,0],[170,0]],"#c1a36d",72);
-      drawHouse(-135,-100,1.05,"#75413c");drawHouse(0,-145,1.15,"#6f4540");drawHouse(135,-90,1.05,"#874c42");
-      drawHouse(-155,105,1,"#6e4b43");drawHouse(5,125,1.2,"#7d4a3e");drawHouse(150,100,.95,"#74443d");
-      drawWell(0,25);drawSign(185,25,"SHOP");ellipse(0,0,54,35,"#8d704d");
-    }else{
-      ellipse(-120,-70,145,105,L.desert?"#d2ae68":"#4f7b4c");ellipse(280,220,115,85,L.desert?"#d8b570":"#567f50");
-      if(L.ruins){drawRuin(-430,210,1);drawRuin(430,-240,1)}
-    }
-
-    const bx=0,by=205;shadow(bx,by+28,110,12);ctx.fillStyle="#704a2e";ctx.fillRect(sx(bx-110),sy(by-34),220*zoom,68*zoom);
-    for(let x=-95;x<=95;x+=24){ctx.fillStyle="#9a693e";ctx.fillRect(sx(x-5),sy(by-40),10*zoom,80*zoom)}
-
-    const nearby=[];
-    const addObj=(type,x,y,label)=>{const px=sx(x),py=sy(y);if(px>-90&&px<w+90&&py>-90&&py<h+90)nearby.push({type,x:px,y:py,label})};
-    for(const lm of landmarks){
-      const x=Number(lm.x||0),y=Number(lm.y||0);
-      if(lm.type==="chest"){shadow(x,y+12,18,6);ctx.fillStyle="#704626";ctx.fillRect(sx(x-15),sy(y-12),30*zoom,22*zoom);ctx.fillStyle="#d4a74d";ctx.fillRect(sx(x-15),sy(y-15),30*zoom,6*zoom);addObj("resource",x,y,"Chest")}
-      else if(lm.type==="resource"){ellipse(x,y,9,13,"#70ad59");ellipse(x+7,y-5,7,11,"#8ac866");addObj("resource",x,y,lm.name||"Herb")}
-    }
-    for(const n of localNpcs.slice(0,10)){
-      const x=((n.id*173)%760)-380,y=((n.id*97)%560)-280;
-      shadow(x,y+23,16,6);ellipse(x,y-22,13,13,"#d9ad89");ctx.fillStyle="#35242b";ctx.beginPath();ctx.arc(sx(x),sy(y-27),14*zoom,Math.PI,Math.PI*2);ctx.fill();
-      ctx.fillStyle="#365b70";ctx.fillRect(sx(x-14),sy(y-9),28*zoom,29*zoom);ctx.fillStyle="#d3b36b";ctx.fillRect(sx(x-11),sy(y+1),22*zoom,4*zoom);addObj("npc",x,y,n.name);
-    }
-
-    for(let i=0;i<8;i++){
-      const x=Math.round((seed(i,7,21)*1500-750)/56)*56,y=Math.round((seed(i,9,22)*1100-550)/56)*56;
-      if(blockedAt(x,y)||Math.hypot(x,y)<180)continue;
-      const px=sx(x),py=sy(y);if(px<-70||px>w+70||py<-70||py>h+70)continue;
-      shadow(x,y+17,17,6);ellipse(x,y,17,19,"#743f48");ellipse(x-7,y-5,5,5,"#f0d27a");ellipse(x+7,y-5,5,5,"#f0d27a");
-      line([[x-12,y+11],[x-20,y+22]],"#4c2c35",5);line([[x+12,y+11],[x+20,y+22]],"#4c2c35",5);addObj("enemy",x,y,"Wild Enemy");
-    }
+    for(const n of localNpcs.slice(0,8)){const i=localNpcs.indexOf(n),x=ap.x-150+(i%4)*100,y=ap.y-25+Math.floor(i/4)*85;shadow(x,y+22,15,6);blob(x,y-20,12,12,"#d9ad89");ctx.fillStyle="#35242b";ctx.fillRect(sx(x-11),sy(y-31),22*zoom,8*zoom);ctx.fillStyle="#365b70";ctx.fillRect(sx(x-13),sy(y-7),26*zoom,27*zoom);nearby.push({type:"npc",x:sx(x),y:sy(y),label:n.name})}
+    for(let i=0;i<7;i++){const x=Math.round((seed(Math.floor(camX/500)+i,7,81)*1600+camX-800)/56)*56,y=Math.round((seed(Math.floor(camY/420)+i,9,82)*1300+camY-650)/56)*56;if(Math.hypot(x-camX,y-camY)<150)continue;const px=sx(x),py=sy(y);if(px<-70||px>w+70||py<-70||py>h+70)continue;shadow(x,y+17,17,6);blob(x,y,16,18,"#8f4b55");ctx.fillStyle="#f1d17d";ctx.fillRect(sx(x-6),sy(y-5),4*zoom,4*zoom);ctx.fillRect(sx(x+3),sy(y-5),4*zoom,4*zoom);nearby.push({type:"enemy",x:px,y:py,label:"Wild Enemy"})}
     objectsRef.current=nearby;
-
-    const moving=lastMove.current&&performance.now()-lastMove.current<180,bob=moving?Math.sin(t*11)*4:0,px=w/2,py=h/2+bob;
-    ctx.save();ctx.translate(px,py);const flip=facing.current==="left"?-1:1;ctx.scale(flip,1);
-    ctx.fillStyle="rgba(0,0,0,.30)";ctx.beginPath();ctx.ellipse(0,36*zoom,31*zoom,10*zoom,0,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="#17283d";ctx.beginPath();ctx.moveTo(0,-8);ctx.lineTo(-34,37);ctx.lineTo(34,37);ctx.lineTo(25,-10);ctx.closePath();ctx.fill();
-    ctx.fillStyle="#285e76";ctx.fillRect(-25,-10,50,35);
-    ctx.fillStyle="#dcb38e";ctx.beginPath();ctx.arc(0,-31,20,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle="#302028";ctx.beginPath();ctx.arc(0,-39,21,Math.PI,0);ctx.fill();ctx.fillRect(-19,-40,38,9);
-    ctx.fillStyle="#a9dbe4";ctx.fillRect(-11,-32,7,5);ctx.fillRect(4,-32,7,5);
-    ctx.fillStyle="#70492f";ctx.fillRect(-25,0,8,33);ctx.fillStyle="#d9bb70";ctx.fillRect(-15,0,30,7);
-    ctx.fillStyle="#6c442e";ctx.fillRect(27,-8,7,45);ctx.fillStyle="#dfe7e3";ctx.beginPath();ctx.moveTo(31,-23);ctx.lineTo(39,-8);ctx.lineTo(31,0);ctx.closePath();ctx.fill();
-    ctx.fillStyle="#273648";ctx.fillRect(-24,35,15,10);ctx.fillRect(9,35,15,10);ctx.restore();
-
-    const phase=["rgba(255,210,145,.05)","rgba(255,255,230,.015)","rgba(255,125,90,.08)","rgba(40,45,85,.17)"][timeOfDay];
-    ctx.fillStyle=phase;ctx.fillRect(0,0,w,h);
-    if(weather==="fog"){const g=ctx.createRadialGradient(w/2,h/2,100,w/2,h/2,Math.max(w,h)*.72);g.addColorStop(0,"rgba(235,245,240,0)");g.addColorStop(1,"rgba(220,235,230,.20)");ctx.fillStyle=g;ctx.fillRect(0,0,w,h)}
-    if(weather==="rain"){ctx.strokeStyle="rgba(140,200,230,.28)";for(let i=0;i<75;i++){const x=(i*73+t*170)%w,y=(i*41+t*205)%h;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-5,y+18);ctx.stroke()}}
-    if(weather==="snow"){ctx.fillStyle="rgba(250,255,255,.8)";for(let i=0;i<65;i++){const x=(i*91+t*18)%w,y=(i*47+t*38)%h;ctx.beginPath();ctx.arc(x,y,1.5+(i%3),0,Math.PI*2);ctx.fill()}}
+    // Chunky player sprite.
+    const moving=lastMove.current&&performance.now()-lastMove.current<180,bob=moving?Math.sin(t*11)*4:0;ctx.save();ctx.translate(w/2,h/2+bob);ctx.scale(facing.current==="left"?-1:1,1);ctx.fillStyle="rgba(0,0,0,.32)";ctx.fillRect(-24*zoom,31*zoom,48*zoom,9*zoom);ctx.fillStyle="#17283d";ctx.fillRect(-23*zoom,-6*zoom,46*zoom,36*zoom);ctx.fillStyle="#285e76";ctx.fillRect(-19*zoom,-3*zoom,38*zoom,24*zoom);ctx.fillStyle="#dcb38e";ctx.fillRect(-15*zoom,-33*zoom,30*zoom,27*zoom);ctx.fillStyle="#302028";ctx.fillRect(-16*zoom,-41*zoom,32*zoom,11*zoom);ctx.fillRect(-12*zoom,-45*zoom,24*zoom,7*zoom);ctx.fillStyle="#a9dbe4";ctx.fillRect(-10*zoom,-28*zoom,6*zoom,5*zoom);ctx.fillRect(4*zoom,-28*zoom,6*zoom,5*zoom);ctx.fillStyle="#70492f";ctx.fillRect(-29*zoom,-2*zoom,7*zoom,33*zoom);ctx.fillStyle="#d9bb70";ctx.fillRect(-15*zoom,0,30*zoom,7*zoom);ctx.fillStyle="#6c442e";ctx.fillRect(27*zoom,-8*zoom,7*zoom,44*zoom);ctx.fillStyle="#dfe7e3";ctx.fillRect(30*zoom,-22*zoom,6*zoom,17*zoom);ctx.fillStyle="#273648";ctx.fillRect(-24*zoom,31*zoom,15*zoom,10*zoom);ctx.fillRect(9*zoom,31*zoom,15*zoom,10*zoom);ctx.restore();
+    const phase=["rgba(255,210,145,.05)","rgba(255,255,230,.015)","rgba(255,125,90,.07)","rgba(40,45,85,.15)"][timeOfDay];ctx.fillStyle=phase;ctx.fillRect(0,0,w,h);
+    if(weather==="fog"){const g=ctx.createRadialGradient(w/2,h/2,90,w/2,h/2,Math.max(w,h)*.75);g.addColorStop(0,"rgba(235,245,240,0)");g.addColorStop(1,"rgba(220,235,230,.18)");ctx.fillStyle=g;ctx.fillRect(0,0,w,h)}
+    if(weather==="rain"){ctx.strokeStyle="rgba(140,200,230,.28)";for(let i=0;i<70;i++){const x=(i*73+t*170)%w,y=(i*41+t*205)%h;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-5,y+18);ctx.stroke()}}
+    if(weather==="snow"){ctx.fillStyle="rgba(250,255,255,.8)";for(let i=0;i<60;i++){const x=(i*91+t*18)%w,y=(i*47+t*38)%h;ctx.fillRect(x,y,2,2)}}
     const vg=ctx.createRadialGradient(w/2,h/2,Math.min(w,h)*.28,w/2,h/2,Math.max(w,h)*.78);vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,"rgba(0,0,0,.27)");ctx.fillStyle=vg;ctx.fillRect(0,0,w,h);
   };
   useEffect(()=>{let id,last=performance.now();const loop=t=>{const dt=Math.min(.05,(t-last)/1000);last=t;updateWorld(dt);drawCanvas();id=requestAnimationFrame(loop)};id=requestAnimationFrame(loop);return()=>cancelAnimationFrame(id)},[keys,paused,location?.id,player.name,timeOfDay,weather,landmarks.length,scene.biome,location?.terrain]);
   const loadPanels=async()=>{try{const [q,s,e,p]=await Promise.all([api("/quests"),api("/skills"),api("/equipment"),api("/professions")]);setQuests(q);setSkills(s.skills||[]);setEquipment(e.equipment||[]);setProfessions(p.professions||[])}catch(e){setNotice(e.message)}};
   useEffect(()=>{loadPanels()},[tab]);
-  const travel=async id=>action(()=>api("/travel",{method:"POST",body:JSON.stringify({location:id})}),()=>{pos.current={x:0,y:0};setWorldMap(false);setMobileMenu(false)});
+  const travel=async id=>{const target=world.locations.find(x=>x.id===id);if(!target)return;action(()=>api("/travel",{method:"POST",body:JSON.stringify({location:id})}),()=>{Object.assign(pos.current,worldPoint(target),{ready:true});setWorldMap(false);setMobileMenu(false)})};
   const useKnownOrWalk=x=>discovered.has(x.id)?travel(x.id):setNotice("Walk the marked "+(exitDirections(location).find(e=>e.id===x.id)?.dir||"")+" road to discover "+x.name+".");
   const talk=n=>action(()=>api("/npc/talk",{method:"POST",body:JSON.stringify({npc:n.id})}),r=>setNpc(r));
   const buy=item=>action(()=>api("/shop/buy",{method:"POST",body:JSON.stringify({item,quantity:1})}),()=>setShop(null));
@@ -338,7 +235,7 @@ function Game({world,initial,onLogout}){
     <div className="area-banner"><b>{location?.name}</b><span>Lv {location?.level} · {canFight?"COMBAT":"EXPLORE"} · {["DAWN","DAY","DUSK","NIGHT"][timeOfDay]} · {weather.toUpperCase()}</span></div>
     <nav className="tabs">{[["world","WORLD"],["quests","QUESTS"],["inventory","INVENTORY"],["pets","PETS"],["titles","TITLES"],["dungeons","DUNGEONS"],["skills","SKILLS"],["gear","GEAR"]].map(([k,v])=><button className={tab===k?"active":""} onClick={()=>setTab(k)} key={k}>{v}</button>)}</nav>
     <section className={"panel "+(mobileMenu?"mobile-open":"")}><div className="panel-head"><h2>{tab==="world"?location?.name:tab.toUpperCase()}</h2><button className="panel-close" onClick={()=>setMobileMenu(false)}>×</button></div><div className="mobile-menu-nav">{[["world","WORLD"],["quests","QUESTS"],["inventory","INVENTORY"],["pets","PETS"],["titles","TITLES"],["dungeons","DUNGEONS"],["skills","SKILLS"],["gear","GEAR"]].map(([k,v])=><button className={tab===k?"active":""} onClick={()=>setTab(k)} key={k}>{v}</button>)}</div>
-      {tab==="world"&&<><p>{location?.description}</p><div className="world-status"><b>{canFight?"FULL ACCESS":"EXPLORATION MODE"}</b><span>Walk to the marked gates to discover areas. Click nearby enemies, resources or chests.</span></div><div className="action-row"><button onClick={()=>gather("gather")}>GATHER</button><button onClick={()=>gather("mine")}>MINE</button><button onClick={()=>gather("fish")}>FISH</button><button onClick={()=>setCraftOpen(v=>!v)}>CRAFT</button></div>{craftOpen&&<div className="craft-box"><b>IRON SWORD</b><span>Uses your existing Crafting profession, recipe, stamina and materials.</span><button onClick={craft}>CRAFT</button></div>}<h3>People here</h3><div className="npc-list">{localNpcs.map(n=><button disabled={!canFight} onClick={()=>talk(n)} className="list-card" key={n.id}><span className="npc-icon">{n.name[0]}</span><span><b>{n.name}</b><small>{n.role}</small></span><em>{canFight?"TALK":"LOCKED"}</em></button>)}</div><h3>Roads</h3><div className="location-grid">{exitDirections(location).map(e=>{const x=world.locations.find(z=>z.id===e.id);return x?<button className="location-card road-card" onClick={()=>useKnownOrWalk(x)} key={x.id}><b>{x.name}</b><small>{e.dir.toUpperCase()} · Lv {x.level} · ~45 sec walk</small><em>{discovered.has(x.id)?"TELEPORT UNLOCKED":"WALK TO DISCOVER"}</em></button>:null})}</div><button className="map-open" onClick={()=>setWorldMap(true)}>OPEN WORLD MAP</button></>}
+      {tab==="world"&&<><p>{location?.description}</p><div className="world-status"><b>{canFight?"FULL ACCESS":"EXPLORATION MODE"}</b><span>Walk the roads to discover the world. Towns, ruins, enemies and resources exist along the same continuous map.</span></div><div className="action-row"><button onClick={()=>gather("gather")}>GATHER</button><button onClick={()=>gather("mine")}>MINE</button><button onClick={()=>gather("fish")}>FISH</button><button onClick={()=>setCraftOpen(v=>!v)}>CRAFT</button></div>{craftOpen&&<div className="craft-box"><b>IRON SWORD</b><span>Uses your existing Crafting profession, recipe, stamina and materials.</span><button onClick={craft}>CRAFT</button></div>}<h3>People here</h3><div className="npc-list">{localNpcs.map(n=><button disabled={!canFight} onClick={()=>talk(n)} className="list-card" key={n.id}><span className="npc-icon">{n.name[0]}</span><span><b>{n.name}</b><small>{n.role}</small></span><em>{canFight?"TALK":"LOCKED"}</em></button>)}</div><h3>Roads</h3><div className="location-grid">{exitDirections(location).map(e=>{const x=world.locations.find(z=>z.id===e.id);return x?<button className="location-card road-card" onClick={()=>useKnownOrWalk(x)} key={x.id}><b>{x.name}</b><small>{e.dir.toUpperCase()} · Lv {x.level} · ~45 sec walk</small><em>{discovered.has(x.id)?"FAST TRAVEL":"WALK THE ROAD"}</em></button>:null})}</div><button className="map-open" onClick={()=>setWorldMap(true)}>OPEN WORLD MAP</button></>}
       {tab==="quests"&&<><h2>Quest Board</h2>{quests?.quests?.map(q=><div className="quest-card" key={(q.period||"x")+q.objective_key}><b>{q.title}</b><small>{String(q.period||"story").toUpperCase()} · {q.progress}/{q.target}</small><span>{q.description}</span><em>+{q.reward_xp} XP · +{q.reward_gold} G</em></div>)}<p className="muted">Daily, weekly and monthly objectives rotate from the RPG backend.</p></>}
       {tab==="inventory"&&<><h2>Inventory</h2><div className="item-grid">{state.inventory?.map(i=>{const x=(world.items?.[i.item_key]||world.items?.find?.(z=>z.id===i.item_key))||{id:i.item_key,name:i.item_key,rarity:"Common",slot:"material"};const slot=x.slot||x.category;const consumable=["consumable","food"].includes(slot),equippable=["weapon","armor","offhand","accessory","ring","amulet","relic"].includes(slot);return <button className="item" onClick={()=>consumable?useItem(i):equippable?equipItem(i):setNotice("Material: use it for crafting, upgrades or trade.")} key={i.item_key}><b>{x.name}</b><small>{x.rarity} · ×{i.quantity}</small><em>{consumable?"USE":equippable?"EQUIP":"MATERIAL"}</em></button>})}</div></>}
       {tab==="pets"&&<><h2>Pets & Eggs</h2>{state.pets?.map(p=><div className="pet item" key={p.pet_id}><b>{p.name}</b><small>{p.species} · Lv {p.level}{p.equipped?" · EQUIPPED":""}</small></div>)}<h3>Eggs</h3><div className="item-grid">{world.eggs.map(e=>state.inventory?.find(i=>i.item_key===e.id)?.quantity?<button className="item" onClick={()=>hatch(e.id)} key={e.id}><b>{e.name}</b><small>{e.rarity} · HATCH</small></button>:null)}</div></>}
