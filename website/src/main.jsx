@@ -107,21 +107,6 @@ function Game({world,initial,onLogout}){
     const water=t.includes("lake")||t.includes("coast")||t.includes("underwater");
     return {village,snow,desert,mountain,ruins,water};
   };
-  const blockedAt=(x,y)=>{
-    const L=localLayout(),tx=Math.floor(x/tileSize),ty=Math.floor(y/tileSize);
-    if(Math.abs(tx)>18||Math.abs(ty)>14)return true;
-    const riverX=Math.round(4+Math.sin(ty*.34)*2);
-    const inRiver=Math.abs(tx-riverX)<=1&&ty>-14&&ty<15;
-    const bridge=ty>=-1&&ty<=1&&Math.abs(tx-riverX)<=2;
-    if(inRiver&&!bridge)return true;
-    if(L.mountain&&((tx+ty)%11===0)&&Math.abs(tx)>5)return true;
-    if(L.desert)return false;
-    const obstacles=[
-      [-7,-5],[-6,-5],[-5,-5],[6,-4],[7,-4],[8,-4],
-      [-9,6],[-8,6],[8,7],[9,7],[-2,8],[2,-8]
-    ];
-    return obstacles.some(([ox,oy])=>Math.abs(tx-ox)<=.25&&Math.abs(ty-oy)<=.25);
-  };
   const nearestLocation=(x,y)=>{let best=null,bd=Infinity;for(const l of world.locations||[]){const p=worldPoint(l),d=Math.hypot(x-p.x,y-p.y);if(d<bd){bd=d;best=l}}return {location:best,distance:bd}};
   const blockedAt=(x,y)=>Math.abs(x)>WORLD_SCALE*15.5||Math.abs(y)>WORLD_SCALE*5.5;
   const updateWorld=dt=>{
