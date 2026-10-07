@@ -117,51 +117,126 @@ function Game({world,initial,onLogout}){
   const drawResource=(ctx,x,y,s=1,kind="herb")=>{ctx.fillStyle=kind==="ore"?"#8f8eaa":"#65a95a";ctx.fillRect(x-6*s,y-2*s,12*s,8*s);ctx.fillStyle="#b4df76";ctx.fillRect(x-2*s,y-8*s,5*s,8*s)};
   const drawEnemy=(ctx,x,y,s=1)=>{ctx.fillStyle="#a64d50";ctx.fillRect(x-9*s,y-9*s,18*s,18*s);ctx.fillStyle="#f1d17d";ctx.fillRect(x-5*s,y-5*s,3*s,3*s);ctx.fillRect(x+2*s,y-5*s,3*s,3*s);ctx.fillStyle="#6f2d38";ctx.fillRect(x-12*s,y+8*s,24*s,6*s)};
   const drawCanvas=()=>{
-    const c=canvas.current;if(!c)return;const dpr=Math.min(2,devicePixelRatio||1),w=c.clientWidth,h=c.clientHeight;if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr}
-    const ctx=c.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=false;
-    const terrain=scene.biome||location?.terrain||location?.type||"wild",base={village:"#6aa15d",forest:"#315f42",enchanted_forest:"#284e43",thorn_forest:"#354a35",farmland:"#a7a95c",watchtower:"#66766c",mountain:"#68766f",ruins:"#746f61",underwater_ruins:"#496d70",cavern:"#4d5a53",crystal_cave:"#394e61",coast:"#568f91",lake:"#2d7185",volcano:"#7a4939",volcanic_town:"#6b4939",kingdom:"#718873",city:"#748976",cliff_city:"#647f91",sky:"#6685a1",snow_outpost:"#8798a1",frost_mountains:"#71808a",mist_forest:"#405d4e",verdant:"#5e925d",mine:"#505657",steppe:"#a89a57",crossroads:"#8d805d",desert:"#b99a55",fae:"#596d8b",aether:"#6f91a1",highlands:"#6f7771",celestial:"#676d8a",dragon_graveyard:"#6f655a",eclipse:"#514153",void_marsh:"#3b3b4b",astral:"#536b8c",worldroot:"#4f6d49",endgame:"#4b4658",reality_edge:"#313443"}[terrain]||"#5f8f55";
-    ctx.fillStyle=base;ctx.fillRect(0,0,w,h);
-    const camX=pos.current.x,camY=pos.current.y,tile=48;for(let sy=-tile;sy<h+tile;sy+=tile)for(let sx=-tile;sx<w+tile;sx+=tile){const wx=Math.floor((sx-w/2+camX)/tile),wy=Math.floor((sy-h/2+camY)/tile),n=hash(wx,wy);ctx.fillStyle=n>.72?"rgba(255,255,255,.028)":n<.12?"rgba(0,0,0,.045)":"rgba(0,0,0,0)";ctx.fillRect(sx,sy,tile,tile);if(n>.91&&["forest","village","meadow"].includes(terrain))drawTree(ctx,sx+20,sy+18,.55);else if(n<.055&&["mountain","ruins","cave","volcano"].includes(terrain))drawRock(ctx,sx+22,sy+25,.75)}
-    const worldToScreen=(wx,wy)=>[w/2+wx-camX,h/2+wy-camY];objectsRef.current=[];
-    exitDirections(location).forEach(e=>{const [dx,dy]=directionVector(e.dir),gx=w/2+dx*7100-camX,gy=h/2+dy*7100-camY;ctx.strokeStyle="#c1a86f";ctx.lineWidth=26;ctx.beginPath();ctx.moveTo(w/2-dx*10000-camX,h/2-dy*10000-camY);ctx.lineTo(w/2+dx*10000-camX,h/2+dy*10000-camY);ctx.stroke();ctx.strokeStyle="#e0ca8d";ctx.lineWidth=9;ctx.beginPath();ctx.moveTo(w/2-dx*10000-camX,h/2-dy*10000-camY);ctx.lineTo(w/2+dx*10000-camX,h/2+dy*10000-camY);ctx.stroke();ctx.fillStyle="#3a2d20";ctx.fillRect(gx-22,gy-28,44,56);ctx.fillStyle="#dfc476";ctx.fillRect(gx-14,gy-14,28,28);ctx.fillStyle="#17241f";ctx.font="bold 7px monospace";ctx.textAlign="center";ctx.fillText(world.locations.find(z=>z.id===e.id)?.name||"ROAD",gx,gy-36)});
-    for(let i=0;i<5;i++){const wx=hash(i+3,location?.map_x||0)*5200-2600,wy=hash(i+40,(location?.map_y||0)+12)*4200-2100,[x,y]=worldToScreen(wx,wy);if(x>-80&&x<w+80&&y>-80&&y<h+80){if(["forest","village","meadow"].includes(terrain))drawTree(ctx,x,y,.85);else drawRock(ctx,x,y,1)}}
-    const drawSceneLandmarks=()=>{
-      const places=scene.landmarks||[];
-      const spots=[[-2100,-1300],[-500,-1450],[1200,-1200],[1900,-200],[-1300,1350],[700,1550]];
-      places.forEach((kind,i)=>{const [x,y]=worldToScreen(spots[i%spots.length][0],spots[i%spots.length][1]);const s=.65+(i%3)*.18;
-        if(kind.includes("mountain")||kind.includes("peaks")||kind==="cliffs")drawMountain(ctx,x,y,s);
-        else if(kind.includes("crystal")||kind.includes("ore"))drawCrystal(ctx,x,y,s);
-        else if(kind.includes("cave")||kind.includes("gate")||kind.includes("entrance"))drawCave(ctx,x,y,s);
-        else if(kind.includes("dune")||kind.includes("desert"))drawDesertDune(ctx,x,y,s);
-        else if(kind.includes("water")||kind.includes("lake")||kind.includes("river"))drawWater(ctx,x,y,900,500);
-        else if(kind.includes("bridge"))drawBridge(ctx,x,y,s);
-        else if(kind.includes("tower")||kind.includes("watch"))drawTower(ctx,x,y,s);
-        else if(kind.includes("castle")||kind.includes("palace")||kind.includes("fortress"))drawCastle(ctx,x,y,s);
-        else if(kind.includes("volcano")||kind.includes("lava"))drawVolcano(ctx,x,y,s);
-        else if(kind.includes("shipwreck")||kind.includes("boats"))drawBuilding(ctx,x,y,s,"#6d5541");
-        else drawHouse(ctx,x,y,s,terrain.includes("snow")?"#71818b":"#8b4b3c");
-      });
+    const c=canvas.current;if(!c)return;
+    const dpr=Math.min(2,devicePixelRatio||1),w=c.clientWidth,h=c.clientHeight;
+    if(c.width!==w*dpr||c.height!==h*dpr){c.width=w*dpr;c.height=h*dpr}
+    const ctx=c.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.imageSmoothingEnabled=true;
+    const terrain=scene.biome||location?.terrain||location?.type||"wild";
+    const palettes={
+      village:["#7d9f68","#b9a56c","#47664a"],forest:["#315d43","#234b38","#132f27"],enchanted_forest:["#284f49","#315e4e","#182f30"],thorn_forest:["#394a38","#26382f","#171f1c"],
+      farmland:["#a8a15d","#c5b46a","#667347"],watchtower:["#6f7770","#59635f","#39443f"],mountain:["#6f7777","#53605f","#374140"],ruins:["#777064","#625d56","#3e403d"],
+      underwater_ruins:["#3f7378","#2d5d65","#183b48"],cavern:["#4e5752","#3a4543","#202b2d"],crystal_cave:["#41566c","#31445a","#202c40"],coast:["#6f9d91","#477e7b","#245967"],
+      lake:["#438291","#2e6878","#194b60"],volcano:["#784a3e","#5c3835","#321f24"],volcanic_town:["#765041","#563a35","#30262a"],kingdom:["#788d73","#596f5e","#35483e"],
+      city:["#778c7b","#5d7265","#3b4b44"],cliff_city:["#617e8b","#4d6977","#314957"],sky:["#6e91a8","#567a94","#38536d"],snow_outpost:["#9aa9ac","#748a92","#4d6069"],
+      frost_mountains:["#778a92","#5e727d","#3e515c"],mist_forest:["#466451","#304b40","#1e342f"],verdant:["#65965f","#4f814f","#315b3e"],mine:["#555b59","#414947","#292f31"],
+      steppe:["#b0a05c","#92894e","#5d643b"],crossroads:["#9b8963","#7d704f","#514b39"],desert:["#c2a05a","#a47e45","#624d36"],fae:["#657b91","#4c6578","#293d4d"],
+      aether:["#7898a6","#5e8191","#3c5e72"],highlands:["#727b76","#5d6964","#414d49"],celestial:["#737b99","#586481","#37415c"],dragon_graveyard:["#756b5c","#5d554c","#3b3735"],
+      eclipse:["#5d4b58","#463c4d","#292934"],void_marsh:["#474959","#373b4c","#242a38"],astral:["#5e7da1","#4c6689","#303e61"],worldroot:["#52734e","#3e5d42","#273b30"],
+      endgame:["#514c5c","#3e3c4c","#292936"],reality_edge:["#353847","#292b39","#1c1e2b"]
     };
-    if(["village","farmland","kingdom","city","cliff_city","volcanic_town","snow_outpost","crossroads","fae"].includes(terrain)){
-      for(let i=0;i<6;i++){const [x,y]=worldToScreen(-1900+(i%3)*1500,-900+Math.floor(i/3)*1700);drawHouse(ctx,x,y,.65+(i%2)*.15,terrain==="kingdom"?"#6e5364":terrain==="snow_outpost"?"#71818b":"#8b4b3c");}
+    const [ground,dark,deep]=palettes[terrain]||["#5f8f55","#476a48","#2e4935"];
+    ctx.fillStyle=ground;ctx.fillRect(0,0,w,h);
+    const camX=pos.current.x,camY=pos.current.y;
+    const worldToScreen=(wx,wy)=>[w/2+wx-camX,h/2+wy-camY];
+    const seeded=(x,y,k=0)=>{const n=Math.sin(x*127.1+y*311.7+k*74.3+(location?.id||"").length*17.3)*43758.5453;return n-Math.floor(n)};
+    const circle=(x,y,r,fill)=>{ctx.fillStyle=fill;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill()};
+    const poly=(pts,fill)=>{ctx.fillStyle=fill;ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.closePath();ctx.fill()};
+    const drawTree=(x,y,s=1,kind="tree")=>{
+      ctx.fillStyle="rgba(0,0,0,.22)";ctx.beginPath();ctx.ellipse(x,y+19*s,17*s,6*s,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle=kind==="pine"?"#4d3a2d":"#63442e";ctx.fillRect(x-3*s,y-1*s,6*s,23*s);
+      if(kind==="pine"){poly([[x,y-38*s],[x-20*s,y+2*s],[x-10*s,y+1*s],[x-27*s,y+19*s],[x+27*s,y+19*s],[x+10*s,y+1*s],[x+20*s,y+2*s]],dark)}
+      else {circle(x-10*s,y-6*s,13*s,deep);circle(x+9*s,y-8*s,16*s,dark);circle(x,y-19*s,14*s,ground);circle(x-3*s,y-25*s,8*s,"rgba(255,255,255,.09)")}
+    };
+    const drawRock=(x,y,s=1)=>{
+      ctx.fillStyle="rgba(0,0,0,.2)";ctx.beginPath();ctx.ellipse(x,y+9*s,15*s,5*s,0,0,Math.PI*2);ctx.fill();
+      poly([[x-15*s,y+6*s],[x-9*s,y-8*s],[x+3*s,y-14*s],[x+15*s,y-5*s],[x+12*s,y+8*s],[x-3*s,y+12*s]],"#596566");
+      poly([[x-9*s,y-8*s],[x+3*s,y-14*s],[x+1*s,y-2*s],[x-5*s,y+1*s]],"#8b9790");
+    };
+    const drawMountain=(x,y,s=1)=>{
+      poly([[x-180*s,y+90*s],[x-75*s,y-80*s],[x-30*s,y-20*s],[x+30*s,y-115*s],[x+105*s,y+90*s]],"#4f5e60");
+      poly([[x-75*s,y-80*s],[x-52*s,y-42*s],[x-30*s,y-20*s],[x+30*s,y-115*s],[x+57*s,y-52*s],[x+30*s,y-35*s]],"#c1cbc4");
+      poly([[x-180*s,y+90*s],[x-75*s,y-80*s],[x-30*s,y-20*s],[x+30*s,y-115*s],[x+105*s,y+90*s]],"rgba(20,28,29,.18)");
+    };
+    const drawWater=(x,y,ww,hh)=>{
+      const g=ctx.createLinearGradient(x-ww/2,y-hh/2,x+ww/2,y+hh/2);g.addColorStop(0,"#5da1a0");g.addColorStop(.45,"#347b86");g.addColorStop(1,"#1d566a");ctx.fillStyle=g;ctx.fillRect(x-ww/2,y-hh/2,ww,hh);
+      ctx.strokeStyle="rgba(190,235,225,.25)";ctx.lineWidth=2;
+      for(let j=-hh/2+25;j<hh/2;j+=42){ctx.beginPath();for(let i=-ww/2;i<ww/2;i+=55){const yy=y+j+Math.sin(i*.035+j*.02+performance.now()*.0005)*5;i===-ww/2?ctx.moveTo(x+i,yy):ctx.lineTo(x+i,yy)}ctx.stroke()}
+    };
+    const drawHouse=(x,y,s=1,roof="#713f3a")=>{
+      ctx.fillStyle="rgba(0,0,0,.24)";ctx.beginPath();ctx.ellipse(x,y+28*s,37*s,8*s,0,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle="#c5ad82";ctx.fillRect(x-28*s,y-4*s,56*s,34*s);ctx.fillStyle=roof;
+      poly([[x-35*s,y-4*s],[x,y-27*s],[x+35*s,y-4*s]],roof);
+      ctx.fillStyle="#49332b";ctx.fillRect(x-7*s,y+11*s,14*s,19*s);
+      ctx.fillStyle="#a9d8d2";ctx.fillRect(x-21*s,y+5*s,10*s,9*s);ctx.fillRect(x+11*s,y+5*s,10*s,9*s);
+    };
+    const drawRoad=(x1,y1,x2,y2,width=48)=>{
+      ctx.save();ctx.lineCap="round";ctx.strokeStyle="rgba(60,43,31,.48)";ctx.lineWidth=width+12;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
+      ctx.strokeStyle=terrain==="snow_outpost"||terrain==="frost_mountains"?"#d7d2bd":terrain==="desert"?"#d3b56c":"#9a805d";ctx.lineWidth=width;ctx.stroke();
+      ctx.strokeStyle="rgba(255,238,184,.22)";ctx.lineWidth=5;ctx.setLineDash([18,26]);ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();
+    };
+    // Large terrain patches create the feeling of a continuous landscape instead of a flat tile.
+    const patchCount=terrain.includes("forest")||terrain==="verdant"?18:10;
+    for(let i=0;i<patchCount;i++){
+      const wx=seeded(i,31)*9000-4500,wy=seeded(i,57)*6500-3250,[x,y]=worldToScreen(wx,wy);
+      const r=260+seeded(i,91)*520;
+      if(x<-r||x>w+r||y<-r||y>h+r)continue;
+      ctx.globalAlpha=.10+seeded(i,13)*.08;circle(x,y,r,seeded(i,17)>.5?"#ffffff":"#101c18");ctx.globalAlpha=1;
     }
-    if(terrain==="watchtower"){drawTower(ctx,...worldToScreen(-200,-300),1.5);drawTower(ctx,...worldToScreen(1550,1100),.7)}
-    if(["mountain","frost_mountains","highlands"].includes(terrain)){drawMountain(ctx,...worldToScreen(-1500,-900),1.35);drawMountain(ctx,...worldToScreen(1200,-1100),1.05)}
-    if(terrain==="crystal_cave"){drawCave(ctx,...worldToScreen(-400,100),1.25);for(let i=0;i<7;i++)drawCrystal(ctx,...worldToScreen(-1800+i*580,-1000+(i%3)*900),.55+(i%2)*.2)}
-    if(terrain==="cavern"||terrain==="mine"){drawCave(ctx,...worldToScreen(0,0),1.4)}
-    if(terrain==="volcano"||terrain==="volcanic_town"){drawVolcano(ctx,...worldToScreen(900,-900),1.25)}
-    if(terrain==="coast"||terrain==="lake"||terrain==="underwater_ruins"){drawWater(ctx,...worldToScreen(900,-500),2800,1700)}
-    if(terrain==="steppe"||terrain==="farmland"){for(let i=0;i<5;i++)drawDesertDune(ctx,...worldToScreen(-1800+i*900,1200+(i%2)*600),.5)}
-    if(terrain==="dragon_graveyard"){for(let i=0;i<5;i++)drawBone(ctx,...worldToScreen(-1700+i*800,900+(i%2)*800),.8)}
-    drawSceneLandmarks();
-    landmarks.forEach(l=>{const [x,y]=worldToScreen(l.x||0,l.y||0),s=Number(l.scale||1);if(l.kind==="building")drawBuilding(ctx,x,y,s);else if(l.kind==="tree")drawTree(ctx,x,y,s);else drawRock(ctx,x,y,s*1.4)});
-    for(let i=0;i<4;i++){const wx=-1700+i*950,wy=1100+(i%2)*900,[x,y]=worldToScreen(wx,wy);if(x>-100&&x<w+100&&y>-100&&y<h+100){drawChest(ctx,x,y,1);objectsRef.current.push({type:"chest",x,y,label:"Hidden Chest"})}}
-    for(let i=0;i<5;i++){const wx=-1400+i*700,wy=-1700+((i*103)%2800),[x,y]=worldToScreen(wx,wy);if(x>-100&&x<w+100&&y>-100&&y<h+100){drawResource(ctx,x,y,1,i%2?"ore":"herb");objectsRef.current.push({type:"resource",x,y,label:i%2?"Ore Vein":"Moon Herb"})}}
-    const t=performance.now()/700;for(let i=0;i<4;i++){const wx=-1800+i*1100+Math.sin(t+i)*90,wy=-700+(i%2)*1300+Math.cos(t+i)*70,[x,y]=worldToScreen(wx,wy);if(x>-80&&x<w+80&&y>-80&&y<h+80){drawEnemy(ctx,x,y,1);objectsRef.current.push({type:"enemy",x,y,label:"Wild Encounter"})}}
-    for(let i=0;i<localNpcs.length;i++){const n=localNpcs[i],wx=-1900+(i%3)*1500,wy=-650+Math.floor(i/3)*1250,[x,y]=worldToScreen(wx,wy);if(x>-120&&x<w+120&&y>-120&&y<h+120){ctx.fillStyle="#efb47f";ctx.fillRect(x-7,y-25,14,14);ctx.fillStyle="#3e5368";ctx.fillRect(x-10,y-10,20,25);ctx.fillStyle="#eaf5ef";ctx.font="10px monospace";ctx.textAlign="center";ctx.fillText(n.name,x,y-32)}}
-    const moving=lastMove.current&&performance.now()-lastMove.current<220,frame=moving?Math.floor(performance.now()/120)%2:0,bob=moving?Math.sin(performance.now()/55)*2:0,px=w/2,py=h/2+bob;ctx.fillStyle="rgba(0,0,0,.3)";ctx.fillRect(px-15,py+27,30,6);ctx.fillStyle="#17243b";ctx.fillRect(px-11,py+5,22,21);ctx.fillStyle="#2d405e";ctx.fillRect(px-15,py+8+(frame?2:0),7,17);ctx.fillRect(px+8,py+8+(frame?0:2),7,17);ctx.fillStyle="#3b9ac2";ctx.fillRect(px-13,py-11,26,18);ctx.fillStyle="#f0b583";ctx.fillRect(px-9,py-28,18,17);ctx.fillStyle="#252b3b";ctx.fillRect(px-11,py-31,22,7);ctx.fillStyle="#8be5ef";ctx.fillRect(px-14,py+27,28,3);ctx.fillStyle="#17202d";if(facing.current==="left")ctx.fillRect(px-8,py-22,4,3);else if(facing.current==="right")ctx.fillRect(px+4,py-22,4,3);else ctx.fillRect(px-5,py-22,3,3);ctx.fillStyle="rgba(0,0,0,.55)";ctx.font="bold 11px monospace";ctx.textAlign="center";ctx.fillText(player.name,px,py+43);
-    const phase=["rgba(255,242,200,.06)","rgba(255,255,255,0)","rgba(255,170,110,.08)","rgba(10,16,32,.28)"][timeOfDay];ctx.fillStyle=phase;ctx.fillRect(0,0,w,h);if(weather==="fog")ctx.fillStyle="rgba(225,235,230,.12)",ctx.fillRect(0,0,w,h);if(weather==="rain"){ctx.strokeStyle="rgba(130,190,220,.24)";for(let i=0;i<45;i++){const x=(i*73+t*120)%w,y=(i*41+t*180)%h;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-3,y+10);ctx.stroke()}}if(weather==="snow"){ctx.fillStyle="rgba(245,250,255,.85)";for(let i=0;i<28;i++){const x=(i*91+t*15)%w,y=(i*47+t*35)%h;ctx.fillRect(x,y,3,3)}}if(weather==="wind"){ctx.strokeStyle="rgba(238,220,160,.28)";for(let i=0;i<18;i++){const x=(i*91+t*95)%w,y=(i*53+t*22)%h;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+30,y-5);ctx.stroke()}}if(weather==="ash"){ctx.fillStyle="rgba(80,70,65,.55)";for(let i=0;i<35;i++){const x=(i*67+t*38)%w,y=(i*43+t*17)%h;ctx.fillRect(x,y,2,2)}}
-    const vg=ctx.createRadialGradient(w/2,h/2,Math.min(w,h)*.2,w/2,h/2,Math.max(w,h)*.75);vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,"rgba(0,0,0,.22)");ctx.fillStyle=vg;ctx.fillRect(0,0,w,h)
+    // Terrain-specific detail density.
+    const count=terrain.includes("forest")||terrain==="verdant"||terrain==="village"?44:terrain==="desert"||terrain==="steppe"?28:34;
+    for(let i=0;i<count;i++){
+      const wx=seeded(i,101)*15000-7500,wy=seeded(i,131)*11000-5500,[x,y]=worldToScreen(wx,wy);
+      if(x<-100||x>w+100||y<-100||y>h+100)continue;
+      if(terrain.includes("forest")||terrain==="verdant"||terrain==="village")drawTree(x,y,.55+seeded(i,151)*.75,terrain==="frost_mountains"?"pine":"tree");
+      else if(terrain==="mountain"||terrain==="highlands"||terrain==="frost_mountains")drawRock(x,y,.55+seeded(i,161)*1.3);
+      else if(terrain==="desert"||terrain==="steppe"){ctx.strokeStyle="rgba(255,232,158,.18)";ctx.lineWidth=2;ctx.beginPath();ctx.arc(x,y,25+seeded(i,171)*45,Math.PI*1.1,Math.PI*1.8);ctx.stroke()}
+      else if(terrain.includes("snow")){circle(x,y,3+seeded(i,181)*6,"rgba(235,245,248,.45)")}
+      else if(terrain==="dragon_graveyard"){drawRock(x,y,1);if(i%4===0)ctx.fillStyle="#b8ab91",ctx.fillRect(x-20,y-3,40,6)}
+      else {drawRock(x,y,.35+seeded(i,191)*.8)}
+    }
+    // Major landmarks and settlement silhouettes.
+    if(["coast","lake","underwater_ruins"].includes(terrain))drawWater(...worldToScreen(1100,-700),3200,1900);
+    if(["mountain","frost_mountains","highlands","ashen_pass"].includes(terrain)){drawMountain(...worldToScreen(-1250,-900),1.35);drawMountain(...worldToScreen(1250,-1150),1.05)}
+    if(["village","kingdom","city","cliff_city","volcanic_town","snow_outpost","crossroads","fae"].includes(terrain)){
+      for(let i=0;i<8;i++){const wx=-1800+(i%4)*1200,wy=-1050+Math.floor(i/4)*1650;drawHouse(...worldToScreen(wx,wy),.65+(i%3)*.13,terrain==="snow_outpost"?"#718b94":terrain==="kingdom"?"#70536a":"#7a433b")}
+      for(let i=0;i<4;i++){const [x1,y1]=worldToScreen(-2200+i*1450,0),[x2,y2]=worldToScreen(2200-i*900,0);drawRoad(x1,y1,x2,y2,30)}
+    }
+    if(terrain==="desert"){for(let i=0;i<6;i++){const [x,y]=worldToScreen(-2200+i*850,1000+(i%2)*500);ctx.fillStyle="rgba(235,205,126,.3)";ctx.beginPath();ctx.ellipse(x,y,260,75,0,0,Math.PI*2);ctx.fill()}}
+    if(terrain==="volcano"||terrain==="volcanic_town"){const [x,y]=worldToScreen(1000,-1000);ctx.fillStyle="#4c2829";ctx.beginPath();ctx.arc(x,y,330,0,Math.PI*2);ctx.fill();ctx.fillStyle="#d75f3e";ctx.beginPath();ctx.arc(x,y,115,0,Math.PI*2);ctx.fill();ctx.fillStyle="#f3a34d";ctx.beginPath();ctx.arc(x,y,55,0,Math.PI*2);ctx.fill()}
+    if(terrain==="crystal_cave"){for(let i=0;i<18;i++){const [x,y]=worldToScreen(-2200+i*260,-900+(i%6)*370);poly([[x,y-35],[x-15,y+28],[x+5,y+10],[x+20,y+34],[x+16,y-22]],i%2?"#6dc8d0":"#9b8fe1")}}
+    if(terrain==="dragon_graveyard"){for(let i=0;i<6;i++){const [x,y]=worldToScreen(-2100+i*800,900+(i%2)*650);ctx.strokeStyle="#c5b899";ctx.lineWidth=18;ctx.beginPath();ctx.moveTo(x-90,y+35);ctx.quadraticCurveTo(x,y-55,x+90,y+20);ctx.stroke()}}
+    // Connected roads actually lead to the exits; these are the playable navigation corridors.
+    exitDirections(location).forEach(e=>{
+      const [dx,dy]=directionVector(e.dir);
+      const [x1,y1]=worldToScreen(-2000*dx,-2000*dy),[x2,y2]=worldToScreen(9200*dx,9200*dy);
+      drawRoad(x1,y1,x2,y2,terrain==="desert"?68:58);
+      const [gx,gy]=worldToScreen(7100*dx,7100*dy);
+      circle(gx,gy,38,"rgba(0,0,0,.28)");circle(gx,gy,28,"#d8b768");circle(gx,gy,19,"#24342d");
+      ctx.fillStyle="#f4e4aa";ctx.font="700 12px monospace";ctx.textAlign="center";ctx.fillText((world.locations.find(z=>z.id===e.id)?.name||"ROAD").toUpperCase(),gx,gy-48);
+    });
+    // Scene landmarks from the backend are placed into the world rather than replacing it.
+    landmarks.forEach(l=>{const [x,y]=worldToScreen(l.x||0,l.y||0),s=Number(l.scale||1);if(l.kind==="building")drawHouse(x,y,s);else if(l.kind==="tree")drawTree(x,y,s);else drawRock(x,y,s*1.7)});
+    objectsRef.current=[];
+    for(let i=0;i<7;i++){const wx=-2200+i*700,wy=900+(i%3)*700,[x,y]=worldToScreen(wx,wy);if(x>-100&&x<w+100&&y>-100&&y<h+100){drawChest(ctx,x,y,.9);objectsRef.current.push({type:"chest",x,y,label:"Hidden Chest"})}}
+    for(let i=0;i<9;i++){const wx=-1900+i*480,wy=-1700+((i*311)%3300),[x,y]=worldToScreen(wx,wy);if(x>-100&&x<w+100&&y>-100&&y<h+100){circle(x,y,7,"#65a95a");circle(x+4,y-6,4,"#b7e47e");objectsRef.current.push({type:"resource",x,y,label:i%2?"Ore Vein":"Moon Herb"})}}
+    const t=performance.now()/700;
+    for(let i=0;i<6;i++){const wx=-2100+i*820+Math.sin(t+i)*100,wy=-1000+(i%3)*1000+Math.cos(t+i)*70,[x,y]=worldToScreen(wx,wy);if(x>-90&&x<w+90&&y>-90&&y<h+90){circle(x,y+10,15,"rgba(0,0,0,.25)");circle(x,y,12,"#9d4f55");circle(x-4,y-3,3,"#f3d681");circle(x+4,y-3,3,"#f3d681");objectsRef.current.push({type:"enemy",x,y,label:"Wild Encounter"})}}
+    for(let i=0;i<localNpcs.length;i++){const n=localNpcs[i],wx=-1900+(i%3)*1500,wy=-650+Math.floor(i/3)*1250,[x,y]=worldToScreen(wx,wy);if(x>-120&&x<w+120&&y>-120&&y<h+120){circle(x,y+18,13,"rgba(0,0,0,.28)");ctx.fillStyle="#e9b27f";ctx.beginPath();ctx.arc(x,y-18,10,0,Math.PI*2);ctx.fill();ctx.fillStyle="#35516a";ctx.fillRect(x-11,y-8,22,28);ctx.fillStyle="#f1e9d5";ctx.font="700 11px monospace";ctx.textAlign="center";ctx.fillText(n.name,x,y-35)}}
+    // Player: shaded sprite with directional facing and a soft ground shadow.
+    const moving=lastMove.current&&performance.now()-lastMove.current<220,frame=moving?Math.floor(performance.now()/130)%2:0,bob=moving?Math.sin(performance.now()/65)*2:0,px=w/2,py=h/2+bob;
+    ctx.fillStyle="rgba(0,0,0,.35)";ctx.beginPath();ctx.ellipse(px,py+28,21,7,0,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle="#182638";ctx.fillRect(px-13,py+5,26,25);ctx.fillStyle="#345274";ctx.fillRect(px-17,py+7+(frame?2:0),8,20);ctx.fillRect(px+9,py+7+(frame?0:2),8,20);
+    ctx.fillStyle="#4b9fc1";ctx.fillRect(px-15,py-11,30,20);ctx.fillStyle="#f0b98c";ctx.beginPath();ctx.arc(px,py-19,12,0,Math.PI*2);ctx.fill();ctx.fillStyle="#202837";ctx.fillRect(px-14,py-31,28,8);
+    ctx.fillStyle="#8be5ef";ctx.fillRect(px-15,py+30,30,3);ctx.fillStyle="#1d2530";
+    if(facing.current==="left")ctx.fillRect(px-9,py-22,4,3);else if(facing.current==="right")ctx.fillRect(px+5,py-22,4,3);else ctx.fillRect(px-6,py-22,3,3);
+    ctx.fillStyle="rgba(0,0,0,.65)";ctx.font="700 11px monospace";ctx.textAlign="center";ctx.fillText(player.name,px,py+47);
+    // Atmosphere: sky tint, depth haze, rain/snow and vignette.
+    const phase=["rgba(255,238,190,.08)","rgba(255,255,255,0)","rgba(255,150,100,.10)","rgba(8,12,24,.32)"][timeOfDay];ctx.fillStyle=phase;ctx.fillRect(0,0,w,h);
+    const horizon=ctx.createLinearGradient(0,0,0,h);horizon.addColorStop(0,"rgba(255,255,255,.04)");horizon.addColorStop(.55,"rgba(0,0,0,0)");horizon.addColorStop(1,"rgba(0,0,0,.16)");ctx.fillStyle=horizon;ctx.fillRect(0,0,w,h);
+    if(weather==="fog"){ctx.fillStyle="rgba(225,235,230,.16)";ctx.fillRect(0,0,w,h)}
+    if(weather==="rain"){ctx.strokeStyle="rgba(130,190,220,.28)";for(let i=0;i<65;i++){const x=(i*73+t*150)%w,y=(i*41+t*190)%h;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-5,y+15);ctx.stroke()}}
+    if(weather==="snow"){ctx.fillStyle="rgba(245,250,255,.86)";for(let i=0;i<55;i++){const x=(i*91+t*18)%w,y=(i*47+t*38)%h;circle(x,y,1.5+seeded(i,221)*2,"rgba(245,250,255,.8)")}}
+    const vg=ctx.createRadialGradient(w/2,h/2,Math.min(w,h)*.22,w/2,h/2,Math.max(w,h)*.78);vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,"rgba(0,0,0,.30)");ctx.fillStyle=vg;ctx.fillRect(0,0,w,h);
   };
   useEffect(()=>{let id,last=performance.now();const loop=t=>{const dt=Math.min(.05,(t-last)/1000);last=t;updateWorld(dt);drawCanvas();id=requestAnimationFrame(loop)};id=requestAnimationFrame(loop);return()=>cancelAnimationFrame(id)},[keys,paused,location?.id,player.name,timeOfDay,weather,landmarks.length]);
   const loadPanels=async()=>{try{const [q,s,e,p]=await Promise.all([api("/quests"),api("/skills"),api("/equipment"),api("/professions")]);setQuests(q);setSkills(s.skills||[]);setEquipment(e.equipment||[]);setProfessions(p.professions||[])}catch(e){setNotice(e.message)}};
