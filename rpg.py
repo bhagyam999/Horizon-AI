@@ -2603,8 +2603,8 @@ class RPGService:
         email=(email or "").strip().lower()
         if len(email)<5 or "@" not in email or len(email)>160:
             return None, "Enter a valid email address."
-        if len(password or "")<8 or len(password)>200:
-            return None, "Password must be 8-200 characters."
+        if not password or len(password)>200:
+            return None, "Choose a password between 1 and 200 characters."
         salt=secrets.token_bytes(24)
         password_hash=self._web_password(password,salt)
         async with aiosqlite.connect(self.path) as db:
