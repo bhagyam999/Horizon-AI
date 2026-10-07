@@ -35,6 +35,8 @@ class Dashboard:
             web.post("/api/game/auth/register", self.game_register),
             web.post("/api/game/auth/login", self.game_login),
             web.post("/api/game/auth/logout", self.game_logout),
+            web.get("/api/game/auth/discord/start", self.game_oauth_start),
+            web.get("/api/game/auth/discord/callback", self.game_oauth_callback),
             web.get("/api/game/me", self.game_me),
             web.get("/api/game/world", self.game_world),
             web.get("/api/game/state", self.game_state),
