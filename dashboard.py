@@ -718,7 +718,7 @@ class Dashboard:
         return await self.bot.rpg.web_oauth_login(provider,provider_id,email,name)
 
     async def game_oauth_start(self, request):
-        provider=request.match_info["provider"].lower()
+        provider=request.match_info.get("provider","discord").lower()
         cfg=self._oauth_config(provider)
         if not cfg.get("client_id") or not cfg.get("client_secret"):
             raise web.HTTPServiceUnavailable(text=f"{provider.title()} login is not configured yet.")
@@ -736,7 +736,7 @@ class Dashboard:
         raise web.HTTPFound(base+"?"+urllib.parse.urlencode(params))
 
     async def game_oauth_callback(self, request):
-        provider=request.match_info["provider"].lower()
+        provider=request.match_info.get("provider","discord").lower()
         state=request.query.get("state",""); code=request.query.get("code","")
         if not await self.bot.rpg.web_oauth_consume_state(state,provider):
             raise web.HTTPBadRequest(text="Invalid or expired sign-in request. Please try again.")
