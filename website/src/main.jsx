@@ -69,6 +69,7 @@ function Game({world,initial,onLogout}){
   const localNpcs=(world.npcs||[]).filter(x=>x.location===player?.area_key);
   const canFight=!location||Number(player.level)>=Number(location.level||1);
   const scene=world.scenes?.[player?.area_key]||{};
+  const landmarks=scene.landmarks||[];
   const clean=v=>cleanText(v);
   const refresh=async()=>setState(await api("/state"));
   const action=async(fn,success)=>{try{const r=await fn();const msg=r.message||r.result?.message||r.result?.error;if(msg)setNotice(clean(msg));if(r.state)setState(r.state);else await refresh();if(success)success(r)}catch(e){setNotice(e.message||"The frontier could not complete that action.")}};
