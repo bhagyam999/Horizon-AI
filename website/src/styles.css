@@ -148,3 +148,28 @@
 .map-links{z-index:3}
 .map-node{z-index:5;background:rgba(7,18,15,.88);backdrop-filter:blur(3px)}
 .player-marker{z-index:7}
+
+/* Structured world HUD pass */
+.game canvas{image-rendering:auto;filter:saturate(1.12) contrast(1.05)}
+.hero-card{width:220px;padding:10px;top:76px;background:rgba(5,17,14,.82)}
+.hero-card .avatar{width:42px;height:42px;font-size:20px}
+.panel{width:350px;max-height:calc(100vh - 190px);padding:14px}
+.area-banner{top:76px;min-width:210px;padding:7px 12px}
+.notice{bottom:14px;max-width:52%}
+@media(max-width:800px){
+  .gamebar{background:rgba(5,15,13,.72);backdrop-filter:blur(4px)}
+  .gamebar .bar-actions{display:none}
+  .location-name{font-size:7px}
+  .hero-card{top:52px;left:6px;width:142px;padding:7px;opacity:.94}
+  .hero-card .avatar{width:30px;height:30px;font-size:15px}
+  .hero-card b{font-size:12px}
+  .hero-card small{font-size:7px}
+  .area-banner{top:50px;left:auto;right:7px;transform:none;min-width:0;padding:5px 8px;background:rgba(5,15,13,.7)}
+  .area-banner b{font-size:8px}
+  .area-banner span{font-size:6px}
+  .notice{bottom:calc(135px + env(safe-area-inset-bottom));max-width:62vw;padding:6px 9px;font-size:7px}
+}
+@media(max-width:520px){
+  .hero-card{width:128px}
+  .area-banner{right:6px;max-width:145px}
+}
