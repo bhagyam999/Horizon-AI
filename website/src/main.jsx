@@ -92,7 +92,10 @@ function Game({world,initial,onLogout}){
   const cycleTime=()=>setTimeOfDay(v=>(v+1)%4),rerollWeather=()=>{const choices=scene.weather?.length?scene.weather:["clear","fog","rain","snow"];setWeather(choices[Math.floor(Math.random()*choices.length)])};
   const exitDirections=loc=>{const byId=new Map((world.locations||[]).map(x=>[x.id,x]));return (loc?.connections||[]).map(id=>{const t=byId.get(id);if(!t)return null;const dx=(t.map_x||0)-(loc.map_x||0),dy=(t.map_y||0)-(loc.map_y||0);return {id,dir:Math.abs(dx)>=Math.abs(dy)?(dx>=0?"east":"west"):(dy>=0?"south":"north")}}).filter(Boolean)};
   const directionVector=dir=>({north:[0,-1],east:[1,0],south:[0,1],west:[-1,0]}[dir]||[0,1]);
-  const WORLD_SCALE=1150;\n  const worldPoint=loc=>({x:Number(loc?.map_x||0)*WORLD_SCALE,y:Number(loc?.map_y||0)*WORLD_SCALE});\n  const ensurePosition=()=>{if(!pos.current.ready&&location)Object.assign(pos.current,worldPoint(location),{ready:true})};\n  const arrive=async id=>{if(transition.current)return;transition.current=true;try{const r=await api("/explore/arrive",{method:"POST",body:JSON.stringify({location:id})});setState(r.state||await api("/state"));setNotice("You reached "+(r.area?.name||"the next region")+" — keep walking.")}catch(e){setNotice(e.message||"The road ends here.")}finally{transition.current=false}};
+  const WORLD_SCALE=1150;
+  const worldPoint=loc=>({x:Number(loc?.map_x||0)*WORLD_SCALE,y:Number(loc?.map_y||0)*WORLD_SCALE});
+  const ensurePosition=()=>{if(!pos.current.ready&&location)Object.assign(pos.current,worldPoint(location),{ready:true})};
+  const arrive=async id=>{if(transition.current)return;transition.current=true;try{const r=await api("/explore/arrive",{method:"POST",body:JSON.stringify({location:id})});setState(r.state||await api("/state"));setNotice("You reached "+(r.area?.name||"the next region")+" — keep walking.")}catch(e){setNotice(e.message||"The road ends here.")}finally{transition.current=false}};
   const tileSize=64;
   const localLayout=()=>{
     const t=(scene.biome||location?.terrain||location?.type||"forest").toLowerCase();
